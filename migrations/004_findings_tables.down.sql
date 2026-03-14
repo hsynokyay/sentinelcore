@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS findings.finding_annotations;
+DROP TABLE IF EXISTS findings.finding_state_transitions;
+DROP INDEX IF EXISTS findings.idx_findings_dependency;
+DROP INDEX IF EXISTS findings.idx_findings_status;
+DROP INDEX IF EXISTS findings.idx_findings_severity;
+DROP INDEX IF EXISTS findings.idx_findings_cwe;
+DROP INDEX IF EXISTS findings.idx_findings_fingerprint;
+DROP INDEX IF EXISTS findings.idx_findings_project;
+DROP TABLE IF EXISTS findings.findings;
