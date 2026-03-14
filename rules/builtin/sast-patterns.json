@@ -1,0 +1,23 @@
+[
+  {"id": "SQLI-001", "title": "SQL Injection via string concatenation", "cwe_id": 89, "severity": "high", "confidence": "medium", "languages": ["java", "python", "javascript"], "pattern": "(?i)(executeQuery|executeUpdate|execute|raw|cursor\\.execute)\\s*\\([^)]*\\+"},
+  {"id": "SQLI-002", "title": "SQL Injection via format string", "cwe_id": 89, "severity": "high", "confidence": "medium", "languages": ["python"], "pattern": "(?i)(cursor\\.execute|\\.raw)\\s*\\(\\s*[\"'].*%[sd]"},
+  {"id": "SQLI-003", "title": "SQL Injection via f-string", "cwe_id": 89, "severity": "high", "confidence": "medium", "languages": ["python"], "pattern": "(?i)(cursor\\.execute|\\.raw)\\s*\\(\\s*f[\"']"},
+  {"id": "XSS-001", "title": "Reflected XSS via innerHTML", "cwe_id": 79, "severity": "high", "confidence": "medium", "languages": ["javascript"], "pattern": "\\.innerHTML\\s*="},
+  {"id": "XSS-002", "title": "DOM XSS via document.write", "cwe_id": 79, "severity": "high", "confidence": "medium", "languages": ["javascript"], "pattern": "document\\.write\\("},
+  {"id": "XSS-003", "title": "Unsafe React dangerouslySetInnerHTML", "cwe_id": 79, "severity": "medium", "confidence": "high", "languages": ["javascript"], "pattern": "dangerouslySetInnerHTML"},
+  {"id": "CMDI-001", "title": "Command Injection via exec/system", "cwe_id": 78, "severity": "critical", "confidence": "medium", "languages": ["python", "java"], "pattern": "(?i)(os\\.system|os\\.popen|subprocess\\.call|Runtime\\.getRuntime\\(\\)\\.exec)\\s*\\([^)]*\\+"},
+  {"id": "CMDI-002", "title": "Command Injection via shell=True", "cwe_id": 78, "severity": "critical", "confidence": "high", "languages": ["python"], "pattern": "subprocess\\.[a-z]+\\(.*shell\\s*=\\s*True"},
+  {"id": "PATH-001", "title": "Path Traversal", "cwe_id": 22, "severity": "high", "confidence": "low", "languages": ["java", "python", "javascript"], "pattern": "(?i)(new File|open|readFile|createReadStream)\\s*\\([^)]*\\+"},
+  {"id": "PATH-002", "title": "Path Traversal via user input", "cwe_id": 22, "severity": "high", "confidence": "medium", "languages": ["python"], "pattern": "os\\.path\\.join\\(.*request"},
+  {"id": "SEC-001", "title": "Hardcoded password", "cwe_id": 798, "severity": "high", "confidence": "medium", "languages": ["java", "python", "javascript"], "pattern": "(?i)(password|passwd|pwd|secret)\\s*=\\s*[\"'][^\"']{8,}[\"']"},
+  {"id": "SEC-002", "title": "Hardcoded API key", "cwe_id": 798, "severity": "high", "confidence": "medium", "languages": ["java", "python", "javascript"], "pattern": "(?i)(api_key|apikey|api_secret|access_key)\\s*=\\s*[\"'][A-Za-z0-9+/=]{16,}[\"']"},
+  {"id": "SEC-003", "title": "Private key in source", "cwe_id": 798, "severity": "critical", "confidence": "high", "languages": ["java", "python", "javascript"], "pattern": "-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----"},
+  {"id": "SEC-004", "title": "AWS Access Key", "cwe_id": 798, "severity": "critical", "confidence": "high", "languages": ["java", "python", "javascript"], "pattern": "AKIA[0-9A-Z]{16}"},
+  {"id": "CRYPTO-001", "title": "Weak hash algorithm MD5", "cwe_id": 328, "severity": "medium", "confidence": "high", "languages": ["java", "python", "javascript"], "pattern": "(?i)(MD5|md5)\\s*[\\.(]"},
+  {"id": "CRYPTO-002", "title": "Weak hash algorithm SHA1", "cwe_id": 328, "severity": "medium", "confidence": "medium", "languages": ["java", "python", "javascript"], "pattern": "(?i)(SHA-?1|sha1)\\s*[\\.(]"},
+  {"id": "DESER-001", "title": "Unsafe deserialization", "cwe_id": 502, "severity": "critical", "confidence": "medium", "languages": ["java", "python"], "pattern": "(?i)(ObjectInputStream|pickle\\.loads?|yaml\\.load\\()"},
+  {"id": "DESER-002", "title": "Unsafe YAML load", "cwe_id": 502, "severity": "high", "confidence": "high", "languages": ["python"], "pattern": "yaml\\.load\\([^)L]*\\)"},
+  {"id": "LOG-001", "title": "Sensitive data in log", "cwe_id": 532, "severity": "medium", "confidence": "low", "languages": ["java", "python", "javascript"], "pattern": "(?i)(log|logger|console)\\.[a-z]+\\(.*(?:password|secret|token|key)"},
+  {"id": "SSRF-001", "title": "Potential SSRF", "cwe_id": 918, "severity": "high", "confidence": "low", "languages": ["python", "javascript"], "pattern": "(?i)(requests\\.get|fetch|urllib|http\\.get)\\s*\\([^)]*\\+"},
+  {"id": "HEADER-001", "title": "Missing security headers", "cwe_id": 693, "severity": "low", "confidence": "low", "languages": ["javascript"], "pattern": "(?i)app\\.disable\\s*\\(\\s*[\"']x-powered-by[\"']\\s*\\)"}
+]
