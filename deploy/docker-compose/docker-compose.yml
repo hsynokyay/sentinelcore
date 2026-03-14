@@ -46,6 +46,142 @@ services:
     volumes:
       - miniodata:/data
 
+  # --- Application Services ---
+
+  db-migrate:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: cli
+    command: ["echo", "migrations would run here"]
+    # In a real setup we'd use golang-migrate CLI, for now
+    # migrations are run by the controlplane on startup
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  controlplane:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: controlplane
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: sentinelcore
+      DB_USER: sentinelcore
+      DB_PASSWORD: dev-password
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      POLICY_ENGINE_URL: http://policy-engine:9006
+      MSG_SIGNING_KEY: dev-signing-key-change-me
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      policy-engine:
+        condition: service_started
+      audit-service:
+        condition: service_started
+
+  policy-engine:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: policy-engine
+    ports:
+      - "9006:9006"
+    environment:
+      POLICY_ENGINE_PORT: "9006"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: sentinelcore
+      DB_USER: sentinelcore
+      DB_PASSWORD: dev-password
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  audit-service:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: audit-service
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: sentinelcore
+      DB_USER: sentinelcore
+      DB_PASSWORD: dev-password
+      NATS_URL: nats://nats:4222
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  sast-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: sast-worker
+    environment:
+      NATS_URL: nats://nats:4222
+      RULES_PATH: /rules/sast-patterns.json
+      MSG_SIGNING_KEY: dev-signing-key-change-me
+    volumes:
+      - ../../rules/builtin/sast-patterns.json:/rules/sast-patterns.json:ro
+    depends_on:
+      nats:
+        condition: service_started
+
+  vuln-intel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: vuln-intel
+    ports:
+      - "9003:9003"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: sentinelcore
+      DB_USER: sentinelcore
+      DB_PASSWORD: dev-password
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  updater:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: updater
+    ports:
+      - "9009:9009"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: sentinelcore
+      DB_USER: sentinelcore
+      DB_PASSWORD: dev-password
+      TRUST_DIR: /var/lib/sentinelcore/trust
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
   natsdata:
