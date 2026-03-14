@@ -18,6 +18,11 @@ func main() {
 	switch os.Args[1] {
 	case "bootstrap":
 		runBootstrap()
+	case "update":
+		if err := cli.RunUpdateCommand(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	case "version":
 		cli.PrintVersion()
 	default:
@@ -32,6 +37,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  bootstrap  Initialize the system with default org, team, and admin user")
+	fmt.Println("  update     Manage secure updates (verify-bundle, trust-status, lockdown)")
 	fmt.Println("  version    Show version information")
 	fmt.Println()
 	fmt.Println("Bootstrap options:")
