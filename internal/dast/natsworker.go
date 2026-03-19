@@ -174,5 +174,11 @@ func (nw *NATSWorker) publishStatus(ctx context.Context, scanID, status, errorMs
 		"error":       errorMsg,
 		"worker_type": "dast",
 	})
-	nw.js.Publish(ctx, "scan.status.update", data)
+	sig := sc_nats.SignMessage(nw.signingKey, data)
+	msg := &natsgo.Msg{
+		Subject: "scan.status.update",
+		Data:    data,
+		Header:  natsgo.Header{"X-Signature": []string{sig}},
+	}
+	nw.js.PublishMsg(ctx, msg)
 }

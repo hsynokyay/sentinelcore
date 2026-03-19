@@ -165,6 +165,45 @@ func computeEvidenceHash(ev *Evidence) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// captureEvidenceFromBytes creates evidence from pre-read request/response bytes.
+// This prevents double-consumption of response bodies.
+func captureEvidenceFromBytes(req *http.Request, resp *http.Response, respBody []byte, ruleID, scanJobID string, timing time.Duration) *Evidence {
+	ev := &Evidence{
+		ScanJobID:  scanJobID,
+		RuleID:     ruleID,
+		TimingMs:   timing.Milliseconds(),
+		CapturedAt: time.Now(),
+	}
+
+	// Capture request
+	ev.Request = captureRequest(req)
+
+	// Capture response from pre-read bytes
+	if resp != nil {
+		hr := HTTPResponse{
+			StatusCode: resp.StatusCode,
+			Headers:    make(map[string]string),
+			BodySize:   int64(len(respBody)),
+		}
+		for k, vals := range resp.Header {
+			if sensitiveHeaders[strings.ToLower(k)] {
+				hr.Headers[k] = "[REDACTED]"
+			} else {
+				hr.Headers[k] = strings.Join(vals, ", ")
+			}
+		}
+		body := redactBody(string(respBody))
+		if len(body) > maxEvidenceBodySize {
+			body = body[:maxEvidenceBodySize] + "\n[TRUNCATED]"
+		}
+		hr.Body = body
+		ev.Response = hr
+	}
+
+	ev.SHA256 = computeEvidenceHash(ev)
+	return ev
+}
+
 // RedactURL removes credentials from a URL string.
 func RedactURL(rawURL string) string {
 	// Remove userinfo from URL

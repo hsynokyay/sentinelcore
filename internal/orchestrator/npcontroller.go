@@ -109,7 +109,7 @@ func (c *NPController) CreatePolicy(ctx context.Context, scanJobID, workerPod st
 	}
 
 	policy := &NetworkPolicy{
-		Name:         fmt.Sprintf("dast-scope-%s", scanJobID[:8]),
+		Name:         fmt.Sprintf("dast-scope-%s", scanJobID),
 		Namespace:    c.cfg.Namespace,
 		ScanJobID:    scanJobID,
 		WorkerPod:    workerPod,

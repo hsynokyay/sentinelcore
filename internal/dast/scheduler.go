@@ -1,8 +1,10 @@
 package dast
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ type RequestResult struct {
 	TestCase   TestCase
 	Request    *http.Request
 	Response   *http.Response
+	RespBody   []byte // read once to prevent double-consumption
 	Evidence   *Evidence
 	Duration   time.Duration
 	Error      error
@@ -141,15 +144,23 @@ func (s *Scheduler) executeTestCase(ctx context.Context, tc TestCase) RequestRes
 		result.Error = fmt.Errorf("request failed: %w", err)
 		return result
 	}
-	result.Response = resp
 
-	// Capture evidence
-	evidence, err := CaptureEvidence(req, resp, tc.RuleID, s.cfg.ScanJobID, result.Duration)
-	if err != nil {
-		s.logger.Warn().Err(err).Str("rule_id", tc.RuleID).Msg("evidence capture failed")
-	} else {
-		result.Evidence = evidence
+	// Read body once — prevents double-consumption between evidence capture and matchers.
+	respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxEvidenceBodySize))
+	resp.Body.Close()
+	if readErr != nil {
+		result.Error = fmt.Errorf("read response body: %w", readErr)
+		return result
 	}
+
+	// Replace body with a re-readable copy so callers (matchers) can still access it.
+	resp.Body = io.NopCloser(bytes.NewReader(respBody))
+	result.Response = resp
+	result.RespBody = respBody
+
+	// Capture evidence from the already-read body
+	evidence := captureEvidenceFromBytes(req, resp, respBody, tc.RuleID, s.cfg.ScanJobID, result.Duration)
+	result.Evidence = evidence
 
 	return result
 }

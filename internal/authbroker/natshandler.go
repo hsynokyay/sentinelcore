@@ -17,11 +17,12 @@ type SessionRequest struct {
 }
 
 // SessionResponse is the NATS reply for session creation.
+// Credentials are NOT included in the wire format — workers must retrieve
+// the session by ID from the broker to get headers/cookies.
 type SessionResponse struct {
-	SessionID string            `json:"session_id,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	ExpiresAt time.Time         `json:"expires_at,omitempty"`
-	Error     string            `json:"error,omitempty"`
+	SessionID string    `json:"session_id,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	Error     string    `json:"error,omitempty"`
 }
 
 // NATSHandler provides NATS request/reply handling for the Auth Session Broker.
@@ -99,7 +100,6 @@ func (h *NATSHandler) handleRequest(ctx context.Context, req SessionRequest) Ses
 
 	return SessionResponse{
 		SessionID: session.ID,
-		Headers:   session.Headers,
 		ExpiresAt: session.ExpiresAt,
 	}
 }

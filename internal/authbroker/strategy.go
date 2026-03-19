@@ -146,12 +146,13 @@ func (b *Broker) GetSession(sessionID string) (*Session, error) {
 func (b *Broker) RefreshSession(ctx context.Context, sessionID string, cfg AuthConfig) (*Session, error) {
 	b.mu.RLock()
 	session, ok := b.sessions[sessionID]
+	if !ok {
+		b.mu.RUnlock()
+		return nil, fmt.Errorf("authbroker: session %q not found", sessionID)
+	}
 	strategy, stratOk := b.strategies[session.Strategy]
 	b.mu.RUnlock()
 
-	if !ok {
-		return nil, fmt.Errorf("authbroker: session %q not found", sessionID)
-	}
 	if !stratOk {
 		return nil, fmt.Errorf("authbroker: strategy %q not found", session.Strategy)
 	}

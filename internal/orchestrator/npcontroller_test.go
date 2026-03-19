@@ -85,16 +85,13 @@ func TestNPController_IPv6(t *testing.T) {
 		t.Fatalf("create failed: %v", err)
 	}
 
-	policy := applier.Applied["dast-sco"]
-	// Check that at least one policy exists with IPv6 CIDR
+	// Check that the policy exists with IPv6 CIDR
 	for _, p := range applier.Applied {
 		for _, cidr := range p.AllowedCIDRs {
 			if cidr == "2001:db8::1/128" {
 				return // success
 			}
 		}
-		_ = p
 	}
-	_ = policy
 	t.Fatal("expected IPv6 /128 CIDR in policy")
 }

@@ -80,4 +80,30 @@ ALTER TABLE auth.auth_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scans.scan_checkpoints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE scans.worker_registrations ENABLE ROW LEVEL SECURITY;
 
+-- Auth sessions: scoped to scan jobs the current user's org owns
+CREATE POLICY auth_sessions_org_isolation ON auth.auth_sessions
+    USING (scan_job_id IN (
+        SELECT sj.id FROM scans.scan_jobs sj
+        JOIN core.projects p ON sj.project_id = p.id
+        JOIN core.teams t ON p.team_id = t.id
+        WHERE t.org_id = current_setting('app.current_org_id')::uuid
+    ));
+
+-- Scan checkpoints: scoped to scan jobs the current user's org owns
+CREATE POLICY scan_checkpoints_org_isolation ON scans.scan_checkpoints
+    USING (scan_job_id IN (
+        SELECT sj.id FROM scans.scan_jobs sj
+        JOIN core.projects p ON sj.project_id = p.id
+        JOIN core.teams t ON p.team_id = t.id
+        WHERE t.org_id = current_setting('app.current_org_id')::uuid
+    ));
+
+-- Worker registrations: readable by all authenticated users (workers are shared infra)
+CREATE POLICY worker_registrations_read ON scans.worker_registrations
+    FOR SELECT USING (true);
+
+-- Worker registrations: only service accounts can insert/update
+CREATE POLICY worker_registrations_write ON scans.worker_registrations
+    FOR ALL USING (current_setting('app.current_role', true) = 'service');
+
 COMMIT;

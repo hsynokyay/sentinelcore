@@ -46,7 +46,11 @@ func main() {
 			timeout = d
 		}
 	}
-	signingKey := []byte(getEnv("MSG_SIGNING_KEY", "dev-signing-key-change-me"))
+	signingKeyStr := getEnv("MSG_SIGNING_KEY", "")
+	if signingKeyStr == "" {
+		logger.Fatal().Msg("MSG_SIGNING_KEY environment variable is required")
+	}
+	signingKey := []byte(signingKeyStr)
 
 	// Create broker and worker
 	broker := authbroker.NewBroker(logger)

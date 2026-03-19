@@ -318,10 +318,11 @@ func IsBlockedIP(ip net.IP) bool {
 }
 
 // ScopedTransport wraps an http.RoundTripper to enforce scope on every request.
+// It uses a custom DialContext to connect directly to pinned IPs, eliminating
+// the TOCTOU gap between DNS validation and actual connection.
 type ScopedTransport struct {
 	Enforcer  *Enforcer
-	Transport http.RoundTripper
-	redirects int
+	transport *http.Transport
 }
 
 // RoundTrip implements http.RoundTripper with scope enforcement.
@@ -329,22 +330,43 @@ func (t *ScopedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err := t.Enforcer.CheckRequest(req.Context(), req.URL.String()); err != nil {
 		return nil, err
 	}
-	if t.Transport == nil {
-		return http.DefaultTransport.RoundTrip(req)
-	}
-	return t.Transport.RoundTrip(req)
+	return t.transport.RoundTrip(req)
 }
 
 // NewScopedClient creates an http.Client that enforces scope on every request
-// and validates redirects.
+// and validates redirects. It uses pinned-IP dialing to prevent TOCTOU
+// attacks where DNS changes between the scope check and the actual connection.
 func NewScopedClient(enforcer *Enforcer, timeout time.Duration) *http.Client {
-	transport := &ScopedTransport{
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, fmt.Errorf("scope: invalid address %q: %w", addr, err)
+			}
+
+			// Use pinned IP for the connection instead of letting the dialer resolve DNS.
+			// This eliminates the TOCTOU gap: CheckRequest validates DNS, and we connect
+			// to the exact IP that was validated.
+			pinnedIPs := enforcer.PinnedIPs(host)
+			if len(pinnedIPs) > 0 {
+				pinnedAddr := net.JoinHostPort(pinnedIPs[0].String(), port)
+				return dialer.DialContext(ctx, network, pinnedAddr)
+			}
+
+			// Fallback for non-pinned hosts (should not happen in normal DAST flow)
+			return dialer.DialContext(ctx, network, addr)
+		},
+	}
+
+	scopedTransport := &ScopedTransport{
 		Enforcer:  enforcer,
-		Transport: http.DefaultTransport,
+		transport: transport,
 	}
 
 	return &http.Client{
-		Transport: transport,
+		Transport: scopedTransport,
 		Timeout:   timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return enforcer.CheckRedirect(req.Context(), req.URL.String(), len(via))

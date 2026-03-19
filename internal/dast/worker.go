@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"sync/atomic"
 	"time"
 
@@ -162,14 +161,9 @@ func (w *Worker) ExecuteScan(ctx context.Context, job ScanJob) (*ScanResult, err
 			continue
 		}
 
-		// Check for finding
+		// Check for finding using pre-read body (avoids double-consumption)
 		if res.TestCase.Matcher != nil && res.Response != nil {
-			body, _ := io.ReadAll(io.LimitReader(res.Response.Body, maxEvidenceBodySize))
-			if res.Response.Body != nil {
-				res.Response.Body.Close()
-			}
-
-			matched, detail := res.TestCase.Matcher.Match(res.Response, body)
+			matched, detail := res.TestCase.Matcher.Match(res.Response, res.RespBody)
 			if matched {
 				finding := Finding{
 					ID:          uuid.New().String(),
