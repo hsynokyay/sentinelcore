@@ -213,6 +213,19 @@ services:
       auth-broker:
         condition: service_started
 
+  correlation-engine:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: correlation-engine
+    environment:
+      NATS_URL: nats://nats:4222
+      MSG_SIGNING_KEY: dev-signing-key-change-me
+    depends_on:
+      nats:
+        condition: service_started
+
 volumes:
   pgdata:
   natsdata:
