@@ -182,6 +182,37 @@ services:
       postgres:
         condition: service_healthy
 
+  auth-broker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: auth-broker
+    environment:
+      NATS_URL: nats://nats:4222
+    depends_on:
+      nats:
+        condition: service_started
+
+  dast-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: dast-worker
+    environment:
+      NATS_URL: nats://nats:4222
+      CONCURRENCY: "10"
+      REQUEST_TIMEOUT: "30s"
+      MSG_SIGNING_KEY: dev-signing-key-change-me
+    security_opt:
+      - seccomp=../../deploy/seccomp/dast-worker.json
+    depends_on:
+      nats:
+        condition: service_started
+      auth-broker:
+        condition: service_started
+
 volumes:
   pgdata:
   natsdata:

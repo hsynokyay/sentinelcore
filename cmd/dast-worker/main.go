@@ -1,6 +1,6 @@
 // Command dast-worker runs the SentinelCore DAST scan worker.
-// It receives scan jobs via NATS, executes API-first DAST tests
-// with scope enforcement, and publishes results.
+// It receives scan jobs via NATS JetStream, executes API-first DAST tests
+// with scope enforcement, and publishes signed results.
 package main
 
 import (
@@ -11,55 +11,63 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/sentinelcore/sentinelcore/internal/authbroker"
 	"github.com/sentinelcore/sentinelcore/internal/dast"
+	sc_nats "github.com/sentinelcore/sentinelcore/pkg/nats"
+	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
 
-type workerCfg struct {
-	WorkerID       string `default:""`
-	Concurrency    int    `default:"10"`
-	RequestTimeout int    `default:"30"` // seconds
-}
-
 func main() {
-	logger := zerolog.New(os.Stdout).With().Timestamp().Str("service", "dast-worker").Logger()
+	logger := observability.NewLogger("dast-worker")
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
+	// Connect to NATS
+	nc, js, err := sc_nats.Connect(sc_nats.Config{URL: getEnv("NATS_URL", "nats://localhost:4222")})
+	if err != nil {
+		logger.Fatal().Err(err).Msg("NATS connect failed")
+	}
+	defer nc.Close()
+
+	if err := sc_nats.EnsureStreams(ctx, js); err != nil {
+		logger.Fatal().Err(err).Msg("failed to ensure streams")
+	}
+
+	// Config
 	concurrency := 10
-	if v := os.Getenv("SENTINELCORE_CONCURRENCY"); v != "" {
+	if v := getEnv("CONCURRENCY", ""); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			concurrency = n
 		}
 	}
 	timeout := 30 * time.Second
-	if v := os.Getenv("SENTINELCORE_REQUEST_TIMEOUT"); v != "" {
+	if v := getEnv("REQUEST_TIMEOUT", ""); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			timeout = d
 		}
 	}
+	signingKey := []byte(getEnv("MSG_SIGNING_KEY", "dev-signing-key-change-me"))
 
+	// Create broker and worker
 	broker := authbroker.NewBroker(logger)
-
 	worker := dast.NewWorker(dast.WorkerConfig{
-		WorkerID:       os.Getenv("SENTINELCORE_WORKER_ID"),
+		WorkerID:       getEnv("WORKER_ID", ""),
 		MaxConcurrency: concurrency,
 		RequestTimeout: timeout,
 	}, broker, logger)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Start NATS-connected worker
+	natsWorker := dast.NewNATSWorker(js, worker, signingKey, logger)
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	logger.Info().Msg("DAST worker starting")
+	if err := natsWorker.Start(ctx); err != nil {
+		logger.Fatal().Err(err).Msg("worker failed")
+	}
+}
 
-	go func() {
-		sig := <-sigCh
-		logger.Info().Str("signal", sig.String()).Msg("shutting down")
-		cancel()
-	}()
-
-	_ = worker
-	logger.Info().Msg("DAST worker started, waiting for scan jobs")
-	<-ctx.Done()
-	logger.Info().Msg("DAST worker stopped")
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

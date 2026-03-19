@@ -288,3 +288,269 @@ func TestCheckRequest_PrivateIPRanges(t *testing.T) {
 		})
 	}
 }
+
+// --- Adversarial scope enforcement tests ---
+
+func TestAdversarial_CloudMetadataSSRF(t *testing.T) {
+	// AWS/GCP/Azure metadata endpoints via DNS rebinding
+	metadataIPs := []string{
+		"169.254.169.254", // AWS/Azure metadata
+		"169.254.0.1",     // Link-local
+	}
+	for _, ip := range metadataIPs {
+		t.Run(ip, func(t *testing.T) {
+			resolver := &mockResolver{
+				results: map[string][]net.IPAddr{
+					"target.com": {{IP: net.ParseIP(ip)}},
+				},
+			}
+			pinned := map[string][]net.IP{
+				"target.com": {net.ParseIP(ip)},
+			}
+			e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+			err := e.CheckRequest(context.Background(), "https://target.com/latest/meta-data/")
+			if err == nil {
+				t.Fatalf("cloud metadata IP %s should be blocked", ip)
+			}
+		})
+	}
+}
+
+func TestAdversarial_IPv6LoopbackSSRF(t *testing.T) {
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com": {{IP: net.ParseIP("::1")}},
+		},
+	}
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("::1")},
+	}
+	e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+	err := e.CheckRequest(context.Background(), "https://target.com/secret")
+	if err == nil {
+		t.Fatal("IPv6 loopback should be blocked")
+	}
+}
+
+func TestAdversarial_IPv6UniqueLocalSSRF(t *testing.T) {
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com": {{IP: net.ParseIP("fd00::1")}},
+		},
+	}
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("fd00::1")},
+	}
+	e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+	err := e.CheckRequest(context.Background(), "https://target.com/internal")
+	if err == nil {
+		t.Fatal("IPv6 unique local address should be blocked")
+	}
+}
+
+func TestAdversarial_DNSRebindingMidScan(t *testing.T) {
+	callCount := 0
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			// First call returns public IP, subsequent return private
+			"target.com": {{IP: net.ParseIP("93.184.216.34")}},
+		},
+	}
+	_ = callCount
+
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("93.184.216.34")},
+	}
+	e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+
+	// First request succeeds
+	err := e.CheckRequest(context.Background(), "https://target.com/api")
+	if err != nil {
+		t.Fatalf("first request should succeed: %v", err)
+	}
+
+	// Simulate DNS rebinding: change resolver to return different IP
+	resolver.results["target.com"] = []net.IPAddr{{IP: net.ParseIP("10.0.0.1")}}
+
+	// Second request should fail (new IP not in pinned set + private)
+	err = e.CheckRequest(context.Background(), "https://target.com/api")
+	if err == nil {
+		t.Fatal("expected DNS rebinding to be detected")
+	}
+}
+
+func TestAdversarial_RedirectToInternalHost(t *testing.T) {
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com":   {{IP: net.ParseIP("93.184.216.34")}},
+			"internal.corp": {{IP: net.ParseIP("10.0.0.50")}},
+		},
+	}
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("93.184.216.34")},
+	}
+	e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+
+	// Redirect to internal host should be blocked (not in allowed hosts)
+	err := e.CheckRedirect(context.Background(), "https://internal.corp/admin", 1)
+	if err == nil {
+		t.Fatal("redirect to internal host should be blocked")
+	}
+}
+
+func TestAdversarial_RedirectChainExhaustion(t *testing.T) {
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com": {{IP: net.ParseIP("93.184.216.34")}},
+		},
+	}
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("93.184.216.34")},
+	}
+	cfg := Config{
+		AllowedHosts: []string{"target.com"},
+		PinnedIPs:    pinned,
+		MaxRedirects: 5,
+		Resolver:     resolver,
+	}
+	e := NewEnforcer(cfg, zerolog.Nop())
+
+	// Redirects within limit should work
+	for i := 0; i < 5; i++ {
+		err := e.CheckRedirect(context.Background(), "https://target.com/page", i)
+		if err != nil {
+			t.Fatalf("redirect %d should be allowed: %v", i, err)
+		}
+	}
+
+	// Redirect at limit should fail
+	err := e.CheckRedirect(context.Background(), "https://target.com/page", 5)
+	if err == nil {
+		t.Fatal("redirect chain at max should be blocked")
+	}
+}
+
+func TestAdversarial_SchemeDowngrade(t *testing.T) {
+	resolver := &mockResolver{results: map[string][]net.IPAddr{}}
+	e := newTestEnforcer([]string{"target.com"}, nil, resolver)
+
+	schemes := []string{"file:///etc/passwd", "gopher://target.com/", "dict://target.com/", "ldap://target.com/"}
+	for _, u := range schemes {
+		t.Run(u, func(t *testing.T) {
+			err := e.CheckRequest(context.Background(), u)
+			if err == nil {
+				t.Fatalf("scheme %s should be blocked", u)
+			}
+		})
+	}
+}
+
+func TestAdversarial_CarrierGradeNAT(t *testing.T) {
+	// 100.64.0.0/10 (CGNAT) should be blocked
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com": {{IP: net.ParseIP("100.64.0.1")}},
+		},
+	}
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("100.64.0.1")},
+	}
+	e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+	err := e.CheckRequest(context.Background(), "https://target.com/api")
+	if err == nil {
+		t.Fatal("CGNAT address should be blocked")
+	}
+}
+
+func TestAdversarial_ReservedRange240(t *testing.T) {
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com": {{IP: net.ParseIP("240.0.0.1")}},
+		},
+	}
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("240.0.0.1")},
+	}
+	e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+	err := e.CheckRequest(context.Background(), "https://target.com/api")
+	if err == nil {
+		t.Fatal("reserved 240.0.0.0/4 should be blocked")
+	}
+}
+
+func TestAdversarial_DocumentationRange(t *testing.T) {
+	// 192.0.2.0/24 (TEST-NET-1), 198.51.100.0/24 (TEST-NET-2), 203.0.113.0/24 (TEST-NET-3)
+	docIPs := []string{"192.0.2.1", "198.51.100.1", "203.0.113.1"}
+	for _, ip := range docIPs {
+		t.Run(ip, func(t *testing.T) {
+			resolver := &mockResolver{
+				results: map[string][]net.IPAddr{
+					"target.com": {{IP: net.ParseIP(ip)}},
+				},
+			}
+			pinned := map[string][]net.IP{
+				"target.com": {net.ParseIP(ip)},
+			}
+			e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+			err := e.CheckRequest(context.Background(), "https://target.com/api")
+			if err == nil {
+				t.Fatalf("documentation IP %s should be blocked", ip)
+			}
+		})
+	}
+}
+
+func TestAdversarial_MultipleIPsPartialRebind(t *testing.T) {
+	// Target has 2 IPs, one rebinds to internal
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com": {
+				{IP: net.ParseIP("93.184.216.34")},
+				{IP: net.ParseIP("10.0.0.1")}, // rebind to internal
+			},
+		},
+	}
+	pinned := map[string][]net.IP{
+		"target.com": {net.ParseIP("93.184.216.34"), net.ParseIP("93.184.216.35")},
+	}
+	e := newTestEnforcer([]string{"target.com"}, pinned, resolver)
+	err := e.CheckRequest(context.Background(), "https://target.com/api")
+	if err == nil {
+		t.Fatal("partial rebind to internal IP should be blocked")
+	}
+}
+
+func TestAdversarial_EmptyHostname(t *testing.T) {
+	resolver := &mockResolver{results: map[string][]net.IPAddr{}}
+	e := newTestEnforcer([]string{"target.com"}, nil, resolver)
+	err := e.CheckRequest(context.Background(), "https:///path")
+	if err == nil {
+		t.Fatal("empty hostname should be blocked")
+	}
+}
+
+func TestAdversarial_ConcurrentViolationCounting(t *testing.T) {
+	resolver := &mockResolver{results: map[string][]net.IPAddr{}}
+	cfg := Config{
+		AllowedHosts:  []string{"target.com"},
+		MaxViolations: 100,
+		Resolver:      resolver,
+	}
+	e := NewEnforcer(cfg, zerolog.Nop())
+
+	// Fire 50 concurrent violations
+	done := make(chan struct{}, 50)
+	for i := 0; i < 50; i++ {
+		go func(i int) {
+			e.CheckRequest(context.Background(), fmt.Sprintf("https://evil%d.com/path", i))
+			done <- struct{}{}
+		}(i)
+	}
+	for i := 0; i < 50; i++ {
+		<-done
+	}
+
+	if e.ViolationCount() != 50 {
+		t.Fatalf("expected 50 violations, got %d", e.ViolationCount())
+	}
+}
