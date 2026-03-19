@@ -156,28 +156,53 @@ func (c *NPController) DeletePolicy(ctx context.Context, scanJobID string) error
 }
 
 // GarbageCollect removes expired NetworkPolicies.
+// Collects expired entries under lock, then deletes outside the lock
+// to avoid blocking Create/Delete during K8s API calls.
 func (c *NPController) GarbageCollect(ctx context.Context) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+	// Phase 1: identify expired policies under read lock
+	c.mu.RLock()
 	now := time.Now()
-	count := 0
-
+	type expired struct {
+		scanJobID string
+		policy    *NetworkPolicy
+	}
+	var toDelete []expired
 	for scanJobID, policy := range c.policies {
 		if now.After(policy.ExpiresAt) {
-			if err := c.applier.Delete(ctx, policy.Name, policy.Namespace); err != nil {
-				c.logger.Error().Err(err).
-					Str("policy_name", policy.Name).
-					Msg("failed to GC network policy")
-				continue
-			}
-			delete(c.policies, scanJobID)
-			count++
-			c.logger.Info().
-				Str("policy_name", policy.Name).
-				Str("scan_job_id", scanJobID).
-				Msg("garbage collected expired network policy")
+			toDelete = append(toDelete, expired{scanJobID, policy})
 		}
+	}
+	c.mu.RUnlock()
+
+	if len(toDelete) == 0 {
+		return 0
+	}
+
+	// Phase 2: delete from K8s without holding the lock
+	count := 0
+	var deleted []string
+	for _, e := range toDelete {
+		if err := c.applier.Delete(ctx, e.policy.Name, e.policy.Namespace); err != nil {
+			c.logger.Error().Err(err).
+				Str("policy_name", e.policy.Name).
+				Msg("failed to GC network policy")
+			continue
+		}
+		deleted = append(deleted, e.scanJobID)
+		count++
+		c.logger.Info().
+			Str("policy_name", e.policy.Name).
+			Str("scan_job_id", e.scanJobID).
+			Msg("garbage collected expired network policy")
+	}
+
+	// Phase 3: remove from map under write lock
+	if len(deleted) > 0 {
+		c.mu.Lock()
+		for _, id := range deleted {
+			delete(c.policies, id)
+		}
+		c.mu.Unlock()
 	}
 
 	return count

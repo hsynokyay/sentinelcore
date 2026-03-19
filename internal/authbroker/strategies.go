@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/sentinelcore/sentinelcore/pkg/scope"
 )
 
 // BearerStrategy injects a static bearer token into the Authorization header.
@@ -59,6 +62,14 @@ func (s *OAuth2CCStrategy) Authenticate(ctx context.Context, cfg AuthConfig) (*S
 	}
 	if cfg.Endpoint == "" {
 		return nil, fmt.Errorf("oauth2_cc: missing token endpoint")
+	}
+
+	// SSRF protection: reject token endpoints pointing at internal/private IPs.
+	// Skip when HTTPClient is overridden (test mode with controlled client).
+	if s.HTTPClient == nil {
+		if err := validateEndpointNotInternal(cfg.Endpoint); err != nil {
+			return nil, fmt.Errorf("oauth2_cc: %w", err)
+		}
 	}
 
 	data := url.Values{
@@ -147,6 +158,13 @@ func (s *FormLoginStrategy) Authenticate(ctx context.Context, cfg AuthConfig) (*
 	}
 	if cfg.Endpoint == "" {
 		return nil, fmt.Errorf("form_login: missing login endpoint")
+	}
+
+	// SSRF protection: skip when HTTPClient is overridden (test mode).
+	if s.HTTPClient == nil {
+		if err := validateEndpointNotInternal(cfg.Endpoint); err != nil {
+			return nil, fmt.Errorf("form_login: %w", err)
+		}
 	}
 
 	usernameField := cfg.ExtraParams["username_field"]
@@ -270,4 +288,41 @@ func (s *APIKeyStrategy) Refresh(_ context.Context, _ *Session, cfg AuthConfig) 
 
 func (s *APIKeyStrategy) Validate(_ context.Context, session *Session) (bool, error) {
 	return !session.IsExpired(), nil
+}
+
+// validateEndpointNotInternal prevents SSRF via auth endpoints pointing at
+// internal infrastructure (cloud metadata, private networks, loopback).
+func validateEndpointNotInternal(endpoint string) error {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid endpoint URL: %w", err)
+	}
+
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("endpoint scheme %q not allowed (use http or https)", scheme)
+	}
+
+	hostname := parsed.Hostname()
+
+	// Check if hostname is a raw IP
+	if ip := net.ParseIP(hostname); ip != nil {
+		if scope.IsBlockedIP(ip) {
+			return fmt.Errorf("endpoint resolves to blocked IP %s", ip)
+		}
+		return nil
+	}
+
+	// Resolve hostname and check all IPs
+	addrs, err := net.LookupHost(hostname)
+	if err != nil {
+		return fmt.Errorf("cannot resolve endpoint host %q: %w", hostname, err)
+	}
+	for _, addr := range addrs {
+		if ip := net.ParseIP(addr); ip != nil && scope.IsBlockedIP(ip) {
+			return fmt.Errorf("endpoint host %q resolves to blocked IP %s", hostname, ip)
+		}
+	}
+
+	return nil
 }

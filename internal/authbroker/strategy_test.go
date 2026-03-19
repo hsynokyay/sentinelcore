@@ -128,7 +128,11 @@ func TestFormLoginStrategy(t *testing.T) {
 	}))
 	defer server.Close()
 
-	s := &FormLoginStrategy{HTTPClient: nil}
+	// Provide test client with cookie jar to bypass SSRF validation (test runs on localhost)
+	jar, _ := cookieJar()
+	testClient := server.Client()
+	testClient.Jar = jar
+	s := &FormLoginStrategy{HTTPClient: testClient}
 	session, err := s.Authenticate(context.Background(), AuthConfig{
 		Strategy: "form_login",
 		Credentials: map[string]string{

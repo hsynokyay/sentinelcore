@@ -157,8 +157,14 @@ func (w *Worker) ExecuteScan(ctx context.Context, job ScanJob) (*ScanResult, err
 
 		if res.Error != nil {
 			result.FailedRequests++
+			RecordScanRequest("error", res.Duration.Seconds())
 			w.logger.Debug().Err(res.Error).Str("test_id", res.TestCase.ID).Msg("test case failed")
 			continue
+		}
+
+		RecordScanRequest("success", res.Duration.Seconds())
+		if res.Evidence != nil {
+			RecordEvidenceCaptured()
 		}
 
 		// Check for finding using pre-read body (avoids double-consumption)
@@ -179,6 +185,7 @@ func (w *Worker) ExecuteScan(ctx context.Context, job ScanJob) (*ScanResult, err
 					FoundAt:     time.Now(),
 				}
 				result.Findings = append(result.Findings, finding)
+				RecordFinding(finding.Severity, finding.Category)
 				w.logger.Info().
 					Str("rule_id", finding.RuleID).
 					Str("severity", finding.Severity).
@@ -201,6 +208,7 @@ func (w *Worker) ExecuteScan(ctx context.Context, job ScanJob) (*ScanResult, err
 	} else {
 		result.Status = "completed"
 	}
+	RecordScanCompleted(result.Status)
 
 	w.logger.Info().
 		Str("status", result.Status).

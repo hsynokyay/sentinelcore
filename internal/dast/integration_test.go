@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -249,7 +250,6 @@ func TestIntegration_ScopeAbort(t *testing.T) {
 		host:    hostname,
 		firstIP: "127.0.0.1",
 		newIP:   "10.0.0.1", // will appear as unpinned
-		callCount: 0,
 	}
 
 	broker := authbroker.NewBroker(zerolog.Nop())
@@ -319,13 +319,13 @@ type rebindingResolver struct {
 	host      string
 	firstIP   string
 	newIP     string
-	callCount int
+	callCount atomic.Int32
 }
 
 func (r *rebindingResolver) LookupIPAddr(_ context.Context, host string) ([]net.IPAddr, error) {
 	if host == r.host {
-		r.callCount++
-		if r.callCount <= 1 {
+		count := r.callCount.Add(1)
+		if count <= 1 {
 			return []net.IPAddr{{IP: net.ParseIP(r.firstIP)}}, nil
 		}
 		// After first call, return different IP (rebinding)

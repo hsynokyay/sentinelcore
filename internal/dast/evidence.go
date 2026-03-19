@@ -44,18 +44,33 @@ const maxEvidenceBodySize = 1 << 20 // 1 MB
 
 // sensitiveHeaders are redacted from evidence capture.
 var sensitiveHeaders = map[string]bool{
-	"authorization":   true,
-	"cookie":          true,
-	"set-cookie":      true,
-	"x-api-key":       true,
-	"x-auth-token":    true,
-	"proxy-authorization": true,
+	"authorization":          true,
+	"cookie":                 true,
+	"set-cookie":             true,
+	"x-api-key":              true,
+	"x-auth-token":           true,
+	"x-csrf-token":           true,
+	"x-xsrf-token":           true,
+	"proxy-authorization":    true,
+	"proxy-authentication-info": true,
 }
 
 // sensitivePatterns match credential-like values in bodies.
 var sensitivePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)"?(password|passwd|secret|token|api[_-]?key|auth)"?\s*[:=]\s*"?[^\s"',}]+`),
+	// Key-value credentials: password=xxx, "secret": "xxx", token: xxx
+	regexp.MustCompile(`(?i)"?(password|passwd|secret|token|api[_-]?key|auth|credential|client_secret)"?\s*[:=]\s*"?[^\s"',}]+`),
+	// Bearer tokens
 	regexp.MustCompile(`(?i)bearer\s+[a-zA-Z0-9._\-]+`),
+	// Basic auth
+	regexp.MustCompile(`(?i)basic\s+[A-Za-z0-9+/=]+`),
+	// JWT tokens (three base64url segments)
+	regexp.MustCompile(`eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+`),
+	// AWS access key IDs
+	regexp.MustCompile(`AKIA[A-Z0-9]{16}`),
+	// Private keys
+	regexp.MustCompile(`-----BEGIN\s+(RSA\s+|EC\s+)?PRIVATE\s+KEY-----`),
+	// GitHub tokens
+	regexp.MustCompile(`gh[ps]_[A-Za-z0-9_]{36,}`),
 }
 
 // CaptureEvidence creates an Evidence record from an HTTP request and response.
