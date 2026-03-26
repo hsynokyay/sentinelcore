@@ -82,15 +82,15 @@ CREATE TABLE governance.org_settings (
 ```sql
 CREATE TABLE governance.approval_requests (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id        UUID NOT NULL,
-    team_id       UUID,
+    org_id        UUID NOT NULL REFERENCES core.organizations(id),
+    team_id       UUID REFERENCES core.teams(id),
     request_type  TEXT NOT NULL,     -- 'risk_acceptance', 'false_positive', 'scope_expansion'
     resource_type TEXT NOT NULL,     -- 'finding', 'scan_target'
     resource_id   UUID NOT NULL,
-    requested_by  UUID NOT NULL,
+    requested_by  UUID NOT NULL REFERENCES core.users(id),
     reason        TEXT NOT NULL,
     status        TEXT NOT NULL DEFAULT 'pending',
-    decided_by    UUID,
+    decided_by    UUID REFERENCES core.users(id),
     decision_reason TEXT,
     decided_at    TIMESTAMPTZ,
     expires_at    TIMESTAMPTZ,
@@ -99,6 +99,7 @@ CREATE TABLE governance.approval_requests (
 );
 CREATE INDEX idx_approval_org_status ON governance.approval_requests(org_id, status);
 CREATE INDEX idx_approval_resource ON governance.approval_requests(resource_type, resource_id);
+CREATE INDEX idx_approval_expiring ON governance.approval_requests(expires_at) WHERE status = 'pending';
 ```
 
 ### 3.4 Finding Assignments
@@ -106,15 +107,16 @@ CREATE INDEX idx_approval_resource ON governance.approval_requests(resource_type
 ```sql
 CREATE TABLE governance.finding_assignments (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    finding_id   UUID NOT NULL,
-    org_id       UUID NOT NULL,
-    team_id      UUID,
-    assigned_to  UUID NOT NULL,
-    assigned_by  UUID NOT NULL,
+    finding_id   UUID NOT NULL REFERENCES findings.findings(id),
+    org_id       UUID NOT NULL REFERENCES core.organizations(id),
+    team_id      UUID REFERENCES core.teams(id),
+    assigned_to  UUID NOT NULL REFERENCES core.users(id),
+    assigned_by  UUID NOT NULL REFERENCES core.users(id),
     due_at       TIMESTAMPTZ,
     status       TEXT NOT NULL DEFAULT 'active',
     note         TEXT,
     created_at   TIMESTAMPTZ DEFAULT now(),
+    updated_at   TIMESTAMPTZ DEFAULT now(),
     completed_at TIMESTAMPTZ,
     CONSTRAINT assignment_status_check CHECK (status IN ('active','completed','reassigned'))
 );
@@ -127,14 +129,15 @@ CREATE INDEX idx_assignment_finding ON governance.finding_assignments(finding_id
 ```sql
 CREATE TABLE governance.sla_violations (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    finding_id   UUID NOT NULL,
-    org_id       UUID NOT NULL,
+    finding_id   UUID NOT NULL REFERENCES findings.findings(id),
+    org_id       UUID NOT NULL REFERENCES core.organizations(id),
     severity     TEXT NOT NULL,
     sla_days     INTEGER NOT NULL,
     deadline_at  TIMESTAMPTZ NOT NULL,
     violated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     resolved_at  TIMESTAMPTZ,
-    escalated    BOOLEAN DEFAULT false
+    escalated    BOOLEAN DEFAULT false,
+    updated_at   TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX idx_sla_org_unresolved ON governance.sla_violations(org_id) WHERE resolved_at IS NULL;
 ```
@@ -163,10 +166,11 @@ CREATE INDEX idx_notif_user_created ON governance.notifications(user_id, created
 ```sql
 CREATE TABLE governance.webhook_configs (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id       UUID NOT NULL,
+    org_id       UUID NOT NULL REFERENCES core.organizations(id),
     name         TEXT NOT NULL,
     url          TEXT NOT NULL,
-    secret       TEXT,
+    secret_encrypted BYTEA,       -- AES-256-GCM encrypted HMAC signing secret
+    secret_key_id    TEXT,        -- KMS key ID used for encryption (for key rotation)
     events       TEXT[] NOT NULL,
     enabled      BOOLEAN DEFAULT true,
     created_at   TIMESTAMPTZ DEFAULT now(),
@@ -184,7 +188,7 @@ CREATE TABLE governance.webhook_deliveries (
     last_attempt TIMESTAMPTZ,
     next_retry   TIMESTAMPTZ,
     response_code INTEGER,
-    response_body TEXT,
+    response_body TEXT,           -- truncated to 4KB at write time
     created_at   TIMESTAMPTZ DEFAULT now(),
     CONSTRAINT delivery_status_check CHECK (status IN ('pending','delivered','failed','exhausted'))
 );
@@ -222,11 +226,11 @@ CREATE UNIQUE INDEX idx_retention_resource ON governance.retention_records(resou
 ```sql
 CREATE TABLE governance.emergency_stops (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id      UUID NOT NULL,
+    org_id      UUID NOT NULL REFERENCES core.organizations(id),
     scope       TEXT NOT NULL,
     scope_id    UUID,
     reason      TEXT NOT NULL,
-    activated_by UUID NOT NULL,
+    activated_by UUID NOT NULL REFERENCES core.users(id),
     activated_at TIMESTAMPTZ DEFAULT now(),
     deactivated_by UUID,
     deactivated_at TIMESTAMPTZ,
@@ -238,7 +242,7 @@ CREATE INDEX idx_emergency_active ON governance.emergency_stops(org_id) WHERE ac
 
 ### 3.10 RLS Policies
 
-All governance tables get RLS enabled with policies matching the existing pattern:
+All governance tables get RLS enabled. Tables linked to findings use **team-membership-based isolation** (matching the existing `findings.findings` RLS pattern). Org-wide tables use org-level isolation.
 
 ```sql
 ALTER TABLE governance.approval_requests ENABLE ROW LEVEL SECURITY;
@@ -250,22 +254,57 @@ ALTER TABLE governance.emergency_stops ENABLE ROW LEVEL SECURITY;
 ALTER TABLE governance.sla_violations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE governance.org_settings ENABLE ROW LEVEL SECURITY;
 
--- Example policy (same pattern for all):
-CREATE POLICY org_isolation ON governance.approval_requests
-    USING (org_id = current_setting('app.current_org_id')::uuid);
--- notifications additionally scoped to user_id for user-specific queries
+-- Team-scoped tables (finding-related): use team_memberships join
+-- This matches the existing RLS model in findings.findings
+CREATE POLICY team_isolation ON governance.approval_requests
+    USING (team_id IN (
+        SELECT tm.team_id FROM core.team_memberships tm
+        WHERE tm.user_id = current_setting('app.current_user_id')::uuid
+    ) OR team_id IS NULL AND org_id = current_setting('app.current_org_id')::uuid);
+
+CREATE POLICY team_isolation ON governance.finding_assignments
+    USING (team_id IN (
+        SELECT tm.team_id FROM core.team_memberships tm
+        WHERE tm.user_id = current_setting('app.current_user_id')::uuid
+    ));
+
+CREATE POLICY team_isolation ON governance.sla_violations
+    USING (org_id IN (
+        SELECT DISTINCT t.org_id FROM core.team_memberships tm
+        JOIN core.teams t ON t.id = tm.team_id
+        WHERE tm.user_id = current_setting('app.current_user_id')::uuid
+    ));
+
+-- User-scoped: notifications visible only to recipient
+-- Admin bypass: platform_admin can query all org notifications via separate admin endpoint
 CREATE POLICY user_notifications ON governance.notifications
-    USING (org_id = current_setting('app.current_org_id')::uuid
-       AND user_id = current_setting('app.current_user_id')::uuid);
+    USING (user_id = current_setting('app.current_user_id')::uuid);
+
+-- Org-scoped tables (admin-managed): org-level isolation
+CREATE POLICY org_isolation ON governance.webhook_configs
+    USING (org_id = current_setting('app.current_org_id')::uuid);
+CREATE POLICY org_isolation ON governance.retention_records
+    USING (org_id = current_setting('app.current_org_id')::uuid);
+CREATE POLICY org_isolation ON governance.emergency_stops
+    USING (org_id = current_setting('app.current_org_id')::uuid);
+CREATE POLICY org_isolation ON governance.org_settings
+    USING (org_id = current_setting('app.current_org_id')::uuid);
 ```
+
+**Note:** The existing `UpdateFindingStatus` handler must be fixed to use `db.WithRLS` before the governance approval workflow can safely build on it. This is a prerequisite task for Week 1.
 
 ### 3.11 Modifications to Existing Tables
 
 ```sql
 -- findings.findings additions
-ALTER TABLE findings.findings ADD COLUMN assigned_to UUID;
+ALTER TABLE findings.findings ADD COLUMN org_id UUID REFERENCES core.organizations(id);
+ALTER TABLE findings.findings ADD COLUMN assigned_to UUID REFERENCES core.users(id);
 ALTER TABLE findings.findings ADD COLUMN sla_deadline TIMESTAMPTZ;
 ALTER TABLE findings.findings ADD COLUMN legal_hold BOOLEAN DEFAULT false;
+-- Backfill org_id from project → team → org chain:
+-- UPDATE findings.findings f SET org_id = (
+--   SELECT t.org_id FROM core.projects p JOIN core.teams t ON t.id = p.team_id WHERE p.id = f.project_id
+-- ) WHERE f.org_id IS NULL;
 
 -- scans.scan_jobs additions
 ALTER TABLE scans.scan_jobs ADD COLUMN emergency_stopped BOOLEAN DEFAULT false;
@@ -277,26 +316,44 @@ ALTER TABLE scans.scan_jobs ADD COLUMN stopped_reason TEXT;
 
 ### 4.1 Finding Triage with Configurable Approval
 
-1. User calls `POST /api/v1/findings/:id/status` with target status
-2. If target is `accepted_risk` or `false_positive`:
+**Valid status transitions (invalid transitions return 422):**
+
+| From | Allowed To |
+|------|-----------|
+| new | confirmed, false_positive, accepted_risk |
+| confirmed | in_progress, false_positive, accepted_risk |
+| in_progress | mitigated, false_positive, accepted_risk |
+| mitigated | resolved, reopened |
+| resolved | reopened |
+| reopened | confirmed, in_progress, false_positive, accepted_risk |
+| accepted_risk | reopened |
+| false_positive | reopened |
+
+**Approval flow:**
+
+1. User calls `PATCH /api/v1/findings/:id/status` with target status (existing route)
+2. Handler validates the transition against the matrix above; rejects invalid transitions with 422
+3. If target is `accepted_risk` or `false_positive`:
    - Check `governance.org_settings` for approval requirement
    - If approval required: create `governance.approval_requests` with `pending` status, emit `approval_requested` notification, return 202 Accepted with approval_id
    - If not required: execute transition directly
-3. Approver calls `POST /api/v1/governance/approvals/:id/decide`
+4. Approver calls `POST /api/v1/governance/approvals/:id/decide` (requires `governance.approvals.decide` permission)
    - If approved: execute the original status transition, emit audit event
    - If rejected: mark request as rejected, notify requester, finding stays at current status
-4. Expired approvals (checked by retention worker): mark as expired, notify requester
+5. Expired approvals (checked by retention worker): mark as expired, notify requester
+
+**Prerequisite:** Fix existing `UpdateFindingStatus` handler to use `db.WithRLS` (currently queries without RLS session variables).
 
 ### 4.2 Emergency Stop (Kill Switch)
 
 1. Admin calls `POST /api/v1/governance/emergency-stop`
 2. Insert `governance.emergency_stops` record with `active=true`
-3. Publish to NATS `governance.emergency_stop` with scope payload
+3. Publish to NATS `governance.estop.activated` with scope payload
 4. Orchestrator subscribes → cancels matching in-flight scan jobs (set `emergency_stopped=true`)
 5. Workers subscribe → abort current work, return partial results
 6. New scan submissions check for active emergency stops before dispatch
 7. Admin calls `POST /api/v1/governance/emergency-stop/lift` to deactivate
-8. Publish `governance.emergency_stop_lifted` → normal operations resume
+8. Publish `governance.estop.lifted` → normal operations resume
 
 ### 4.3 Retention Lifecycle
 
@@ -321,7 +378,7 @@ active ──(expires_at passed)──→ archived ──(purge_after passed)─
 |--------------|-------------------|--------------|
 | findings | 365 days | 30 days |
 | evidence | 365 days | 30 days |
-| audit_log | 730 days | 90 days |
+| audit_log | 730 days | 90 days (see note) |
 | scan_job | 180 days | 14 days |
 | notification | 90 days | 7 days |
 | webhook_delivery | 30 days | 7 days |
@@ -339,7 +396,7 @@ active ──(expires_at passed)──→ archived ──(purge_after passed)─
 
 | Event | NATS Subject | Recipients |
 |-------|-------------|-----------|
-| approval_requested | governance.notifications | Team users with `findings.approve` |
+| approval_requested | governance.notifications | Team users with `governance.approvals.decide` |
 | approval_decided | governance.notifications | Original requester |
 | finding_assigned | governance.notifications | Assignee |
 | sla_warning | governance.notifications | Assignee + team lead |
@@ -375,10 +432,12 @@ POST   /api/v1/findings/:id/legal-hold         → findings.legal_hold
 ### 5.4 Emergency Stop
 
 ```
-POST   /api/v1/governance/emergency-stop        → governance.emergency_stop
-POST   /api/v1/governance/emergency-stop/lift   → governance.emergency_stop
-GET    /api/v1/governance/emergency-stop/active → governance.emergency_stop
+POST   /api/v1/governance/emergency-stop        → governance.emergency_stop.activate
+POST   /api/v1/governance/emergency-stop/lift   → governance.emergency_stop.lift
+GET    /api/v1/governance/emergency-stop/active → governance.emergency_stop.activate
 ```
+
+**Four-eyes principle:** The user who activated an emergency stop cannot be the same user who lifts it. The API enforces this check.
 
 ### 5.5 Notifications
 
@@ -428,9 +487,9 @@ Added to the existing permission matrix:
 | governance.settings.write | Y | Y | N | N |
 | governance.approvals.read | Y | Y | Y | Y |
 | governance.approvals.decide | Y | Y | N | N |
-| governance.emergency_stop | Y | Y | N | N |
+| governance.emergency_stop.activate | Y | Y | N | N |
+| governance.emergency_stop.lift | Y | N | N | N |
 | findings.triage | Y | Y | Y | N |
-| findings.approve | Y | Y | N | N |
 | findings.legal_hold | Y | Y | N | N |
 | webhooks.read | Y | Y | Y | Y |
 | webhooks.manage | Y | Y | N | N |
@@ -441,10 +500,10 @@ Added to the existing permission matrix:
 ## 7. NATS Subjects (New)
 
 ```
-governance.emergency_stop          # Emergency stop activation
-governance.emergency_stop_lifted   # Emergency stop deactivation
+governance.estop.activated         # Emergency stop activation
+governance.estop.lifted            # Emergency stop deactivation
 governance.notifications           # Notification events for fan-out
-governance.webhook_delivery        # Webhook delivery tasks
+governance.webhook.delivery        # Webhook delivery tasks
 ```
 
 Added to existing NATS stream configuration:
@@ -549,6 +608,7 @@ notification-worker:
 | Approval workflow adds latency to triage | Configurable per-org — orgs that don't need it skip it |
 | Retention worker deletes wrong data | Legal hold as safety net, grace period, audit trail, soft-delete before hard-delete |
 | Emergency stop race condition | Idempotent stop handling, NATS at-least-once delivery |
-| Webhook SSRF | Validate webhook URLs against private IP blocklist (reuse pkg/scope) |
+| Webhook SSRF | Dedicated `ValidateWebhookURL()` in `internal/notification/webhook.go`: (a) reject non-HTTPS (allow HTTP in dev only), (b) resolve hostname and check against `blockedCIDRs` from `pkg/scope/enforcer.go`, (c) reject embedded credentials in URL, (d) validate at both config-time and delivery-time (DNS rebinding defense) |
+| Audit log hash chain integrity | Audit logs use `previous_hash`/`entry_hash` HMAC chain. Purging breaks chain verification. Solution: archive to cold storage (MinIO WORM bucket) before deleting from active table. Insert a "genesis" marker in the chain recording the truncation point. The retention worker archives audit partitions to MinIO before dropping them |
 | Notification spam | Rate limiting per user, category-based dedup within time window |
 | Schema migration on large tables | Only adding nullable columns to existing tables, no locks |
