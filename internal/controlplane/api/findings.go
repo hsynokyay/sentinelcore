@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/sentinelcore/sentinelcore/internal/governance"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
@@ -156,41 +157,55 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get current status
 	var oldStatus string
-	err := h.pool.QueryRow(r.Context(),
-		`SELECT status FROM findings.findings WHERE id = $1`, id,
-	).Scan(&oldStatus)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "finding not found", "NOT_FOUND")
-		return
-	}
+	var resultStatus int
+	var resultBody any
 
-	// Update status
-	_, err = h.pool.Exec(r.Context(),
-		`UPDATE findings.findings SET status = $1, updated_at = now() WHERE id = $2`,
-		req.Status, id)
+	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		// Get current status under RLS
+		qErr := conn.QueryRow(ctx,
+			`SELECT status FROM findings.findings WHERE id = $1`, id,
+		).Scan(&oldStatus)
+		if qErr != nil {
+			resultStatus = http.StatusNotFound
+			resultBody = map[string]string{"error": "finding not found", "code": "NOT_FOUND"}
+			return nil
+		}
+
+		// Validate transition
+		if tErr := governance.ValidateTransition(oldStatus, req.Status); tErr != nil {
+			resultStatus = http.StatusUnprocessableEntity
+			resultBody = map[string]string{"error": tErr.Error(), "code": "INVALID_TRANSITION"}
+			return nil
+		}
+
+		// Update status
+		_, uErr := conn.Exec(ctx,
+			`UPDATE findings.findings SET status = $1, updated_at = now() WHERE id = $2`,
+			req.Status, id)
+		if uErr != nil {
+			return uErr
+		}
+
+		// Insert state transition record
+		_, _ = conn.Exec(ctx,
+			`INSERT INTO findings.finding_state_transitions (id, finding_id, from_status, to_status, changed_by, reason, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, now())`,
+			uuid.New().String(), id, oldStatus, req.Status, user.UserID, req.Reason)
+
+		resultStatus = http.StatusOK
+		resultBody = map[string]string{"id": id, "old_status": oldStatus, "new_status": req.Status}
+		return nil
+	})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to update finding status")
-		writeError(w, http.StatusInternalServerError, "failed to update finding", "INTERNAL_ERROR")
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 
-	// Insert state transition record
-	_, err = h.pool.Exec(r.Context(),
-		`INSERT INTO findings.finding_state_transitions (id, finding_id, from_status, to_status, changed_by, reason, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, now())`,
-		uuid.New().String(), id, oldStatus, req.Status, user.UserID, req.Reason)
-	if err != nil {
-		h.logger.Error().Err(err).Msg("failed to insert state transition")
-		// Non-fatal: status update already succeeded
+	if resultStatus == http.StatusOK {
+		h.emitAuditEvent(r.Context(), "finding.status_update", "user", user.UserID, "finding", id, r.RemoteAddr, "success")
 	}
 
-	h.emitAuditEvent(r.Context(), "finding.status_update", "user", user.UserID, "finding", id, r.RemoteAddr, "success")
-
-	writeJSON(w, http.StatusOK, map[string]string{
-		"id":          id,
-		"old_status":  oldStatus,
-		"new_status":  req.Status,
-	})
+	writeJSON(w, resultStatus, resultBody)
 }
