@@ -188,6 +188,26 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 		Int("findings", len(analysis.Findings)).
 		Msg("browser analysis complete")
 
+	// Auth-state variance analysis: if authenticated, also run anonymous crawl and compare.
+	if session != nil {
+		bw.logger.Info().Msg("running anonymous crawl for auth-state variance analysis")
+		anonSnap, anonErr := RunAnonymousCrawl(ctx, job, enforcer, bw.logger)
+		if anonErr != nil {
+			bw.logger.Warn().Err(anonErr).Msg("anonymous crawl failed, skipping variance analysis")
+		} else {
+			authSnap := SnapshotFromPages(AuthStateAuthenticated, pages)
+			variance := ComputeVariance(anonSnap, authSnap)
+			varResult := AnalyzeVariance(variance, job.ID)
+			result.Findings = append(result.Findings, varResult.Findings...)
+			bw.logger.Info().
+				Int("auth_only_urls", len(variance.AuthOnlyURLs)).
+				Int("anon_only_urls", len(variance.AnonOnlyURLs)).
+				Int("variance_findings", len(varResult.Findings)).
+				Int("variance_observations", len(varResult.Observations)).
+				Msg("auth-state variance analysis complete")
+		}
+	}
+
 	// Collect violation counts.
 	result.ScopeViolations = interceptor.Violations() + monitor.Violations()
 
