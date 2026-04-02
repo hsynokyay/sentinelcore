@@ -226,6 +226,38 @@ services:
       nats:
         condition: service_started
 
+  retention-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: retention-worker
+    environment:
+      DATABASE_URL: postgres://sentinelcore:dev-password@postgres:5432/sentinelcore?sslmode=disable
+      NATS_URL: nats://nats:4222
+      RETENTION_INTERVAL: "3600"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
+  notification-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: notification-worker
+    environment:
+      DATABASE_URL: postgres://sentinelcore:dev-password@postgres:5432/sentinelcore?sslmode=disable
+      NATS_URL: nats://nats:4222
+      WEBHOOK_DELIVERY_INTERVAL: "30"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
 volumes:
   pgdata:
   natsdata:
