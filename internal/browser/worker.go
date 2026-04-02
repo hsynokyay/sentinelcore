@@ -154,21 +154,30 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 
 	result.PagesVisited = len(pages)
 
-	// Capture screenshot evidence for interesting pages (non-error pages with forms)
-	for _, page := range pages {
+	// Capture evidence for interesting pages (forms, click interactions, SPA routes).
+	for i, page := range pages {
 		if page.Error != "" {
 			continue
 		}
-		// Screenshot capture for pages with forms (potential findings)
-		if len(page.Forms) > 0 && job.MaxURLs > 0 {
-			// Evidence capture is handled by the scanner phase (Phase 5d)
-			// For now, log form discovery
-			bw.logger.Info().
-				Str("url", page.URL).
-				Int("forms", len(page.Forms)).
-				Int("links", len(page.Links)).
-				Msg("page crawled with forms")
+		hasInterestingContent := len(page.Forms) > 0 || len(page.Interactions) > 0
+		if !hasInterestingContent {
+			continue
 		}
+		// Navigate back to the page for evidence capture
+		if err := chromedp.Run(chromeCtx, chromedp.Navigate(page.URL), chromedp.WaitReady("body")); err != nil {
+			bw.logger.Debug().Err(err).Str("url", page.URL).Msg("evidence nav failed")
+			continue
+		}
+		ev, err := CapturePageEvidence(ctx, chromeCtx, page.URL, job.ID, true)
+		if err == nil {
+			pages[i].Evidence = ev
+		}
+		bw.logger.Info().
+			Str("url", page.URL).
+			Int("forms", len(page.Forms)).
+			Int("click_targets", len(page.ClickTargets)).
+			Int("interactions", len(page.Interactions)).
+			Msg("page evidence captured")
 	}
 
 	// Collect violation counts.

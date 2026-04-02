@@ -85,13 +85,16 @@ func (cs *CrawlState) Dequeue() (CrawlEntry, bool) {
 
 // PageResult captures the outcome of visiting a single page.
 type PageResult struct {
-	URL       string        `json:"url"`
-	Title     string        `json:"title"`
-	Depth     int           `json:"depth"`
-	Links     []string      `json:"links"`
-	Forms     []FormInfo    `json:"forms"`
-	LoadTime  time.Duration `json:"load_time"`
-	Error     string        `json:"error,omitempty"`
+	URL          string              `json:"url"`
+	Title        string              `json:"title"`
+	Depth        int                 `json:"depth"`
+	Links        []string            `json:"links"`
+	Forms        []FormInfo          `json:"forms"`
+	ClickTargets []ClickTarget       `json:"click_targets,omitempty"`
+	Interactions []InteractionResult `json:"interactions,omitempty"`
+	Evidence     *PageEvidence       `json:"evidence,omitempty"`
+	LoadTime     time.Duration       `json:"load_time"`
+	Error        string              `json:"error,omitempty"`
 }
 
 // FormInfo describes a discovered HTML form.

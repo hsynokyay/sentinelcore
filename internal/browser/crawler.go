@@ -47,17 +47,22 @@ const jsExtractForms = `(function() {
 	return results;
 })()`
 
+// MaxSafeClicksPerPage limits how many safe elements are clicked per page.
+const MaxSafeClicksPerPage = 10
+
 // Crawler performs shallow, non-destructive browser crawling.
 type Crawler struct {
-	enforcer *scope.Enforcer
-	logger   zerolog.Logger
+	enforcer   *scope.Enforcer
+	interactor *SafeInteractor
+	logger     zerolog.Logger
 }
 
 // NewCrawler creates a new Crawler with scope enforcement and logging.
 func NewCrawler(enforcer *scope.Enforcer, logger zerolog.Logger) *Crawler {
 	return &Crawler{
-		enforcer: enforcer,
-		logger:   logger.With().Str("component", "crawler").Logger(),
+		enforcer:   enforcer,
+		interactor: NewSafeInteractor(logger),
+		logger:     logger.With().Str("component", "crawler").Logger(),
 	}
 }
 
@@ -193,11 +198,35 @@ func (c *Crawler) visitPage(ctx context.Context, chromeCtx context.Context, entr
 		page.Forms = append(page.Forms, fi)
 	}
 
+	// Discover clickable elements and classify safety.
+	targets, err := c.interactor.DiscoverClickTargets(ctx, chromeCtx)
+	if err != nil {
+		c.logger.Debug().Err(err).Str("url", entry.URL).Msg("click target discovery failed")
+	} else {
+		page.ClickTargets = targets
+
+		// Click safe elements to discover SPA routes and hidden content.
+		interactions := c.interactor.ClickSafeTargets(ctx, chromeCtx, targets, MaxSafeClicksPerPage)
+		page.Interactions = interactions
+
+		// If any safe clicks triggered navigation to a new in-scope URL, enqueue it.
+		for _, ir := range interactions {
+			if ir.TriggeredNav && ir.NewURL != "" {
+				if c.enforcer.CheckRequest(ctx, ir.NewURL) == nil {
+					// The new URL will be enqueued by the Crawl() caller
+					page.Links = append(page.Links, ir.NewURL)
+				}
+			}
+		}
+	}
+
 	c.logger.Debug().
 		Str("url", entry.URL).
 		Int("depth", entry.Depth).
 		Int("links", len(page.Links)).
 		Int("forms", len(page.Forms)).
+		Int("click_targets", len(page.ClickTargets)).
+		Int("interactions", len(page.Interactions)).
 		Str("title", page.Title).
 		Msg("page visited")
 
