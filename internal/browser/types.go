@@ -30,16 +30,17 @@ type BrowserScanJob struct {
 
 // BrowserScanResult contains the outcome of a browser-based DAST scan.
 type BrowserScanResult struct {
-	ScanJobID       string        `json:"scan_job_id"`
-	WorkerID        string        `json:"worker_id"`
-	Status          string        `json:"status"` // completed, failed, aborted
-	Findings        []dast.Finding `json:"findings"`
-	PagesVisited    int           `json:"pages_visited"`
-	ScopeViolations int64         `json:"scope_violations"`
-	Duration        time.Duration `json:"duration"`
-	StartedAt       time.Time     `json:"started_at"`
-	CompletedAt     time.Time     `json:"completed_at"`
-	Error           string        `json:"error,omitempty"`
+	ScanJobID       string            `json:"scan_job_id"`
+	WorkerID        string            `json:"worker_id"`
+	Status          string            `json:"status"` // completed, failed, aborted
+	Findings        []dast.Finding    `json:"findings"`
+	Inventory       *SurfaceInventory `json:"inventory,omitempty"`
+	PagesVisited    int               `json:"pages_visited"`
+	ScopeViolations int64             `json:"scope_violations"`
+	Duration        time.Duration     `json:"duration"`
+	StartedAt       time.Time         `json:"started_at"`
+	CompletedAt     time.Time         `json:"completed_at"`
+	Error           string            `json:"error,omitempty"`
 }
 
 // DestructiveKeywords contains words that indicate a form action is destructive.

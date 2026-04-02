@@ -189,6 +189,7 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 		Msg("browser analysis complete")
 
 	// Auth-state variance analysis: if authenticated, also run anonymous crawl and compare.
+	var varianceData *AuthStateVariance
 	if session != nil {
 		bw.logger.Info().Msg("running anonymous crawl for auth-state variance analysis")
 		anonSnap, anonErr := RunAnonymousCrawl(ctx, job, enforcer, bw.logger)
@@ -196,17 +197,26 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 			bw.logger.Warn().Err(anonErr).Msg("anonymous crawl failed, skipping variance analysis")
 		} else {
 			authSnap := SnapshotFromPages(AuthStateAuthenticated, pages)
-			variance := ComputeVariance(anonSnap, authSnap)
-			varResult := AnalyzeVariance(variance, job.ID)
+			varianceData = ComputeVariance(anonSnap, authSnap)
+			varResult := AnalyzeVariance(varianceData, job.ID)
 			result.Findings = append(result.Findings, varResult.Findings...)
 			bw.logger.Info().
-				Int("auth_only_urls", len(variance.AuthOnlyURLs)).
-				Int("anon_only_urls", len(variance.AnonOnlyURLs)).
+				Int("auth_only_urls", len(varianceData.AuthOnlyURLs)).
+				Int("anon_only_urls", len(varianceData.AnonOnlyURLs)).
 				Int("variance_findings", len(varResult.Findings)).
 				Int("variance_observations", len(varResult.Observations)).
 				Msg("auth-state variance analysis complete")
 		}
 	}
+
+	// Build attack surface inventory from all collected data.
+	result.Inventory = BuildInventory(job.ProjectID, job.ID, pages, varianceData, result.Findings)
+	bw.logger.Info().
+		Int("inventory_entries", result.Inventory.Stats.TotalEntries).
+		Int("routes", result.Inventory.Stats.ByType["route"]).
+		Int("forms", result.Inventory.Stats.ByType["form"]).
+		Int("clickables", result.Inventory.Stats.ByType["clickable"]).
+		Msg("attack surface inventory built")
 
 	// Collect violation counts.
 	result.ScopeViolations = interceptor.Violations() + monitor.Violations()
