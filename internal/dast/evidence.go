@@ -42,8 +42,8 @@ type HTTPResponse struct {
 
 const maxEvidenceBodySize = 1 << 20 // 1 MB
 
-// sensitiveHeaders are redacted from evidence capture.
-var sensitiveHeaders = map[string]bool{
+// SensitiveHeaders are redacted from evidence capture. Exported for reuse by browser worker.
+var SensitiveHeaders = map[string]bool{
 	"authorization":          true,
 	"cookie":                 true,
 	"set-cookie":             true,
@@ -55,8 +55,8 @@ var sensitiveHeaders = map[string]bool{
 	"proxy-authentication-info": true,
 }
 
-// sensitivePatterns match credential-like values in bodies.
-var sensitivePatterns = []*regexp.Regexp{
+// SensitivePatterns match credential-like values in bodies. Exported for reuse by browser worker.
+var SensitivePatterns = []*regexp.Regexp{
 	// Key-value credentials: password=xxx, "secret": "xxx", token: xxx
 	regexp.MustCompile(`(?i)"?(password|passwd|secret|token|api[_-]?key|auth|credential|client_secret)"?\s*[:=]\s*"?[^\s"',}]+`),
 	// Bearer tokens
@@ -104,7 +104,7 @@ func captureRequest(req *http.Request) HTTPRequest {
 	}
 
 	for k, vals := range req.Header {
-		if sensitiveHeaders[strings.ToLower(k)] {
+		if SensitiveHeaders[strings.ToLower(k)] {
 			hr.Headers[k] = "[REDACTED]"
 		} else {
 			hr.Headers[k] = strings.Join(vals, ", ")
@@ -133,7 +133,7 @@ func captureResponse(resp *http.Response) HTTPResponse {
 	}
 
 	for k, vals := range resp.Header {
-		if sensitiveHeaders[strings.ToLower(k)] {
+		if SensitiveHeaders[strings.ToLower(k)] {
 			hr.Headers[k] = "[REDACTED]"
 		} else {
 			hr.Headers[k] = strings.Join(vals, ", ")
@@ -161,7 +161,7 @@ func captureResponse(resp *http.Response) HTTPResponse {
 
 func redactBody(body string) string {
 	result := body
-	for _, pattern := range sensitivePatterns {
+	for _, pattern := range SensitivePatterns {
 		result = pattern.ReplaceAllString(result, "[REDACTED]")
 	}
 	return result
@@ -201,7 +201,7 @@ func captureEvidenceFromBytes(req *http.Request, resp *http.Response, respBody [
 			BodySize:   int64(len(respBody)),
 		}
 		for k, vals := range resp.Header {
-			if sensitiveHeaders[strings.ToLower(k)] {
+			if SensitiveHeaders[strings.ToLower(k)] {
 				hr.Headers[k] = "[REDACTED]"
 			} else {
 				hr.Headers[k] = strings.Join(vals, ", ")

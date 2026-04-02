@@ -184,9 +184,16 @@ func (e *Enforcer) CheckRequest(ctx context.Context, reqURL string) error {
 		return fmt.Errorf("scope: invalid URL: %w", err)
 	}
 
-	// Scheme check
+	// Scheme check — normalize ws/wss to http/https for validation
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
+	switch scheme {
+	case "ws":
+		scheme = "http"
+	case "wss":
+		scheme = "https"
+	case "http", "https":
+		// allowed as-is
+	default:
 		e.recordViolation("invalid_scheme", scheme, reqURL)
 		return fmt.Errorf("scope: scheme %q not allowed", scheme)
 	}

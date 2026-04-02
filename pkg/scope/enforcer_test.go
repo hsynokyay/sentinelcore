@@ -554,3 +554,39 @@ func TestAdversarial_ConcurrentViolationCounting(t *testing.T) {
 		t.Fatalf("expected 50 violations, got %d", e.ViolationCount())
 	}
 }
+
+func TestCheckRequest_WebSocketSchemes(t *testing.T) {
+	resolver := &mockResolver{
+		results: map[string][]net.IPAddr{
+			"target.com": {{IP: net.ParseIP("93.184.216.34")}},
+		},
+	}
+	e := newTestEnforcer([]string{"target.com"}, map[string][]net.IP{
+		"target.com": {net.ParseIP("93.184.216.34")},
+	}, resolver)
+
+	// ws:// to allowed host should pass
+	if err := e.CheckRequest(context.Background(), "ws://target.com/socket"); err != nil {
+		t.Errorf("ws:// to allowed host should pass: %v", err)
+	}
+
+	// wss:// to allowed host should pass
+	if err := e.CheckRequest(context.Background(), "wss://target.com/socket"); err != nil {
+		t.Errorf("wss:// to allowed host should pass: %v", err)
+	}
+
+	// ws:// to out-of-scope host should fail
+	if err := e.CheckRequest(context.Background(), "ws://evil.com/socket"); err == nil {
+		t.Error("ws:// to out-of-scope host should fail")
+	}
+
+	// wss:// to out-of-scope host should fail
+	if err := e.CheckRequest(context.Background(), "wss://evil.com/socket"); err == nil {
+		t.Error("wss:// to out-of-scope host should fail")
+	}
+
+	// ftp:// should still be rejected
+	if err := e.CheckRequest(context.Background(), "ftp://target.com/file"); err == nil {
+		t.Error("ftp:// should be rejected")
+	}
+}
