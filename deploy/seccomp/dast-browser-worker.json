@@ -1,0 +1,57 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "architectures": [
+    "SCMP_ARCH_X86_64",
+    "SCMP_ARCH_AARCH64"
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "read", "write", "close", "fstat", "lseek",
+        "mmap", "mprotect", "munmap", "brk",
+        "pread64", "pwrite64",
+        "access", "getpid", "getuid", "getgid",
+        "geteuid", "getegid", "gettid",
+        "socket", "connect", "bind", "listen", "accept", "accept4",
+        "sendto", "recvfrom", "sendmsg", "recvmsg",
+        "setsockopt", "getsockopt", "getsockname", "getpeername",
+        "epoll_create1", "epoll_ctl", "epoll_wait", "epoll_pwait",
+        "select", "poll", "ppoll",
+        "openat", "readlinkat", "newfstatat",
+        "futex", "nanosleep", "clock_gettime", "clock_nanosleep",
+        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+        "sigaltstack", "tgkill",
+        "exit", "exit_group",
+        "getrandom",
+        "pipe2", "dup", "dup2", "dup3",
+        "fcntl", "ioctl",
+        "sched_yield", "sched_getaffinity",
+        "set_robust_list", "get_robust_list",
+        "arch_prctl", "set_tid_address",
+        "madvise", "mincore",
+        "clone3", "clone", "rseq",
+        "execve", "execveat",
+        "wait4", "waitid",
+        "fork", "vfork",
+        "prctl", "seccomp",
+        "getdents64", "getcwd",
+        "statx", "stat", "lstat",
+        "mkdir", "mkdirat", "unlink", "unlinkat", "rmdir",
+        "rename", "renameat2",
+        "chmod", "fchmod", "chown",
+        "pipe", "eventfd2",
+        "memfd_create",
+        "prlimit64", "getrlimit", "setrlimit",
+        "sysinfo", "uname",
+        "getppid", "getpgid", "setpgid", "setsid", "getsid",
+        "kill",
+        "socketpair", "shutdown",
+        "recvmmsg", "sendmmsg",
+        "fallocate", "ftruncate",
+        "mremap"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ],
+  "_comment": "Browser DAST worker: allows execve/fork for Chrome subprocesses, filesystem ops for profile management. More permissive than API DAST worker — container-level isolation (namespaces, cgroups, iptables, non-root user, read-only rootfs) provides the primary security boundary. See docs/browser-worker-chrome-flags.md for compensating controls."
+}
