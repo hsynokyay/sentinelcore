@@ -181,6 +181,45 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/findings", handlers.ListFindings)
 	mux.HandleFunc("PATCH /api/v1/findings/{id}/status", handlers.UpdateFindingStatus)
 
+	// Governance
+	mux.HandleFunc("GET /api/v1/governance/settings", handlers.GetGovernanceSettings)
+	mux.HandleFunc("PUT /api/v1/governance/settings", handlers.UpdateGovernanceSettings)
+	mux.HandleFunc("GET /api/v1/governance/approvals", handlers.ListApprovals)
+	mux.HandleFunc("GET /api/v1/governance/approvals/{id}", handlers.GetApproval)
+	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decide", handlers.DecideApproval)
+	mux.HandleFunc("POST /api/v1/governance/emergency-stop", handlers.ActivateEmergencyStop)
+	mux.HandleFunc("POST /api/v1/governance/emergency-stop/lift", handlers.LiftEmergencyStop)
+	mux.HandleFunc("GET /api/v1/governance/emergency-stop/active", handlers.ListActiveEmergencyStops)
+
+	// Finding extensions
+	mux.HandleFunc("POST /api/v1/findings/{id}/assign", handlers.AssignFinding)
+	mux.HandleFunc("POST /api/v1/findings/{id}/legal-hold", handlers.SetLegalHold)
+
+	// Notifications
+	mux.HandleFunc("GET /api/v1/notifications", handlers.ListNotificationsHandler)
+	mux.HandleFunc("POST /api/v1/notifications/{id}/read", handlers.MarkNotificationRead)
+	mux.HandleFunc("POST /api/v1/notifications/read-all", handlers.MarkAllNotificationsRead)
+	mux.HandleFunc("GET /api/v1/notifications/unread-count", handlers.GetUnreadCount)
+
+	// Webhooks
+	mux.HandleFunc("GET /api/v1/webhooks", handlers.ListWebhooks)
+	mux.HandleFunc("POST /api/v1/webhooks", handlers.CreateWebhook)
+	mux.HandleFunc("PUT /api/v1/webhooks/{id}", handlers.UpdateWebhook)
+	mux.HandleFunc("DELETE /api/v1/webhooks/{id}", handlers.DeleteWebhook)
+	mux.HandleFunc("POST /api/v1/webhooks/{id}/test", handlers.TestWebhook)
+
+	// Retention
+	mux.HandleFunc("GET /api/v1/retention/policies", handlers.GetRetentionPolicies)
+	mux.HandleFunc("PUT /api/v1/retention/policies", handlers.UpdateRetentionPolicies)
+	mux.HandleFunc("GET /api/v1/retention/records", handlers.ListRetentionRecords)
+	mux.HandleFunc("GET /api/v1/retention/stats", handlers.GetRetentionStats)
+
+	// Reports
+	mux.HandleFunc("GET /api/v1/reports/findings-summary", handlers.FindingsSummary)
+	mux.HandleFunc("GET /api/v1/reports/triage-metrics", handlers.TriageMetrics)
+	mux.HandleFunc("GET /api/v1/reports/compliance-status", handlers.ComplianceStatus)
+	mux.HandleFunc("GET /api/v1/reports/scan-activity", handlers.ScanActivity)
+
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
 	handler = conditionalAuthMiddleware(s.jwtMgr, s.sessions)(handler)
