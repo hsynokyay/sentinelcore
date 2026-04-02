@@ -180,6 +180,14 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 			Msg("page evidence captured")
 	}
 
+	// Analyze pages for security observations and derive findings.
+	analysis := AnalyzePages(pages, job.ID, job.ProjectID)
+	result.Findings = append(result.Findings, analysis.Findings...)
+	bw.logger.Info().
+		Int("observations", len(analysis.Observations)).
+		Int("findings", len(analysis.Findings)).
+		Msg("browser analysis complete")
+
 	// Collect violation counts.
 	result.ScopeViolations = interceptor.Violations() + monitor.Violations()
 
