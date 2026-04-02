@@ -258,6 +258,27 @@ services:
       nats:
         condition: service_started
 
+  dast-browser-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: dast-browser-worker
+    environment:
+      NATS_URL: nats://nats:4222
+      MSG_SIGNING_KEY: dev-signing-key-change-me
+    security_opt:
+      - seccomp=../../deploy/seccomp/dast-browser-worker.json
+    shm_size: '256m'
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    depends_on:
+      nats:
+        condition: service_started
+      auth-broker:
+        condition: service_started
+
 volumes:
   pgdata:
   natsdata:
