@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/authbroker"
+	corr "github.com/sentinelcore/sentinelcore/pkg/correlation"
 	"github.com/sentinelcore/sentinelcore/pkg/scope"
 )
 
@@ -217,6 +218,29 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 		Int("forms", result.Inventory.Stats.ByType["form"]).
 		Int("clickables", result.Inventory.Stats.ByType["clickable"]).
 		Msg("attack surface inventory built")
+
+	// Enrich inventory with surface-to-finding correlations.
+	// Convert dast.Findings to correlation RawFindings for the enrichment engine.
+	var rawFindings []*corr.RawFinding
+	for _, f := range result.Findings {
+		rf := &corr.RawFinding{
+			ID:        f.ID,
+			URL:       f.URL,
+			Method:    f.Method,
+			Parameter: f.Parameter,
+			Category:  f.Category,
+			Type:      corr.TypeDAST,
+		}
+		if f.Evidence != nil {
+			rf.Fingerprint = f.Evidence.SHA256
+		}
+		rawFindings = append(rawFindings, rf)
+	}
+	enrichResult := EnrichInventory(result.Inventory, rawFindings)
+	bw.logger.Info().
+		Int("correlations", enrichResult.Stats.TotalCorrelations).
+		Int("enriched_entries", enrichResult.Stats.EnrichedEntries).
+		Msg("surface correlation enrichment complete")
 
 	// Collect violation counts.
 	result.ScopeViolations = interceptor.Violations() + monitor.Violations()
