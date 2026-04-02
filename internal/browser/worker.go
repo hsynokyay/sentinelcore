@@ -134,11 +134,42 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 	// Step 7: Collect basic page info.
 	var title string
 	_ = chromedp.Run(chromeCtx, chromedp.Title(&title))
-	result.PagesVisited = 1
-
 	bw.logger.Info().Str("scan_id", job.ID).Str("page_title", title).Msg("target page loaded")
 
-	// Phase 5: crawler.Crawl(ctx, seedURLs) goes here
+	// Run crawler
+	crawler := NewCrawler(enforcer, bw.logger)
+	crawlState := NewCrawlState(job)
+
+	// Seed URLs
+	for _, seedURL := range job.SeedURLs {
+		crawlState.Enqueue(seedURL, 0)
+	}
+	// Always seed the target base URL
+	crawlState.Enqueue(job.TargetBaseURL, 0)
+
+	pages, crawlErr := crawler.Crawl(ctx, crawlState, chromeCtx)
+	if crawlErr != nil {
+		bw.logger.Error().Err(crawlErr).Msg("crawler error")
+	}
+
+	result.PagesVisited = len(pages)
+
+	// Capture screenshot evidence for interesting pages (non-error pages with forms)
+	for _, page := range pages {
+		if page.Error != "" {
+			continue
+		}
+		// Screenshot capture for pages with forms (potential findings)
+		if len(page.Forms) > 0 && job.MaxURLs > 0 {
+			// Evidence capture is handled by the scanner phase (Phase 5d)
+			// For now, log form discovery
+			bw.logger.Info().
+				Str("url", page.URL).
+				Int("forms", len(page.Forms)).
+				Int("links", len(page.Links)).
+				Msg("page crawled with forms")
+		}
+	}
 
 	// Collect violation counts.
 	result.ScopeViolations = interceptor.Violations() + monitor.Violations()
