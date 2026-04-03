@@ -1,67 +1,30 @@
+import { api } from "@/lib/api-client";
 import type { SurfaceEntry } from "@/lib/types";
 
-// MOCK: No backend endpoint exists yet. Replace when GET /api/v1/surface is implemented.
-export async function getSurfaceEntries(): Promise<SurfaceEntry[]> {
-  return [
-    {
-      id: "1",
-      type: "route",
-      url: "https://app.example.com/",
-      method: "GET",
-      exposure: "public",
-      finding_ids: [],
-      observation_count: 0,
-      first_seen_at: new Date().toISOString(),
-      last_seen_at: new Date().toISOString(),
-      scan_count: 1,
-    },
-    {
-      id: "2",
-      type: "form",
-      url: "https://app.example.com/login",
-      method: "POST",
-      exposure: "public",
-      finding_ids: ["f1"],
-      observation_count: 2,
-      first_seen_at: new Date().toISOString(),
-      last_seen_at: new Date().toISOString(),
-      scan_count: 3,
-    },
-    {
-      id: "3",
-      type: "route",
-      url: "https://app.example.com/admin",
-      method: "GET",
-      exposure: "authenticated",
-      finding_ids: [],
-      observation_count: 0,
-      first_seen_at: new Date().toISOString(),
-      last_seen_at: new Date().toISOString(),
-      scan_count: 1,
-    },
-    {
-      id: "4",
-      type: "api_endpoint",
-      url: "https://app.example.com/api/users",
-      method: "GET",
-      exposure: "authenticated",
-      finding_ids: ["f2", "f3"],
-      observation_count: 5,
-      first_seen_at: new Date().toISOString(),
-      last_seen_at: new Date().toISOString(),
-      scan_count: 4,
-    },
-    {
-      id: "5",
-      type: "clickable",
-      url: "https://app.example.com/dashboard",
-      method: "GET",
-      exposure: "both",
-      finding_ids: [],
-      observation_count: 1,
-      first_seen_at: new Date().toISOString(),
-      last_seen_at: new Date().toISOString(),
-      scan_count: 2,
-    },
-  ];
+export interface SurfaceFilters {
+  project_id?: string;
+  type?: string;
+  exposure?: string;
+  has_findings?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface SurfaceResponse {
+  entries: SurfaceEntry[];
+  limit: number;
+  offset: number;
+}
+
+export async function getSurfaceEntries(filters: SurfaceFilters = {}): Promise<SurfaceResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== "") params.set(k, String(v));
+  });
+  return api.get<SurfaceResponse>(`/api/v1/surface?${params.toString()}`);
+}
+
+export async function getSurfaceStats(projectId?: string) {
+  const params = projectId ? `?project_id=${projectId}` : "";
+  return api.get<{ stats: Array<{ type: string; exposure: string; count: number }> }>(`/api/v1/surface/stats${params}`);
 }

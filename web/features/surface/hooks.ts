@@ -1,9 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { getSurfaceEntries } from "./api";
+import { getSurfaceEntries, getSurfaceStats, type SurfaceFilters } from "./api";
 
-export function useSurface() {
+export function useSurface(filters: SurfaceFilters = {}) {
   return useQuery({
-    queryKey: ["surface"],
-    queryFn: () => getSurfaceEntries(),
+    queryKey: ["surface", filters],
+    queryFn: () => getSurfaceEntries(filters),
+  });
+}
+
+export function useSurfaceStats(projectId?: string) {
+  return useQuery({
+    queryKey: ["surface-stats", projectId],
+    queryFn: () => getSurfaceStats(projectId),
   });
 }

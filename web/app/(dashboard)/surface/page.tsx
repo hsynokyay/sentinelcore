@@ -8,7 +8,7 @@ import { useSurface } from "@/features/surface/hooks";
 export default function SurfacePage() {
   const { data, isLoading, isError, refetch } = useSurface();
 
-  const entries = data ?? [];
+  const entries = data?.entries ?? [];
 
   return (
     <div>

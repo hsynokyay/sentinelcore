@@ -24,19 +24,26 @@ type UserContext struct {
 func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Extract token from Authorization header or httpOnly cookie (fallback).
+			token := ""
 			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
+			if authHeader != "" {
+				parts := strings.SplitN(authHeader, " ", 2)
+				if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
+					token = parts[1]
+				}
+			}
+			if token == "" {
+				if cookie, err := r.Cookie("sentinel_access_token"); err == nil && cookie.Value != "" {
+					token = cookie.Value
+				}
+			}
+			if token == "" {
+				http.Error(w, `{"error":"missing authorization"}`, http.StatusUnauthorized)
 				return
 			}
 
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-				http.Error(w, `{"error":"invalid authorization header format"}`, http.StatusUnauthorized)
-				return
-			}
-
-			claims, err := jwtMgr.ValidateToken(parts[1])
+			claims, err := jwtMgr.ValidateToken(token)
 			if err != nil {
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return

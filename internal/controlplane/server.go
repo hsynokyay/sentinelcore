@@ -224,6 +224,13 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/reports/compliance-status", handlers.ComplianceStatus)
 	mux.HandleFunc("GET /api/v1/reports/scan-activity", handlers.ScanActivity)
 
+	// Surface inventory
+	mux.HandleFunc("GET /api/v1/surface", handlers.ListSurfaceEntries)
+	mux.HandleFunc("GET /api/v1/surface/stats", handlers.GetSurfaceStats)
+
+	// Audit log
+	mux.HandleFunc("GET /api/v1/audit", handlers.ListAuditEvents)
+
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
 	handler = conditionalAuthMiddleware(s.jwtMgr, s.sessions)(handler)

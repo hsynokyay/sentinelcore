@@ -14,7 +14,9 @@ class ApiClient {
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    // Include credentials so httpOnly cookies are sent automatically.
+    // This enables cookie-based auth (primary) alongside Bearer token (fallback).
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" });
 
     if (res.status === 401) {
       localStorage.removeItem("sentinel_access_token");

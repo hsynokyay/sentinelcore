@@ -76,6 +76,27 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	h.emitAuditEvent(r.Context(), "auth.login", "user", userID, "user", userID, r.RemoteAddr, "success")
 
+	// Set httpOnly secure cookies for browser clients.
+	// The JSON body is also returned for programmatic API clients.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sentinel_access_token",
+		Value:    accessToken,
+		Path:     "/",
+		MaxAge:   900,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sentinel_refresh_token",
+		Value:    refreshToken,
+		Path:     "/api/v1/auth",
+		MaxAge:   7 * 24 * 3600,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+	})
+
 	writeJSON(w, http.StatusOK, tokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -134,6 +155,10 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.emitAuditEvent(r.Context(), "auth.logout", "user", user.UserID, "user", user.UserID, r.RemoteAddr, "success")
+
+	// Clear httpOnly cookies on logout.
+	http.SetCookie(w, &http.Cookie{Name: "sentinel_access_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: "sentinel_refresh_token", Value: "", Path: "/api/v1/auth", MaxAge: -1, HttpOnly: true})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
 }
