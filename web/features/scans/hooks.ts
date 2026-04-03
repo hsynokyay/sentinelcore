@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { getScans, getScan, type ScanFilters } from "./api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getScans, getScan, createScan, cancelScan, type ScanFilters } from "./api";
 
 export function useScans(filters: ScanFilters = {}) {
   return useQuery({
@@ -23,4 +23,21 @@ export function useScan(id: string) {
     },
   });
   return query;
+}
+
+export function useCreateScan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectId, data }: { projectId: string; data: { scan_type: string; target_id: string } }) =>
+      createScan(projectId, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scans"] }),
+  });
+}
+
+export function useCancelScan() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => cancelScan(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scans"] }),
+  });
 }

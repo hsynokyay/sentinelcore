@@ -1,6 +1,6 @@
 import type { SurfaceEntry } from "@/lib/types";
 
-// TODO: Replace with real API call when surface endpoint is available
+// MOCK: No backend endpoint exists yet. Replace when GET /api/v1/surface is implemented.
 export async function getSurfaceEntries(): Promise<SurfaceEntry[]> {
   return [
     {

@@ -4,6 +4,9 @@ import {
   decideApproval,
   getSettings,
   updateSettings,
+  activateEmergencyStop,
+  liftEmergencyStop,
+  listActiveEmergencyStops,
   type ApprovalFilters,
 } from "./api";
 import type { OrgSettings } from "@/lib/types";
@@ -36,5 +39,29 @@ export function useUpdateSettings() {
   return useMutation({
     mutationFn: (settings: Partial<OrgSettings>) => updateSettings(settings),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["governance-settings"] }),
+  });
+}
+
+export function useEmergencyStops() {
+  return useQuery({
+    queryKey: ["emergency-stops"],
+    queryFn: () => listActiveEmergencyStops(),
+  });
+}
+
+export function useActivateEmergencyStop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ scope, scopeId, reason }: { scope: string; scopeId?: string; reason: string }) =>
+      activateEmergencyStop(scope, scopeId, reason),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emergency-stops"] }),
+  });
+}
+
+export function useLiftEmergencyStop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (stopId: string) => liftEmergencyStop(stopId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["emergency-stops"] }),
   });
 }

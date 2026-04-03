@@ -27,3 +27,14 @@ export async function getScans(filters: ScanFilters = {}): Promise<ScansResponse
 export async function getScan(id: string): Promise<{ scan: Scan }> {
   return api.get<{ scan: Scan }>(`/api/v1/scans/${id}`);
 }
+
+export async function createScan(
+  projectId: string,
+  data: { scan_type: string; target_id: string },
+): Promise<{ scan: Scan }> {
+  return api.post<{ scan: Scan }>(`/api/v1/projects/${projectId}/scans`, data);
+}
+
+export async function cancelScan(id: string): Promise<void> {
+  await api.post(`/api/v1/scans/${id}/cancel`);
+}

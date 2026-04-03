@@ -25,3 +25,18 @@ export async function getFinding(id: string) {
 export async function updateFindingStatus(id: string, status: string, reason: string) {
   return api.patch(`/api/v1/findings/${id}/status`, { status, reason });
 }
+
+export async function assignFinding(
+  id: string,
+  data: { assigned_to: string; note?: string },
+): Promise<void> {
+  await api.post(`/api/v1/findings/${id}/assign`, data);
+}
+
+export async function setLegalHold(
+  id: string,
+  hold: boolean,
+  reason: string,
+): Promise<void> {
+  await api.post(`/api/v1/findings/${id}/legal-hold`, { hold, reason });
+}

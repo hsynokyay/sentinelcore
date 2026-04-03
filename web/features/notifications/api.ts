@@ -10,13 +10,13 @@ export async function getNotifications(): Promise<NotificationsResponse> {
 }
 
 export async function markRead(id: string): Promise<void> {
-  await api.patch(`/api/v1/notifications/${id}/read`, {});
+  await api.post(`/api/v1/notifications/${id}/read`);
 }
 
 export async function markAllRead(): Promise<void> {
   await api.post("/api/v1/notifications/read-all");
 }
 
-export async function getUnreadCount(): Promise<{ count: number }> {
-  return api.get<{ count: number }>("/api/v1/notifications/unread-count");
+export async function getUnreadCount(): Promise<{ unread_count: number }> {
+  return api.get<{ unread_count: number }>("/api/v1/notifications/unread-count");
 }

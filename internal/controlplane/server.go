@@ -179,7 +179,11 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Findings
 	mux.HandleFunc("GET /api/v1/findings", handlers.ListFindings)
+	mux.HandleFunc("GET /api/v1/findings/{id}", handlers.GetFinding)
 	mux.HandleFunc("PATCH /api/v1/findings/{id}/status", handlers.UpdateFindingStatus)
+
+	// Scans (list)
+	mux.HandleFunc("GET /api/v1/scans", handlers.ListScans)
 
 	// Governance
 	mux.HandleFunc("GET /api/v1/governance/settings", handlers.GetGovernanceSettings)

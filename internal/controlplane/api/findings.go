@@ -134,6 +134,38 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetFinding returns a single finding by ID with RLS enforcement.
+func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
+	user := requireAuth(w, r)
+	if user == nil {
+		return
+	}
+	if !policy.Evaluate(user.Role, "findings.read") {
+		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		return
+	}
+
+	id := r.PathValue("id")
+
+	var f findingResponse
+	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		var createdAt time.Time
+		var lineNumber *int
+		return conn.QueryRow(ctx,
+			`SELECT id, project_id, scan_id, finding_type, severity, status, title,
+			        COALESCE(description, ''), COALESCE(file_path, ''), line_number, created_at
+			 FROM findings.findings WHERE id = $1`, id,
+		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status,
+			&f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt)
+	})
+	if err != nil {
+		writeError(w, http.StatusNotFound, "finding not found", "NOT_FOUND")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"finding": f})
+}
+
 // UpdateFindingStatus updates a finding's status and records a state transition.
 func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 	user := requireAuth(w, r)

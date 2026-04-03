@@ -1,13 +1,18 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/sentinelcore/sentinelcore/internal/policy"
+	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
 type createScanRequest struct {
@@ -32,6 +37,106 @@ var validScanTypes = map[string]bool{
 	"sast": true,
 	"dast": true,
 	"sca":  true,
+}
+
+// ListScans returns paginated scan jobs with optional filters.
+func (h *Handlers) ListScans(w http.ResponseWriter, r *http.Request) {
+	user := requireAuth(w, r)
+	if user == nil {
+		return
+	}
+	if !policy.Evaluate(user.Role, "scans.read") {
+		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		return
+	}
+
+	projectID := r.URL.Query().Get("project_id")
+	status := r.URL.Query().Get("status")
+	scanType := r.URL.Query().Get("scan_type")
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 50
+	offset := 0
+	if limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 200 {
+			limit = v
+		}
+	}
+	if offsetStr != "" {
+		if v, err := strconv.Atoi(offsetStr); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
+	var scans []scanResponse
+
+	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		query := `SELECT id, project_id, scan_type, status, COALESCE(progress, 0), COALESCE(target_id::text, ''), created_at, started_at, finished_at
+				  FROM scans.scan_jobs WHERE 1=1`
+		args := []any{}
+		argIdx := 1
+
+		if projectID != "" {
+			query += fmt.Sprintf(" AND project_id = $%d", argIdx)
+			args = append(args, projectID)
+			argIdx++
+		}
+		if status != "" {
+			query += fmt.Sprintf(" AND status = $%d", argIdx)
+			args = append(args, status)
+			argIdx++
+		}
+		if scanType != "" {
+			query += fmt.Sprintf(" AND scan_type = $%d", argIdx)
+			args = append(args, scanType)
+			argIdx++
+		}
+
+		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+		args = append(args, limit, offset)
+
+		rows, err := conn.Query(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var s scanResponse
+			var createdAt time.Time
+			var startedAt, finishedAt *time.Time
+			if err := rows.Scan(&s.ID, &s.ProjectID, &s.ScanType, &s.Status, &s.Progress, &s.TargetID, &createdAt, &startedAt, &finishedAt); err != nil {
+				return err
+			}
+			s.CreatedAt = createdAt.Format(time.RFC3339)
+			if startedAt != nil {
+				t := startedAt.Format(time.RFC3339)
+				s.StartedAt = &t
+			}
+			if finishedAt != nil {
+				t := finishedAt.Format(time.RFC3339)
+				s.FinishedAt = &t
+			}
+			scans = append(scans, s)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("failed to list scans")
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
+
+	if scans == nil {
+		scans = []scanResponse{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"scans":  scans,
+		"limit":  limit,
+		"offset": offset,
+	})
 }
 
 // CreateScan creates a new scan job and dispatches it via NATS.

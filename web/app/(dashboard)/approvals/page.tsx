@@ -14,7 +14,7 @@ export default function ApprovalsPage() {
 
   const { data, isLoading, isError, refetch } = useApprovals({ limit: PAGE_SIZE, offset });
 
-  const requests = data?.requests ?? [];
+  const requests = data?.approvals ?? [];
   const hasMore = requests.length === PAGE_SIZE;
 
   return (

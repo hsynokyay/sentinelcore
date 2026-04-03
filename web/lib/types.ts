@@ -155,6 +155,9 @@ export interface ComplianceStatus {
   sla_compliance_pct: number;
   findings_within_sla: number;
   findings_breached_sla: number;
+  retention_active: number;
+  retention_archived: number;
+  retention_purged: number;
 }
 
 // Surface
@@ -170,6 +173,20 @@ export interface SurfaceEntry {
   first_seen_at: string;
   last_seen_at: string;
   scan_count: number;
+}
+
+// Scans response
+export interface ScansResponse {
+  scans: Scan[];
+  limit: number;
+  offset: number;
+}
+
+// Approvals response
+export interface ApprovalsResponse {
+  approvals: ApprovalRequest[];
+  limit: number;
+  offset: number;
 }
 
 // Audit
