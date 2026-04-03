@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/authbroker"
@@ -20,6 +21,7 @@ import (
 type BrowserWorker struct {
 	WorkerID string
 	broker   *authbroker.Broker
+	pool     *pgxpool.Pool // optional: if set, surface inventory is persisted to DB
 	logger   zerolog.Logger
 }
 
@@ -30,6 +32,12 @@ func NewBrowserWorker(workerID string, broker *authbroker.Broker, logger zerolog
 		broker:   broker,
 		logger:   logger.With().Str("component", "browser-worker").Str("worker_id", workerID).Logger(),
 	}
+}
+
+// WithPool sets the database pool for surface inventory persistence.
+func (bw *BrowserWorker) WithPool(pool *pgxpool.Pool) *BrowserWorker {
+	bw.pool = pool
+	return bw
 }
 
 // ExecuteScan runs a browser-based DAST scan.
@@ -241,6 +249,13 @@ func (bw *BrowserWorker) ExecuteScan(ctx context.Context, job BrowserScanJob) (*
 		Int("correlations", enrichResult.Stats.TotalCorrelations).
 		Int("enriched_entries", enrichResult.Stats.EnrichedEntries).
 		Msg("surface correlation enrichment complete")
+
+	// Persist surface inventory to database if pool is available.
+	if bw.pool != nil && result.Inventory != nil {
+		if err := PersistInventory(ctx, bw.pool, result.Inventory, bw.logger); err != nil {
+			bw.logger.Warn().Err(err).Msg("failed to persist surface inventory")
+		}
+	}
 
 	// Collect violation counts.
 	result.ScopeViolations = interceptor.Violations() + monitor.Violations()
