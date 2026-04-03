@@ -28,6 +28,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
+    // Demo mode: bypass auth for UI preview without backend
+    if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+      setUser({
+        id: "demo-user", email: "admin@sentinel.io", full_name: "Demo Admin",
+        role: "platform_admin", org_id: "demo-org", status: "active",
+        created_at: new Date().toISOString(),
+      });
+      setIsLoading(false);
+      return;
+    }
+
     const token = localStorage.getItem("sentinel_access_token");
     if (token) {
       getCurrentUser()

@@ -1,16 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
 import { ErrorState } from "@/components/data/error-state";
 import { Pagination } from "@/components/data/pagination";
+import { Button } from "@/components/ui/button";
 import { ScansTable } from "@/features/scans/scans-table";
 import { useScans } from "@/features/scans/hooks";
+import { CreateScanDialog } from "@/features/scans/create-scan-dialog";
 
 const PAGE_SIZE = 25;
 
 export default function ScansPage() {
   const [offset, setOffset] = useState(0);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const { data, isLoading, isError, refetch } = useScans({ limit: PAGE_SIZE, offset });
 
@@ -22,7 +26,15 @@ export default function ScansPage() {
       <PageHeader
         title="Scans"
         description="View and monitor security scan progress"
+        actions={
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            New Scan
+          </Button>
+        }
       />
+
+      <CreateScanDialog open={dialogOpen} onOpenChange={setDialogOpen} />
 
       {isError ? (
         <ErrorState message="Failed to load scans" onRetry={() => refetch()} />

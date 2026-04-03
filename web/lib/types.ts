@@ -67,6 +67,17 @@ export interface FindingsResponse {
   offset: number;
 }
 
+// Scan Targets
+export interface ScanTarget {
+  id: string;
+  project_id: string;
+  target_type: string;
+  identifier: string;
+  label?: string;
+  verification_status: string;
+  created_at: string;
+}
+
 // Scans
 export interface Scan {
   id: string;

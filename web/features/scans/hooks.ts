@@ -1,5 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getScans, getScan, createScan, cancelScan, type ScanFilters } from "./api";
+import {
+  getScans,
+  getScan,
+  createScan,
+  cancelScan,
+  getProjects,
+  getScanTargets,
+  type ScanFilters,
+  type CreateScanPayload,
+} from "./api";
 
 export function useScans(filters: ScanFilters = {}) {
   return useQuery({
@@ -25,10 +34,25 @@ export function useScan(id: string) {
   return query;
 }
 
+export function useProjects() {
+  return useQuery({
+    queryKey: ["projects"],
+    queryFn: () => getProjects(),
+  });
+}
+
+export function useScanTargets(projectId: string) {
+  return useQuery({
+    queryKey: ["scan-targets", projectId],
+    queryFn: () => getScanTargets(projectId),
+    enabled: !!projectId,
+  });
+}
+
 export function useCreateScan() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ projectId, data }: { projectId: string; data: { scan_type: string; target_id: string } }) =>
+    mutationFn: ({ projectId, data }: { projectId: string; data: CreateScanPayload }) =>
       createScan(projectId, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scans"] }),
   });

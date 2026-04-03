@@ -1,5 +1,5 @@
 import { api } from "@/lib/api-client";
-import type { Scan } from "@/lib/types";
+import type { Scan, Project, ScanTarget } from "@/lib/types";
 
 export interface ScanFilters {
   project_id?: string;
@@ -28,9 +28,24 @@ export async function getScan(id: string): Promise<{ scan: Scan }> {
   return api.get<{ scan: Scan }>(`/api/v1/scans/${id}`);
 }
 
+export async function getProjects(): Promise<{ projects: Project[] }> {
+  return api.get<{ projects: Project[] }>("/api/v1/projects");
+}
+
+export async function getScanTargets(projectId: string): Promise<{ targets: ScanTarget[] }> {
+  return api.get<{ targets: ScanTarget[] }>(`/api/v1/projects/${projectId}/scan-targets`);
+}
+
+export interface CreateScanPayload {
+  scan_type: string;
+  target_id: string;
+  scan_profile?: string;
+  config_override?: { label?: string; environment?: string };
+}
+
 export async function createScan(
   projectId: string,
-  data: { scan_type: string; target_id: string },
+  data: CreateScanPayload,
 ): Promise<{ scan: Scan }> {
   return api.post<{ scan: Scan }>(`/api/v1/projects/${projectId}/scans`, data);
 }

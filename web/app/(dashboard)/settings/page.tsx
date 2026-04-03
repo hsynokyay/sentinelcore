@@ -2,6 +2,7 @@
 
 import { PageHeader } from "@/components/data/page-header";
 import { SettingsForm } from "@/features/governance/settings-form";
+import { EmergencyStopSection } from "@/features/governance/emergency-stop-section";
 
 export default function SettingsPage() {
   return (
@@ -11,6 +12,7 @@ export default function SettingsPage() {
         description="Configure governance policies and SLA requirements"
       />
       <SettingsForm />
+      <EmergencyStopSection />
     </div>
   );
 }

@@ -16,10 +16,27 @@ import (
 )
 
 type createScanRequest struct {
-	ScanType   string `json:"scan_type"`
-	TargetID   string `json:"target_id"`
-	Parameters any    `json:"parameters,omitempty"`
+	ScanType       string         `json:"scan_type"`
+	TargetID       string         `json:"target_id"`
+	ScanProfile    string         `json:"scan_profile,omitempty"`    // passive, standard, aggressive (default: standard)
+	ConfigOverride map[string]any `json:"config_override,omitempty"` // label, environment, etc. Max 4KB.
+	Parameters     any            `json:"parameters,omitempty"`
 }
+
+var validScanProfiles = map[string]bool{
+	"passive":    true,
+	"standard":   true,
+	"aggressive": true,
+}
+
+// configOverrideAllowedKeys limits what can be stored in config_override.
+var configOverrideAllowedKeys = map[string]bool{
+	"label":       true,
+	"environment": true,
+	"notes":       true,
+}
+
+const maxConfigOverrideSize = 4096 // 4KB
 
 type scanResponse struct {
 	ID         string  `json:"id"`
@@ -166,13 +183,53 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate scan_profile.
+	scanProfile := "standard"
+	if req.ScanProfile != "" {
+		if !validScanProfiles[req.ScanProfile] {
+			writeError(w, http.StatusBadRequest, "invalid scan_profile: must be passive, standard, or aggressive", "BAD_REQUEST")
+			return
+		}
+		scanProfile = req.ScanProfile
+	}
+
+	// Validate config_override: size limit + allowed keys.
+	if req.ConfigOverride != nil {
+		overrideJSON, _ := json.Marshal(req.ConfigOverride)
+		if len(overrideJSON) > maxConfigOverrideSize {
+			writeError(w, http.StatusBadRequest, "config_override exceeds 4KB limit", "BAD_REQUEST")
+			return
+		}
+		for key := range req.ConfigOverride {
+			if !configOverrideAllowedKeys[key] {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("config_override key %q not allowed; allowed keys: label, environment, notes", key), "BAD_REQUEST")
+				return
+			}
+		}
+	}
+
+	// Validate target belongs to this project.
+	var targetProjectID string
+	err := h.pool.QueryRow(r.Context(),
+		`SELECT project_id FROM core.scan_targets WHERE id = $1`, req.TargetID,
+	).Scan(&targetProjectID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "target not found", "BAD_REQUEST")
+		return
+	}
+	if targetProjectID != projectID {
+		writeError(w, http.StatusBadRequest, "target does not belong to this project", "BAD_REQUEST")
+		return
+	}
+
 	id := uuid.New().String()
 	now := time.Now().UTC()
+	configJSON, _ := json.Marshal(req.ConfigOverride)
 
-	_, err := h.pool.Exec(r.Context(),
-		`INSERT INTO scans.scan_jobs (id, project_id, scan_type, status, progress, target_id, initiated_by, created_at, updated_at)
-		 VALUES ($1, $2, $3, 'queued', 0, $4, $5, $6, $6)`,
-		id, projectID, req.ScanType, req.TargetID, user.UserID, now,
+	_, err = h.pool.Exec(r.Context(),
+		`INSERT INTO scans.scan_jobs (id, project_id, scan_type, scan_profile, status, progress, scan_target_id, config_override, created_by, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, 'pending', 0, $5, $6, $7, $8, $8)`,
+		id, projectID, req.ScanType, scanProfile, req.TargetID, configJSON, user.UserID, now,
 	)
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to create scan job")
