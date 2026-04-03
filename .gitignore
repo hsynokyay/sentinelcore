@@ -47,3 +47,5 @@ coverage.html
 
 # OS
 Thumbs.db
+web/.next/
+web/node_modules/

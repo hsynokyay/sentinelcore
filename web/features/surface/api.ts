@@ -1,0 +1,67 @@
+import type { SurfaceEntry } from "@/lib/types";
+
+// TODO: Replace with real API call when surface endpoint is available
+export async function getSurfaceEntries(): Promise<SurfaceEntry[]> {
+  return [
+    {
+      id: "1",
+      type: "route",
+      url: "https://app.example.com/",
+      method: "GET",
+      exposure: "public",
+      finding_ids: [],
+      observation_count: 0,
+      first_seen_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+      scan_count: 1,
+    },
+    {
+      id: "2",
+      type: "form",
+      url: "https://app.example.com/login",
+      method: "POST",
+      exposure: "public",
+      finding_ids: ["f1"],
+      observation_count: 2,
+      first_seen_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+      scan_count: 3,
+    },
+    {
+      id: "3",
+      type: "route",
+      url: "https://app.example.com/admin",
+      method: "GET",
+      exposure: "authenticated",
+      finding_ids: [],
+      observation_count: 0,
+      first_seen_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+      scan_count: 1,
+    },
+    {
+      id: "4",
+      type: "api_endpoint",
+      url: "https://app.example.com/api/users",
+      method: "GET",
+      exposure: "authenticated",
+      finding_ids: ["f2", "f3"],
+      observation_count: 5,
+      first_seen_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+      scan_count: 4,
+    },
+    {
+      id: "5",
+      type: "clickable",
+      url: "https://app.example.com/dashboard",
+      method: "GET",
+      exposure: "both",
+      finding_ids: [],
+      observation_count: 1,
+      first_seen_at: new Date().toISOString(),
+      last_seen_at: new Date().toISOString(),
+      scan_count: 2,
+    },
+  ];
+}
