@@ -11,7 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
@@ -39,6 +41,8 @@ type Server struct {
 	emitter  *audit.Emitter
 	limiter  *ratelimit.Limiter
 	js       jetstream.JetStream
+	nc       *nats.Conn      // for health checks
+	redis    *redis.Client   // for health checks
 }
 
 // NewServer creates a new control plane server.
@@ -51,6 +55,8 @@ func NewServer(
 	emitter *audit.Emitter,
 	limiter *ratelimit.Limiter,
 	js jetstream.JetStream,
+	nc *nats.Conn,
+	redisClient *redis.Client,
 ) *Server {
 	return &Server{
 		cfg:      cfg,
@@ -61,6 +67,8 @@ func NewServer(
 		emitter:  emitter,
 		limiter:  limiter,
 		js:       js,
+		nc:       nc,
+		redis:    redisClient,
 	}
 }
 
@@ -264,21 +272,50 @@ func (s *Server) Start(ctx context.Context) error {
 		AllowedOrigins: strings.Split(corsOrigin, ","),
 	})(handler)
 
+	// Register readiness endpoint (checks DB, Redis, NATS).
+	mux.HandleFunc("GET /readyz", observability.ReadinessHandler(observability.ReadinessDeps{
+		DB:    s.pool,
+		Redis: s.redis,
+		NATS:  s.nc,
+	}))
+
 	// Start metrics server
+	metricsAddr := fmt.Sprintf(":%s", s.cfg.MetricsPort)
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", observability.MetricsHandler())
+	metricsMux.HandleFunc("GET /healthz", observability.HealthHandler())
+	metricsServer := &http.Server{Addr: metricsAddr, Handler: metricsMux}
 	go func() {
-		metricsMux := http.NewServeMux()
-		metricsMux.Handle("GET /metrics", observability.MetricsHandler())
-		metricsMux.HandleFunc("GET /healthz", observability.HealthHandler())
-		addr := fmt.Sprintf(":%s", s.cfg.MetricsPort)
-		s.logger.Info().Str("addr", addr).Msg("metrics server starting")
-		if err := http.ListenAndServe(addr, metricsMux); err != nil {
+		s.logger.Info().Str("addr", metricsAddr).Msg("metrics server starting")
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			s.logger.Error().Err(err).Msg("metrics server failed")
 		}
 	}()
 
+	// Start main API server
 	addr := fmt.Sprintf(":%s", s.cfg.Port)
+	apiServer := &http.Server{Addr: addr, Handler: handler}
+
+	// Graceful shutdown: wait for context cancellation, then drain connections.
+	go func() {
+		<-ctx.Done()
+		s.logger.Info().Msg("shutdown signal received, draining connections...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+		if err := apiServer.Shutdown(shutdownCtx); err != nil {
+			s.logger.Error().Err(err).Msg("API server shutdown error")
+		}
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			s.logger.Error().Err(err).Msg("metrics server shutdown error")
+		}
+		s.logger.Info().Msg("servers shut down gracefully")
+	}()
+
 	s.logger.Info().Str("addr", addr).Msg("control plane starting")
-	return http.ListenAndServe(addr, handler)
+	if err := apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 // WriteJSON writes a JSON response.
