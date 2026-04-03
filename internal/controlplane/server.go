@@ -18,6 +18,7 @@ import (
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	sc_cors "github.com/sentinelcore/sentinelcore/pkg/cors"
+	sc_csrf "github.com/sentinelcore/sentinelcore/pkg/csrf"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 	"github.com/sentinelcore/sentinelcore/pkg/ratelimit"
 )
@@ -236,6 +237,17 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
+
+	// CSRF: validates CSRF token on state-changing cookie-authenticated requests.
+	// Placed between auth and routes so cookies are available.
+	corsOriginForCSRF := os.Getenv("CORS_ORIGIN")
+	if corsOriginForCSRF == "" {
+		corsOriginForCSRF = "http://localhost:3000"
+	}
+	handler = sc_csrf.Middleware(sc_csrf.Config{
+		AllowedOrigins: strings.Split(corsOriginForCSRF, ","),
+	}, s.logger)(handler)
+
 	handler = conditionalAuthMiddleware(s.jwtMgr, s.sessions)(handler)
 	if s.limiter != nil {
 		handler = ratelimit.HTTPMiddleware(s.limiter, 100, time.Minute)(handler)

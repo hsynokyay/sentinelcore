@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	sc_csrf "github.com/sentinelcore/sentinelcore/pkg/csrf"
 )
 
 type loginRequest struct {
@@ -78,13 +80,14 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Set httpOnly secure cookies for browser clients.
 	// The JSON body is also returned for programmatic API clients.
+	secure := secureCookie(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "sentinel_access_token",
 		Value:    accessToken,
 		Path:     "/",
 		MaxAge:   900,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
 		SameSite: http.SameSiteStrictMode,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -93,7 +96,19 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/api/v1/auth",
 		MaxAge:   7 * 24 * 3600,
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	// CSRF token cookie: non-httpOnly so frontend JS can read it.
+	csrfToken, _ := sc_csrf.GenerateToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     sc_csrf.CookieName,
+		Value:    csrfToken,
+		Path:     "/",
+		MaxAge:   900,
+		HttpOnly: false,
+		Secure:   secure,
 		SameSite: http.SameSiteStrictMode,
 	})
 
@@ -156,11 +171,31 @@ func (h *Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 
 	h.emitAuditEvent(r.Context(), "auth.logout", "user", user.UserID, "user", user.UserID, r.RemoteAddr, "success")
 
-	// Clear httpOnly cookies on logout.
+	// Clear all auth and CSRF cookies on logout.
 	http.SetCookie(w, &http.Cookie{Name: "sentinel_access_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
 	http.SetCookie(w, &http.Cookie{Name: "sentinel_refresh_token", Value: "", Path: "/api/v1/auth", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{Name: sc_csrf.CookieName, Value: "", Path: "/", MaxAge: -1})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged_out"})
+}
+
+// secureCookie determines whether cookies should have the Secure flag.
+// In production behind a TLS-terminating proxy, set FORCE_SECURE_COOKIES=true.
+// TRUST_PROXY_HEADERS=true enables X-Forwarded-Proto checking (only safe behind
+// a proxy that strips and re-sets the header).
+func secureCookie(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if os.Getenv("FORCE_SECURE_COOKIES") == "true" {
+		return true
+	}
+	if os.Getenv("TRUST_PROXY_HEADERS") == "true" {
+		if r.Header.Get("X-Forwarded-Proto") == "https" {
+			return true
+		}
+	}
+	return false
 }
 
 // emitAuditEvent is a helper to emit audit events, logging errors but not failing the request.

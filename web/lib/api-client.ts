@@ -1,5 +1,12 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 
+// Read a cookie value by name from document.cookie.
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 class ApiClient {
   private getToken(): string | null {
     if (typeof window === "undefined") return null;
@@ -13,6 +20,16 @@ class ApiClient {
       ...(options.headers as Record<string, string>),
     };
     if (token) headers["Authorization"] = `Bearer ${token}`;
+
+    // CSRF: on state-changing requests, read the sentinel_csrf cookie
+    // and send it as X-CSRF-Token header (double-submit cookie pattern).
+    const method = (options.method || "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      const csrfToken = getCookie("sentinel_csrf");
+      if (csrfToken) {
+        headers["X-CSRF-Token"] = csrfToken;
+      }
+    }
 
     // Include credentials so httpOnly cookies are sent automatically.
     // This enables cookie-based auth (primary) alongside Bearer token (fallback).
