@@ -250,7 +250,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	handler = conditionalAuthMiddleware(s.jwtMgr, s.sessions)(handler)
 	if s.limiter != nil {
-		handler = ratelimit.HTTPMiddleware(s.limiter, 100, time.Minute)(handler)
+		handler = ratelimit.HTTPMiddleware(s.limiter, ratelimit.DefaultTierConfig(), s.logger)(handler)
 	}
 	handler = loggingMiddleware(s.logger)(handler)
 	handler = requestIDMiddleware(handler)

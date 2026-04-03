@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 )
 
 type contextKey string
@@ -55,6 +57,19 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 					http.Error(w, `{"error":"session revoked"}`, http.StatusUnauthorized)
 					return
 				}
+
+				// Session idle timeout: reject sessions that have been idle too long.
+				idleTimeout := parseIdleTimeout()
+				if idleTimeout > 0 {
+					idle, err := sessions.IsIdle(r.Context(), claims.ID, idleTimeout)
+					if err == nil && idle {
+						http.Error(w, `{"error":"session idle timeout","code":"SESSION_IDLE"}`, http.StatusUnauthorized)
+						return
+					}
+				}
+
+				// Touch session to track activity for idle timeout.
+				_ = sessions.TouchSession(r.Context(), claims.ID, 15*time.Minute)
 			}
 
 			userCtx := &UserContext{
@@ -74,4 +89,17 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 func GetUser(ctx context.Context) *UserContext {
 	user, _ := ctx.Value(UserContextKey).(*UserContext)
 	return user
+}
+
+// parseIdleTimeout reads SESSION_IDLE_TIMEOUT env var (default: 30m).
+func parseIdleTimeout() time.Duration {
+	v := os.Getenv("SESSION_IDLE_TIMEOUT")
+	if v == "" {
+		return 30 * time.Minute
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 30 * time.Minute
+	}
+	return d
 }
