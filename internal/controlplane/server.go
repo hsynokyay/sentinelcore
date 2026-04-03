@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,6 +17,7 @@ import (
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	sc_cors "github.com/sentinelcore/sentinelcore/pkg/cors"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 	"github.com/sentinelcore/sentinelcore/pkg/ratelimit"
 )
@@ -239,6 +242,15 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	handler = loggingMiddleware(s.logger)(handler)
 	handler = requestIDMiddleware(handler)
+
+	// CORS: must be outermost to handle preflight before auth
+	corsOrigin := os.Getenv("CORS_ORIGIN")
+	if corsOrigin == "" {
+		corsOrigin = "http://localhost:3000"
+	}
+	handler = sc_cors.Middleware(sc_cors.Config{
+		AllowedOrigins: strings.Split(corsOrigin, ","),
+	})(handler)
 
 	// Start metrics server
 	go func() {

@@ -16,17 +16,31 @@ import (
 )
 
 type findingResponse struct {
-	ID          string `json:"id"`
-	ProjectID   string `json:"project_id"`
-	ScanID      string `json:"scan_id"`
-	FindingType string `json:"finding_type"`
-	Severity    string `json:"severity"`
-	Status      string `json:"status"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	FilePath    string `json:"file_path,omitempty"`
-	LineNumber  *int   `json:"line_number,omitempty"`
-	CreatedAt   string `json:"created_at"`
+	ID                      string             `json:"id"`
+	ProjectID               string             `json:"project_id"`
+	ScanID                  string             `json:"scan_id"`
+	FindingType             string             `json:"finding_type"`
+	Severity                string             `json:"severity"`
+	Status                  string             `json:"status"`
+	Title                   string             `json:"title"`
+	Description             string             `json:"description"`
+	FilePath                string             `json:"file_path,omitempty"`
+	LineNumber              *int               `json:"line_number,omitempty"`
+	CreatedAt               string             `json:"created_at"`
+	SLADeadline             *string            `json:"sla_deadline,omitempty"`
+	AssignedTo              *string            `json:"assigned_to,omitempty"`
+	LegalHold               *bool              `json:"legal_hold,omitempty"`
+	CorrelationConfidence   *string            `json:"correlation_confidence,omitempty"`
+	CorrelatedFindingIDs    []string           `json:"correlated_finding_ids,omitempty"`
+	StateTransitions        []stateTransition  `json:"state_transitions,omitempty"`
+}
+
+type stateTransition struct {
+	FromStatus string `json:"from_status"`
+	ToStatus   string `json:"to_status"`
+	ChangedBy  string `json:"changed_by"`
+	Reason     string `json:"reason,omitempty"`
+	CreatedAt  string `json:"created_at"`
 }
 
 type updateFindingStatusRequest struct {
@@ -151,12 +165,58 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		var createdAt time.Time
 		var lineNumber *int
-		return conn.QueryRow(ctx,
+		var slaDeadline *time.Time
+		var assignedTo *string
+		var legalHold *bool
+		var correlationConfidence *string
+		var correlatedFindingIDs []string
+
+		qErr := conn.QueryRow(ctx,
 			`SELECT id, project_id, scan_id, finding_type, severity, status, title,
-			        COALESCE(description, ''), COALESCE(file_path, ''), line_number, created_at
+			        COALESCE(description, ''), COALESCE(file_path, ''), line_number, created_at,
+			        sla_deadline, assigned_to, legal_hold, correlation_confidence, correlated_finding_ids
 			 FROM findings.findings WHERE id = $1`, id,
 		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status,
-			&f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt)
+			&f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt,
+			&slaDeadline, &assignedTo, &legalHold, &correlationConfidence, &correlatedFindingIDs)
+		if qErr != nil {
+			return qErr
+		}
+
+		f.CreatedAt = createdAt.Format(time.RFC3339)
+		f.LineNumber = lineNumber
+		if slaDeadline != nil {
+			s := slaDeadline.Format(time.RFC3339)
+			f.SLADeadline = &s
+		}
+		f.AssignedTo = assignedTo
+		f.LegalHold = legalHold
+		f.CorrelationConfidence = correlationConfidence
+		if len(correlatedFindingIDs) > 0 {
+			f.CorrelatedFindingIDs = correlatedFindingIDs
+		}
+
+		// Query state transitions
+		rows, tErr := conn.Query(ctx,
+			`SELECT from_status, to_status, changed_by, COALESCE(reason, ''), created_at
+			 FROM findings.finding_state_transitions
+			 WHERE finding_id = $1
+			 ORDER BY created_at ASC`, id)
+		if tErr != nil {
+			return tErr
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var st stateTransition
+			var stCreatedAt time.Time
+			if sErr := rows.Scan(&st.FromStatus, &st.ToStatus, &st.ChangedBy, &st.Reason, &stCreatedAt); sErr != nil {
+				return sErr
+			}
+			st.CreatedAt = stCreatedAt.Format(time.RFC3339)
+			f.StateTransitions = append(f.StateTransitions, st)
+		}
+		return rows.Err()
 	})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "finding not found", "NOT_FOUND")
