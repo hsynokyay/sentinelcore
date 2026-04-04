@@ -91,8 +91,8 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 
 		if status != "" {
 			query = `
-				SELECT id, org_id, team_id, request_type, resource_type, resource_id,
-				       requested_by, reason, status, decided_by, decision_reason,
+				SELECT id, org_id, COALESCE(team_id::text, ''), request_type, resource_type, resource_id,
+				       requested_by, reason, status, COALESCE(decided_by::text, ''), COALESCE(decision_reason, ''),
 				       decided_at, expires_at, created_at
 				  FROM governance.approval_requests
 				 WHERE status = $1
@@ -101,8 +101,8 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 			args = []interface{}{status, limit, offset}
 		} else {
 			query = `
-				SELECT id, org_id, team_id, request_type, resource_type, resource_id,
-				       requested_by, reason, status, decided_by, decision_reason,
+				SELECT id, org_id, COALESCE(team_id::text, ''), request_type, resource_type, resource_id,
+				       requested_by, reason, status, COALESCE(decided_by::text, ''), COALESCE(decision_reason, ''),
 				       decided_at, expires_at, created_at
 				  FROM governance.approval_requests
 				 ORDER BY created_at DESC

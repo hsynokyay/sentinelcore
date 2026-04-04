@@ -83,7 +83,7 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 	var findings []findingResponse
 
 	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		query := `SELECT id, project_id, scan_id, finding_type, severity, status, title, COALESCE(description, ''), COALESCE(file_path, ''), line_number, created_at
+		query := `SELECT id, project_id, scan_job_id, finding_type, severity, status, title, COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at
 				  FROM findings.findings WHERE 1=1`
 		args := []any{}
 		argIdx := 1
@@ -172,8 +172,8 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		var correlatedFindingIDs []string
 
 		qErr := conn.QueryRow(ctx,
-			`SELECT id, project_id, scan_id, finding_type, severity, status, title,
-			        COALESCE(description, ''), COALESCE(file_path, ''), line_number, created_at,
+			`SELECT id, project_id, scan_job_id, finding_type, severity, status, title,
+			        COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at,
 			        sla_deadline, assigned_to, legal_hold, correlation_confidence, correlated_finding_ids
 			 FROM findings.findings WHERE id = $1`, id,
 		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status,

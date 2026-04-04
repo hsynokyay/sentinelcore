@@ -89,7 +89,10 @@ func (h *Handlers) ListScans(w http.ResponseWriter, r *http.Request) {
 	var scans []scanResponse
 
 	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		query := `SELECT id, project_id, scan_type, status, COALESCE(progress, 0), COALESCE(target_id::text, ''), created_at, started_at, finished_at
+		query := `SELECT id, project_id, scan_type, status,
+		                 COALESCE((progress->>'percent')::int, 0),
+		                 COALESCE(scan_target_id::text, ''),
+		                 created_at, started_at, completed_at
 				  FROM scans.scan_jobs WHERE 1=1`
 		args := []any{}
 		argIdx := 1
@@ -285,7 +288,10 @@ func (h *Handlers) GetScan(w http.ResponseWriter, r *http.Request) {
 	var createdAt time.Time
 	var startedAt, finishedAt *time.Time
 	err := h.pool.QueryRow(r.Context(),
-		`SELECT id, project_id, scan_type, status, progress, target_id, created_at, started_at, finished_at
+		`SELECT id, project_id, scan_type, status,
+		        COALESCE((progress->>'percent')::int, 0),
+		        COALESCE(scan_target_id::text, ''),
+		        created_at, started_at, completed_at
 		 FROM scans.scan_jobs WHERE id = $1`, id,
 	).Scan(&s.ID, &s.ProjectID, &s.ScanType, &s.Status, &s.Progress, &s.TargetID, &createdAt, &startedAt, &finishedAt)
 	if err != nil {
