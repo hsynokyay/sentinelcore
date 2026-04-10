@@ -15,16 +15,19 @@ type Store struct {
 }
 
 // NewStore creates a Store backed by the given pgx connection pool.
+// Panics if pool is nil — the risk package requires a live database.
 func NewStore(pool *pgxpool.Pool) *Store {
+	if pool == nil {
+		panic("risk: NewStore called with nil pool")
+	}
 	return &Store{pool: pool}
 }
 
 // ErrNotFound is returned by Store lookups when no row matches.
 var ErrNotFound = errors.New("risk: not found")
 
-// The concrete store methods are implemented in Chunk 6. This skeleton
-// exists so that earlier chunks can reference the Store type without
-// introducing compile errors.
-func (s *Store) ping(ctx context.Context) error {
+// Ping verifies the database connection. Used by health checks and by
+// later chunks as a cheap smoke test before beginning a correlation run.
+func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
