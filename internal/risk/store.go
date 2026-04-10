@@ -2,8 +2,8 @@ package risk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"hash/fnv"
 
 	"github.com/jackc/pgx/v5"
@@ -293,9 +293,23 @@ func (s *Store) RecomputeClusterAggregates(ctx context.Context, tx pgx.Tx, clust
 	}
 
 	// surface_count + exposure (worst across linked surface entries).
-	// Surface linkage for DAST clusters is by exact canonical_route match on
-	// the surface entry URL (lowercased, scheme+host stripped). SAST
-	// clusters have no surface link in MVP — surface_count stays 0.
+	//
+	// MVP limitation: surface linkage compares canonical_route against the
+	// surface entry URL after stripping scheme+host and lowercasing, but does
+	// NOT re-run the full NormalizeRoute pipeline on the surface URL. This
+	// means clusters whose canonical_route contains :num / :uuid / :token
+	// parameters will never match a concrete surface URL like /users/42.
+	// Only exact non-parameterized routes (e.g. /api/health, /login) match.
+	//
+	// A follow-up sprint should either (a) add a canonical_url column to
+	// scans.surface_entries populated on ingest, or (b) load candidate
+	// surface entries and match them in Go using NormalizeRoute. The MVP
+	// accepts this limitation: surface linkage degrades gracefully
+	// (surface_count=0, exposure='unknown') for parameterized DAST clusters,
+	// and the PUBLIC_EXPOSURE boost simply does not fire for them.
+	//
+	// SAST clusters have no surface link in MVP — the join predicate
+	// requires fingerprint_kind = 'dast_route'.
 	_, err = tx.Exec(ctx, `
 		UPDATE risk.clusters c SET
 			surface_count = sub.cnt,
@@ -354,24 +368,19 @@ func (s *Store) InsertEvidence(ctx context.Context, tx pgx.Tx, e *Evidence) erro
 	return err
 }
 
-// metadataJSON marshals the metadata map into a tiny JSON object string.
-// Only string-valued keys are preserved; richer types go through the
-// caller's own marshalling.
+// metadataJSON marshals the metadata map to a JSON object string for
+// insertion into the jsonb column. Uses encoding/json rather than a
+// hand-rolled serializer so control characters, quotes, and backslashes
+// are escaped per the JSON spec. Returns "{}" for nil.
 func metadataJSON(m map[string]any) string {
 	if m == nil {
 		return "{}"
 	}
-	out := "{"
-	first := true
-	for k, v := range m {
-		if !first {
-			out += ","
-		}
-		first = false
-		out += fmt.Sprintf("%q:%q", k, fmt.Sprint(v))
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "{}"
 	}
-	out += "}"
-	return out
+	return string(b)
 }
 
 // UpdateClusterScore writes the final risk_score computed by the scorer.
@@ -498,6 +507,10 @@ func (s *Store) HasActiveRuntimeConfirmation(ctx context.Context, tx pgx.Tx, clu
 
 // FirstPublicSurfaceForCluster returns the URL of any linked public
 // surface entry for a DAST cluster, or empty string if none.
+//
+// Note: subject to the same MVP limitation as RecomputeClusterAggregates —
+// parameterized canonical_routes (e.g. /users/:num) do NOT match concrete
+// surface URLs. Returns ("", nil) gracefully for those cases.
 func (s *Store) FirstPublicSurfaceForCluster(ctx context.Context, tx pgx.Tx, clusterID string) (string, error) {
 	var url string
 	err := tx.QueryRow(ctx, `
