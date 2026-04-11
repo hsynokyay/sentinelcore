@@ -408,6 +408,7 @@ export interface RiskClusterDetail extends RiskCluster {
   canonical_route?: string;
   http_method?: string;
   canonical_param?: string;
+  language?: string;
   file_path?: string;
   enclosing_method?: string;
   last_run_id?: string | null;
