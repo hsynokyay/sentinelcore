@@ -17,6 +17,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
+	"github.com/sentinelcore/sentinelcore/internal/risk"
+	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	sc_cors "github.com/sentinelcore/sentinelcore/pkg/cors"
@@ -58,6 +60,27 @@ func NewServer(
 	nc *nats.Conn,
 	redisClient *redis.Client,
 ) *Server {
+	// Wire API key auth metrics counter.
+	auth.APIKeyAuthCounterFunc = func(status string) {
+		observability.APIKeyAuths.WithLabelValues(status).Inc()
+	}
+
+	// Wire API key resolver so the auth middleware can authenticate
+	// requests with "Bearer sc_..." tokens.
+	auth.SetAPIKeyResolver(func(ctx context.Context, plainKey string) (*auth.APIKeyResolved, error) {
+		rk, err := apikeys.Resolve(ctx, pool, plainKey)
+		if err != nil || rk == nil {
+			return nil, err
+		}
+		return &auth.APIKeyResolved{
+			KeyID:  rk.KeyID,
+			OrgID:  rk.OrgID,
+			UserID: rk.UserID,
+			Role:   rk.Role,
+			Scopes: rk.Scopes,
+		}, nil
+	})
+
 	return &Server{
 		cfg:      cfg,
 		logger:   logger,
@@ -121,8 +144,9 @@ func requestID(ctx context.Context) string {
 
 // skipAuthPaths defines paths that do not require authentication.
 var skipAuthPaths = map[string]bool{
-	"/healthz":            true,
-	"/api/v1/auth/login":  true,
+	"/healthz":              true,
+	"/readyz":               true,
+	"/api/v1/auth/login":    true,
 	"/api/v1/system/health": true,
 }
 
@@ -143,7 +167,14 @@ func conditionalAuthMiddleware(jwtMgr *auth.JWTManager, sessions *auth.SessionSt
 
 // Start starts the control plane HTTP server and the metrics server.
 func (s *Server) Start(ctx context.Context) error {
-	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger)
+	// Construct the risk worker so manual rebuilds via the HTTP API can
+	// reuse the same correlator plumbing as the NATS-driven worker. Run()
+	// is not started from here — the scan-worker process owns the
+	// NATS-driven loop; this instance exists solely so RebuildProjectManually
+	// can be invoked by the rebuild endpoint.
+	riskWorker := risk.NewWorker(s.js, s.pool, s.logger)
+
+	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker)
 
 	mux := http.NewServeMux()
 
@@ -180,9 +211,30 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/projects/{id}", handlers.GetProject)
 	mux.HandleFunc("PATCH /api/v1/projects/{id}", handlers.UpdateProject)
 
+	// Source artifacts (SAST intake)
+	mux.HandleFunc("POST /api/v1/projects/{id}/artifacts", handlers.CreateSourceArtifact)
+	mux.HandleFunc("GET /api/v1/projects/{id}/artifacts", handlers.ListSourceArtifacts)
+	mux.HandleFunc("GET /api/v1/artifacts/{id}", handlers.GetSourceArtifact)
+	mux.HandleFunc("DELETE /api/v1/artifacts/{id}", handlers.DeleteSourceArtifact)
+
+	// Auth profiles (DAST credentials)
+	mux.HandleFunc("POST /api/v1/projects/{id}/auth-profiles", handlers.CreateAuthProfile)
+	mux.HandleFunc("GET /api/v1/projects/{id}/auth-profiles", handlers.ListAuthProfiles)
+	mux.HandleFunc("GET /api/v1/auth-profiles/{id}", handlers.GetAuthProfile)
+	mux.HandleFunc("PATCH /api/v1/auth-profiles/{id}", handlers.UpdateAuthProfile)
+	mux.HandleFunc("DELETE /api/v1/auth-profiles/{id}", handlers.DeleteAuthProfile)
+
+	// API keys
+	mux.HandleFunc("POST /api/v1/api-keys", handlers.CreateAPIKey)
+	mux.HandleFunc("GET /api/v1/api-keys", handlers.ListAPIKeys)
+	mux.HandleFunc("DELETE /api/v1/api-keys/{id}", handlers.RevokeAPIKey)
+
 	// Scan targets
 	mux.HandleFunc("POST /api/v1/projects/{id}/scan-targets", handlers.CreateScanTarget)
 	mux.HandleFunc("GET /api/v1/projects/{id}/scan-targets", handlers.ListScanTargets)
+	mux.HandleFunc("GET /api/v1/scan-targets/{id}", handlers.GetScanTarget)
+	mux.HandleFunc("PATCH /api/v1/scan-targets/{id}", handlers.UpdateScanTarget)
+	mux.HandleFunc("DELETE /api/v1/scan-targets/{id}", handlers.DeleteScanTarget)
 
 	// Scans
 	mux.HandleFunc("POST /api/v1/projects/{id}/scans", handlers.CreateScan)
@@ -193,9 +245,21 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/findings", handlers.ListFindings)
 	mux.HandleFunc("GET /api/v1/findings/{id}", handlers.GetFinding)
 	mux.HandleFunc("PATCH /api/v1/findings/{id}/status", handlers.UpdateFindingStatus)
+	mux.HandleFunc("GET /api/v1/findings/{id}/export.md", handlers.ExportFindingMarkdown)
+	mux.HandleFunc("GET /api/v1/findings/{id}/export.sarif", handlers.ExportFindingSARIF)
+
+	// Risk correlation
+	mux.HandleFunc("GET /api/v1/risks", handlers.ListRisks)
+	mux.HandleFunc("GET /api/v1/risks/{id}", handlers.GetRisk)
+	mux.HandleFunc("POST /api/v1/risks/{id}/resolve", handlers.ResolveRisk)
+	mux.HandleFunc("POST /api/v1/risks/{id}/reopen", handlers.ReopenRisk)
+	mux.HandleFunc("POST /api/v1/risks/{id}/mute", handlers.MuteRisk)
+	mux.HandleFunc("POST /api/v1/projects/{id}/risks/rebuild", handlers.RebuildRisks)
 
 	// Scans (list)
 	mux.HandleFunc("GET /api/v1/scans", handlers.ListScans)
+	mux.HandleFunc("GET /api/v1/scans/{id}/report.md", handlers.ExportScanMarkdown)
+	mux.HandleFunc("GET /api/v1/scans/{id}/report.sarif", handlers.ExportScanSARIF)
 
 	// Governance
 	mux.HandleFunc("GET /api/v1/governance/settings", handlers.GetGovernanceSettings)
@@ -239,6 +303,10 @@ func (s *Server) Start(ctx context.Context) error {
 	// Surface inventory
 	mux.HandleFunc("GET /api/v1/surface", handlers.ListSurfaceEntries)
 	mux.HandleFunc("GET /api/v1/surface/stats", handlers.GetSurfaceStats)
+
+	// Ops / observability
+	mux.HandleFunc("GET /api/v1/ops/queue", handlers.GetQueueStatus)
+	mux.HandleFunc("GET /api/v1/ops/webhooks", handlers.GetWebhookStatus)
 
 	// Audit log
 	mux.HandleFunc("GET /api/v1/audit", handlers.ListAuditEvents)
