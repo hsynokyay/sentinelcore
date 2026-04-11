@@ -60,6 +60,36 @@ export interface Finding {
   method?: string;
   parameter?: string;
   created_at: string;
+  taint_paths?: TaintPathStep[];
+  rule_id?: string;
+  remediation?: RemediationBlock;
+}
+
+export interface RemediationBlock {
+  title: string;
+  summary: string;
+  why_it_matters: string;
+  how_to_fix: string;
+  unsafe_example: string;
+  safe_example: string;
+  developer_notes?: string;
+  verification_checklist: string[];
+  references: RemediationRef[];
+}
+
+export interface RemediationRef {
+  title: string;
+  url: string;
+}
+
+export interface TaintPathStep {
+  step_index: number;
+  file_path: string;
+  line_start: number;
+  line_end?: number;
+  step_kind: "source" | "propagation" | "sink";
+  detail: string;
+  function_fqn?: string;
 }
 export interface FindingsResponse {
   findings: Finding[];
@@ -68,27 +98,128 @@ export interface FindingsResponse {
 }
 
 // Scan Targets
+export type TargetType = "web_app" | "api" | "graphql";
+
 export interface ScanTarget {
   id: string;
   project_id: string;
-  target_type: string;
-  identifier: string;
+  target_type: TargetType;
+  base_url: string;
+  allowed_domains: string[];
+  allowed_paths?: string[];
+  excluded_paths?: string[];
+  allowed_ports: number[];
+  max_rps: number;
   label?: string;
-  verification_status: string;
+  environment?: string;
+  notes?: string;
+  auth_config_id?: string;
+  verification_status: "pending" | "verified";
   created_at: string;
+  updated_at: string;
+  verified_at?: string;
+}
+
+export interface CreateScanTargetPayload {
+  target_type: TargetType;
+  base_url: string;
+  allowed_domains?: string[];
+  allowed_paths?: string[];
+  excluded_paths?: string[];
+  allowed_ports?: number[];
+  max_rps?: number;
+  label?: string;
+  environment?: string;
+  notes?: string;
+  auth_config_id?: string;
+}
+
+// Auth profiles (DAST credentials)
+export type AuthProfileType = "bearer_token" | "api_key" | "basic_auth";
+
+export interface AuthProfile {
+  id: string;
+  project_id: string;
+  name: string;
+  auth_type: AuthProfileType;
+  description?: string;
+  metadata: Record<string, unknown>;
+  has_credentials: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateAuthProfilePayload {
+  name: string;
+  auth_type: AuthProfileType;
+  description?: string;
+  // bearer_token
+  token?: string;
+  token_prefix?: string;
+  // api_key
+  api_key?: string;
+  header_name?: string;
+  query_name?: string;
+  // basic_auth
+  username?: string;
+  password?: string;
+  // optional endpoint URL (form login, etc.)
+  endpoint_url?: string;
 }
 
 // Scans
+export type ScanStatus =
+  | "pending"
+  | "queued"
+  | "scope_validating"
+  | "dispatched"
+  | "running"
+  | "collecting"
+  | "correlating"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "timed_out";
+
 export interface Scan {
   id: string;
   project_id: string;
-  scan_type: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  project_name?: string;
+  scan_type: "sast" | "dast" | "full";
+  scan_profile?: "passive" | "standard" | "aggressive";
+  trigger_type?: "manual" | "scheduled" | "cicd" | "rescan" | "api";
+  status: ScanStatus;
   progress: number;
-  target_id: string;
+  progress_phase?: string;
+  target_id?: string;
+  target_label?: string;
+  target_base_url?: string;
+  source_artifact_id?: string;
+  source_artifact_name?: string;
+  auth_profile_id?: string;
+  auth_profile_name?: string;
+  auth_profile_type?: string;
+  created_by?: string;
   created_at: string;
   started_at?: string;
   finished_at?: string;
+  error_message?: string;
+}
+
+// Source artifacts (SAST)
+export interface SourceArtifact {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string;
+  format: "zip";
+  size_bytes: number;
+  sha256: string;
+  entry_count: number;
+  uncompressed_size: number;
+  uploaded_by: string;
+  created_at: string;
 }
 
 // Governance
@@ -211,4 +342,95 @@ export interface AuditEvent {
   resource_id: string;
   result: string;
   details?: unknown;
+}
+
+// ---------- Risk Correlation ----------
+export type RiskStatus = 'active' | 'auto_resolved' | 'user_resolved' | 'muted';
+export type RiskExposure = 'public' | 'authenticated' | 'both' | 'unknown';
+export type RiskFingerprintKind = 'dast_route' | 'sast_file';
+export type RiskSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+export interface RiskReason {
+  code: string;
+  label: string;
+  weight: number | null;
+}
+
+export interface RiskCluster {
+  id: string;
+  title: string;
+  vuln_class: string;
+  cwe_id: number;
+  severity: RiskSeverity;
+  risk_score: number;
+  exposure: RiskExposure;
+  status: RiskStatus;
+  finding_count: number;
+  surface_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  top_reasons: RiskReason[] | null;
+}
+
+export interface RiskEvidence {
+  category: 'score_base' | 'score_boost' | 'score_penalty' | 'link' | 'context';
+  code: string;
+  label: string;
+  weight: number | null;
+  ref_type: string;
+  ref_id: string;
+  sort_order: number;
+}
+
+export interface RiskMemberFinding {
+  id: string;
+  role: 'sast' | 'dast' | 'sca';
+  title: string;
+  severity: string;
+  file_path: string;
+  url: string;
+  line_start: number | null;
+}
+
+export interface RiskRelation {
+  id: string;
+  related_cluster_id: string;
+  relation_type: 'runtime_confirmation' | 'same_cwe' | 'related_surface';
+  confidence: number;
+  rationale: string;
+  related_cluster_title: string;
+}
+
+export interface RiskClusterDetail extends RiskCluster {
+  project_id: string;
+  owasp_category?: string;
+  fingerprint_kind: RiskFingerprintKind;
+  canonical_route?: string;
+  http_method?: string;
+  canonical_param?: string;
+  file_path?: string;
+  enclosing_method?: string;
+  last_run_id?: string | null;
+  resolved_at?: string | null;
+  resolution_reason?: string;
+  muted_until?: string | null;
+  evidence: RiskEvidence[];
+  findings: RiskMemberFinding[];
+  relations: RiskRelation[];
+}
+
+export interface RiskListResponse {
+  risks: RiskCluster[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface RiskListFilters {
+  project_id: string;
+  status?: RiskStatus | 'all';
+  severity?: string;
+  vuln_class?: string;
+  limit?: number;
+  offset?: number;
 }
