@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -214,7 +214,7 @@ func (h *Handlers) GetRisk(w http.ResponseWriter, r *http.Request) {
 		&cl.LastRunID, &cl.ResolvedAt, &resolutionReason, &cl.MutedUntil,
 	)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
 			return
 		}
@@ -487,7 +487,6 @@ func (h *Handlers) RebuildRisks(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error().Err(err).Str("project_id", projectID).Msg("manual risk rebuild failed")
 		}
 	}()
-	_ = json.NewEncoder(w)
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "accepted"})
 }
 
