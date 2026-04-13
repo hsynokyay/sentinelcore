@@ -1,4 +1,7 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// In production (via nginx reverse proxy), NEXT_PUBLIC_API_URL is empty
+// string — requests go to the same origin ("/api/v1/..."), no CORS.
+// In local dev, falls back to http://localhost:8080 (direct to Go backend).
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 // Read a cookie value by name from document.cookie.
 function getCookie(name: string): string | null {
@@ -47,7 +50,11 @@ class ApiClient {
       throw new Error(err.error || `API error: ${res.status}`);
     }
 
-    return res.json();
+    // 204 No Content and any empty body — safe default for DELETE-style ops.
+    if (res.status === 204) return undefined as T;
+    const text = await res.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
 
   get<T>(path: string) {

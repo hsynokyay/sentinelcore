@@ -279,6 +279,36 @@ services:
       auth-broker:
         condition: service_started
 
+  # --- Frontend ---
+
+  web:
+    build:
+      context: ../../web
+      dockerfile: Dockerfile
+      args:
+        # The browser calls this URL. Via the nginx reverse proxy,
+        # /api/* is routed to controlplane:8080 on the same origin,
+        # so no CORS issues. An empty string means "same origin".
+        NEXT_PUBLIC_API_URL: ""
+    ports:
+      - "3000:3000"
+    depends_on:
+      - controlplane
+
+  # --- Reverse Proxy ---
+  # Routes /api/* to the Go controlplane, everything else to Next.js.
+  # This eliminates CORS entirely — browser sees a single origin.
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - web
+      - controlplane
+
 volumes:
   pgdata:
   natsdata:
