@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-DAST-OPENREDIRECT-001",
+  "version": "1.0.0",
+  "title": "Open redirect via user-controlled URL parameter",
+  "summary": "The application was observed redirecting users to a URL derived from user input (e.g., a query parameter, form field, or header value) without validating that the destination is a trusted location. An attacker can craft a link that appears to originate from the trusted application domain but redirects the victim to a malicious site, facilitating phishing, credential theft, or malware delivery.",
+
+  "why_it_matters": "Open redirects erode user trust in a domain. Because the initial URL belongs to the legitimate application, users (and email security gateways) are more likely to trust and click the link. The attacker leverages this trust to redirect victims to a convincing phishing page that mimics the legitimate application's login form, harvesting credentials. Open redirects can also be chained with other vulnerabilities — for example, an open redirect can be used as the callback URL in an OAuth flow to steal authorization codes. While classified as a lower-severity finding on its own, open redirects are frequently used as a stepping stone in multi-stage attacks.",
+
+  "how_to_fix": "Validate redirect destinations before issuing the redirect response:\n\n1. **Restrict to relative URLs** — The safest approach is to only allow relative paths (e.g., `/dashboard`, `/account/settings`). Reject any URL that contains a scheme (`http://`, `https://`) or starts with `//` (protocol-relative).\n2. **Domain allowlist** — If redirecting to external URLs is required, maintain a strict allowlist of trusted domains and validate the redirect target against it after parsing.\n3. **Validate after parsing** — Parse the redirect URL using a proper URL parser and check the hostname. Do not rely on string-prefix checks, which can be bypassed (e.g., `https://evil.com?@trusted.com`, `https://trusted.com.evil.com`).\n4. **Avoid passing redirect URLs in query parameters** — Instead of `?redirect=https://...`, use an indirect reference (e.g., `?redirect=dashboard`) that maps to a server-side URL.\n5. **Add an interstitial warning** — If open redirection is a feature requirement, show an interstitial page warning the user that they are leaving the application and display the destination URL.",
+
+  "unsafe_example": "// UNSAFE: redirect URL taken directly from query parameter\napp.get('/redirect', (req, res) => {\n  const target = req.query.url;\n  res.redirect(target);\n});\n// Attacker crafts: https://trusted-app.com/redirect?url=https://evil-phishing.com/login",
+
+  "safe_example": "// SAFE: validate redirect target is a relative path or trusted domain\nconst TRUSTED_DOMAINS = ['trusted-app.com', 'app.trusted-partner.com'];\n\napp.get('/redirect', (req, res) => {\n  const target = req.query.url || '/';\n\n  // Option 1: allow only relative paths\n  if (target.startsWith('/') && !target.startsWith('//')) {\n    return res.redirect(target);\n  }\n\n  // Option 2: validate against domain allowlist\n  try {\n    const parsed = new URL(target);\n    if (TRUSTED_DOMAINS.includes(parsed.hostname)) {\n      return res.redirect(target);\n    }\n  } catch (e) {\n    // invalid URL, fall through to default\n  }\n\n  res.redirect('/');\n});",
+
+  "developer_notes": "Common bypass techniques to test for: (1) protocol-relative URLs `//evil.com` — treated as external by browsers; (2) backslash prefix `\\/evil.com` — some servers normalize backslash to forward slash; (3) URL encoding `%2F%2Fevil.com`; (4) userinfo confusion `https://trusted.com@evil.com`; (5) domain suffix confusion `https://trusted.com.evil.com`. Always parse the URL using the language's standard URL parser and compare the parsed hostname, rather than using string matching. For OAuth and OIDC flows, validate redirect_uri against a pre-registered allowlist on the authorization server, not just the application. In Spring Boot, use UriComponentsBuilder for URL parsing; in Django, use django.utils.http.url_has_allowed_host_and_scheme().",
+
+  "verification_checklist": [
+    "Redirect targets are validated as relative paths or checked against a trusted domain allowlist",
+    "URL validation uses a proper URL parser, not string-prefix or regex matching",
+    "Protocol-relative URLs (//evil.com), backslash prefixes, and URL-encoded bypasses are rejected",
+    "OAuth/OIDC redirect_uri parameters are validated against pre-registered allowlists on the authorization server",
+    "Automated tests submit known open redirect bypass payloads and verify they are rejected or redirected to a safe default"
+  ],
+
+  "references": [
+    {"title": "CWE-601: URL Redirection to Untrusted Site (Open Redirect)", "url": "https://cwe.mitre.org/data/definitions/601.html"},
+    {"title": "OWASP Unvalidated Redirects and Forwards Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"}
+  ]
+}

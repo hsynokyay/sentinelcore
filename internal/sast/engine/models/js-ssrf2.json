@@ -1,0 +1,10 @@
+{
+  "language": "javascript",
+  "framework": "node-http-phase2",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "", "method": "fetch", "vuln_class": "ssrf"},
+    {"kind": "sink", "receiver_fqn": "got", "method": "get", "vuln_class": "ssrf"},
+    {"kind": "sink", "receiver_fqn": "got", "method": "post", "vuln_class": "ssrf"},
+    {"kind": "sink", "receiver_fqn": "node-fetch", "method": "default", "vuln_class": "ssrf"}
+  ]
+}

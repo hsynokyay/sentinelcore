@@ -1,0 +1,10 @@
+{
+  "language": "csharp",
+  "framework": "dotnet-serialization",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "System.Runtime.Serialization.Formatters.Binary.BinaryFormatter", "method": "Deserialize", "vuln_class": "unsafe_deserialization"},
+    {"kind": "sink", "receiver_fqn": "System.Runtime.Serialization.Formatters.Soap.SoapFormatter", "method": "Deserialize", "vuln_class": "unsafe_deserialization"},
+    {"kind": "sink", "receiver_fqn": "System.Runtime.Serialization.NetDataContractSerializer", "method": "Deserialize", "vuln_class": "unsafe_deserialization"},
+    {"kind": "sink", "receiver_fqn": "Newtonsoft.Json.JsonConvert", "method": "DeserializeObject", "vuln_class": "unsafe_deserialization"}
+  ]
+}

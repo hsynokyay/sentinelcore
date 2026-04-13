@@ -9,6 +9,12 @@ export interface InsightTooltipProps {
   /** The tooltip body. Can be plain text, a MicroInsight, a small table,
    *  or any rich content — the popup is unopinionated about layout. */
   content: React.ReactNode;
+  /** Optional footer insight rendered below a separator in the popup.
+   *  Use for a takeaway line that the body is evidence for — same
+   *  "look first, count second" principle as ChartContainer's insight
+   *  slot, just at the tooltip scale. Pass a `<MicroInsight>` for
+   *  tone-coloured footers. */
+  footer?: React.ReactNode;
   /** Side preference. Defaults to top, with auto-flip to avoid viewport
    *  collisions (handled by base-ui's positioner). */
   side?: "top" | "right" | "bottom" | "left";
@@ -51,6 +57,7 @@ export interface InsightTooltipProps {
 export function InsightTooltip({
   children,
   content,
+  footer,
   side = "top",
   hoverable = false,
   popupClassName,
@@ -95,6 +102,11 @@ export function InsightTooltip({
             )}
           >
             {content}
+            {footer && (
+              <div className="mt-1.5 border-t border-border/50 pt-1.5">
+                {footer}
+              </div>
+            )}
           </Tooltip.Popup>
         </Tooltip.Positioner>
       </Tooltip.Portal>

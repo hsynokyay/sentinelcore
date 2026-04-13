@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-DAST-MIXED-001",
+  "version": "1.0.0",
+  "title": "Mixed content: HTTP resources loaded on HTTPS page",
+  "summary": "An HTTPS page was observed loading subresources (scripts, stylesheets, images, iframes, or fonts) over insecure HTTP. This mixed content undermines the confidentiality and integrity guarantees of HTTPS, because an attacker in a privileged network position can intercept or modify the HTTP resources in transit, potentially injecting malicious scripts or altering page content.",
+
+  "why_it_matters": "When an HTTPS page loads resources over HTTP, a network attacker (e.g., on public Wi-Fi) can perform a man-in-the-middle attack on those specific resources. Active mixed content (scripts, stylesheets, iframes) is especially dangerous because tampered scripts execute with full access to the HTTPS page's DOM, cookies, and session data. Modern browsers block active mixed content by default, which means the page may break silently. Passive mixed content (images, audio, video) may still load but exposes the user's browsing activity and can be tampered with to display misleading information.",
+
+  "how_to_fix": "Ensure all subresources are loaded over HTTPS:\n\n1. **Update resource URLs** — Replace all `http://` URLs with `https://` equivalents. Verify that the target CDN or server supports HTTPS.\n2. **Use protocol-relative URLs** — As a transitional measure, use `//cdn.example.com/lib.js` (omits the protocol, inheriting the page's scheme). Note: protocol-relative URLs are generally discouraged in favor of explicit `https://`.\n3. **Configure Content-Security-Policy** — Add the `upgrade-insecure-requests` directive to automatically upgrade HTTP requests to HTTPS:\n   `Content-Security-Policy: upgrade-insecure-requests`\n4. **Audit third-party dependencies** — Verify that all third-party scripts, stylesheets, and fonts are served over HTTPS. If a provider does not support HTTPS, consider hosting the resource yourself or switching providers.\n5. **Enable HSTS** — Deploy HTTP Strict Transport Security to ensure the browser never makes an insecure request to your domain:\n   `Strict-Transport-Security: max-age=31536000; includeSubDomains`",
+
+  "unsafe_example": "<!-- UNSAFE: script loaded over insecure HTTP on an HTTPS page -->\n<script src=\"http://cdn.example.com/lib.js\"></script>\n\n<!-- UNSAFE: stylesheet loaded over HTTP -->\n<link rel=\"stylesheet\" href=\"http://cdn.example.com/styles.css\">\n\n<!-- UNSAFE: image loaded over HTTP (passive mixed content) -->\n<img src=\"http://cdn.example.com/logo.png\" alt=\"Logo\">",
+
+  "safe_example": "<!-- SAFE: all resources loaded over HTTPS -->\n<script src=\"https://cdn.example.com/lib.js\"></script>\n<link rel=\"stylesheet\" href=\"https://cdn.example.com/styles.css\">\n<img src=\"https://cdn.example.com/logo.png\" alt=\"Logo\">\n\n<!-- SAFE: CSP header to auto-upgrade any remaining HTTP references -->\n<!-- Content-Security-Policy: upgrade-insecure-requests -->",
+
+  "developer_notes": "Use browser developer tools (Console and Network tabs) to identify mixed content warnings. In Chrome, mixed content warnings appear as yellow or red shield icons in the address bar. For large codebases, run a search for 'http://' in HTML templates, CSS files, and JavaScript source to find hardcoded HTTP URLs. Build-time tools like HTMLHint or CSP evaluators can catch mixed content before deployment. Note that `upgrade-insecure-requests` is a good safety net but should not replace fixing the URLs at the source, because the directive only works in supporting browsers.",
+
+  "verification_checklist": [
+    "All script, stylesheet, font, and iframe src/href attributes use https:// URLs",
+    "No hardcoded http:// URLs remain in HTML templates, CSS files, or JavaScript source",
+    "Content-Security-Policy includes upgrade-insecure-requests as a defense-in-depth measure",
+    "Strict-Transport-Security header is present with an appropriate max-age",
+    "Browser developer tools show no mixed content warnings when loading the page"
+  ],
+
+  "references": [
+    {"title": "CWE-319: Cleartext Transmission of Sensitive Information", "url": "https://cwe.mitre.org/data/definitions/319.html"},
+    {"title": "MDN Web Docs: Mixed Content", "url": "https://developer.mozilla.org/en-US/docs/Web/Security/Mixed_content"},
+    {"title": "OWASP Transport Layer Security Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html"}
+  ]
+}

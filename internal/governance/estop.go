@@ -116,8 +116,8 @@ func ListActiveStops(ctx context.Context, pool *pgxpool.Pool, userID, orgID stri
 	var results []EmergencyStop
 	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		rows, err := conn.Query(ctx, `
-			SELECT id, org_id, scope, scope_id, reason,
-			       activated_by, activated_at, deactivated_by, deactivated_at, active
+			SELECT id, org_id, scope, COALESCE(scope_id::text, ''), reason,
+			       activated_by, activated_at, COALESCE(deactivated_by::text, ''), deactivated_at, active
 			  FROM governance.emergency_stops
 			 WHERE active = true
 			 ORDER BY activated_at DESC`)

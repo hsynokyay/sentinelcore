@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Shield, Play, Globe, CheckCircle, Bell, FileText, Settings, ShieldCheck, Target, KeyRound, FileArchive, AlertTriangle } from "lucide-react";
+import { LayoutDashboard, Shield, Play, Globe, CheckCircle, Bell, FileText, Settings, ShieldCheck, Target, KeyRound, FileArchive, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/findings", label: "Findings", icon: Shield },
   { href: "/risks", label: "Risks", icon: AlertTriangle },
   { href: "/scans", label: "Scans", icon: Play },

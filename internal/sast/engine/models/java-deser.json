@@ -1,0 +1,8 @@
+{
+  "language": "java",
+  "framework": "jdk-serialization",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "java.io.ObjectInputStream", "method": "readObject", "vuln_class": "unsafe_deserialization"},
+    {"kind": "sink", "receiver_fqn": "java.io.ObjectInputStream", "method": "readUnshared", "vuln_class": "unsafe_deserialization"}
+  ]
+}

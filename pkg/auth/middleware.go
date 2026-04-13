@@ -13,6 +13,37 @@ type contextKey string
 // UserContextKey is the context key for storing user information.
 const UserContextKey contextKey = "user"
 
+// APIKeyResolved is the result of resolving an API key. Populated by the
+// apikeys package and consumed by the auth middleware.
+type APIKeyResolved struct {
+	KeyID  string
+	OrgID  string
+	UserID string
+	Role   string
+	Scopes []string
+}
+
+// APIKeyResolverFunc resolves an API key plaintext to a resolved key, or
+// returns nil if invalid/expired/revoked. Set via SetAPIKeyResolver.
+type APIKeyResolverFunc func(ctx context.Context, plainKey string) (*APIKeyResolved, error)
+
+var apiKeyResolver APIKeyResolverFunc
+
+// SetAPIKeyResolver configures the global API key resolver. Called once at
+// startup by the controlplane after the DB pool is available.
+func SetAPIKeyResolver(fn APIKeyResolverFunc) {
+	apiKeyResolver = fn
+}
+
+// APIKeyAuthCounterFunc is an optional callback to increment metrics.
+var APIKeyAuthCounterFunc func(status string)
+
+func apiKeyAuthCounter(status string) {
+	if APIKeyAuthCounterFunc != nil {
+		APIKeyAuthCounterFunc(status)
+	}
+}
+
 // UserContext holds the authenticated user's information extracted from JWT.
 type UserContext struct {
 	UserID string
@@ -42,6 +73,26 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 			}
 			if token == "" {
 				http.Error(w, `{"error":"missing authorization"}`, http.StatusUnauthorized)
+				return
+			}
+
+			// API key path: tokens starting with "sc_" are API keys,
+			// resolved via hash lookup instead of JWT validation.
+			if strings.HasPrefix(token, "sc_") && apiKeyResolver != nil {
+				rk, rkErr := apiKeyResolver(r.Context(), token)
+				if rkErr != nil || rk == nil {
+					apiKeyAuthCounter("failed")
+					http.Error(w, `{"error":"invalid api key"}`, http.StatusUnauthorized)
+					return
+				}
+				apiKeyAuthCounter("success")
+				userCtx := &UserContext{
+					UserID: rk.UserID,
+					OrgID:  rk.OrgID,
+					Role:   rk.Role,
+				}
+				ctx := context.WithValue(r.Context(), UserContextKey, userCtx)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 

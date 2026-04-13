@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { CheckCircle, RotateCcw } from "lucide-react";
 import { SeverityBadge } from "@/components/badges/severity-badge";
 import { StatusBadge } from "@/components/badges/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScoreDisplay } from "@/components/security/score-display";
+import { useRegisterCommands, type DynamicCommand } from "@/components/layout/command-provider";
+import { lifecycleState } from "@/lib/security/lifecycle";
 import { RiskEvidencePanel } from "./risk-evidence-panel";
 import { RiskNextBestAction } from "./risk-next-best-action";
 import { useResolveRisk, useReopenRisk } from "./hooks";
-import type { RiskClusterDetail, RiskStatus } from "@/lib/types";
+import type { RiskClusterDetail } from "@/lib/types";
 
 const roleColors: Record<string, string> = {
   sast: "bg-violet-100 text-violet-800",
@@ -27,23 +30,6 @@ function formatDate(s: string | null | undefined): string {
   return new Date(s).toLocaleString();
 }
 
-/**
- * Map a risk status to the visual state of the ScoreDisplay ring.
- *
- * - `active` and `auto_resolved` render as `active` because auto-resolved
- *   is transient (auto-reactivates the moment findings return), so the
- *   score should still feel live.
- * - `user_resolved` and `muted` are explicit user actions and earn the
- *   desaturated ring treatment that visually steps the risk back.
- */
-function statusToScoreState(
-  status: RiskStatus,
-): "active" | "resolved" | "muted" {
-  if (status === "user_resolved") return "resolved";
-  if (status === "muted") return "muted";
-  return "active";
-}
-
 export function RiskDetail({ risk }: { risk: RiskClusterDetail }) {
   const resolve = useResolveRisk();
   const reopen = useReopenRisk();
@@ -55,8 +41,39 @@ export function RiskDetail({ risk }: { risk: RiskClusterDetail }) {
 
   // Visual state for the score ring. Glow is earned: only critical-severity
   // active clusters receive the halo (Level 3+ in the intensity model).
-  const scoreState = statusToScoreState(risk.status);
+  const scoreState = lifecycleState(risk.status);
   const showGlow = risk.severity === "critical" && scoreState === "active";
+
+  // Register contextual palette commands for this risk. The commands
+  // change based on the risk's lifecycle state — resolve for active,
+  // reopen for resolved/muted. Mute is always available for active risks.
+  const riskActions = useMemo((): DynamicCommand[] => {
+    const cmds: DynamicCommand[] = [];
+    if (canResolve) {
+      cmds.push({
+        id: `risk-resolve-${risk.id}`,
+        label: `Resolve "${risk.title}"`,
+        group: "Context",
+        icon: CheckCircle,
+        onSelect: () => resolve.mutate({ id: risk.id }),
+        keywords: ["resolve", "close", "fix"],
+      });
+      // Mute command omitted — requires a duration picker that doesn't
+      // exist in the palette yet. Wire when mute UI is added.
+    }
+    if (canReopen) {
+      cmds.push({
+        id: `risk-reopen-${risk.id}`,
+        label: `Reopen "${risk.title}"`,
+        group: "Context",
+        icon: RotateCcw,
+        onSelect: () => reopen.mutate(risk.id),
+        keywords: ["reopen", "reactivate"],
+      });
+    }
+    return cmds;
+  }, [risk.id, risk.title, canResolve, canReopen, resolve, reopen]);
+  useRegisterCommands(riskActions);
 
   return (
     <div className="space-y-6 p-6">
@@ -129,7 +146,7 @@ export function RiskDetail({ risk }: { risk: RiskClusterDetail }) {
       )}
 
       {/* Evidence */}
-      <RiskEvidencePanel evidence={risk.evidence} />
+      <RiskEvidencePanel evidence={risk.evidence} severity={risk.severity} />
 
       {/* Findings */}
       <section className="rounded-lg border bg-card p-4">

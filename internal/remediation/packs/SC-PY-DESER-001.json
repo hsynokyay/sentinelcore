@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-PY-DESER-001",
+  "version": "1.0.0",
+  "title": "Unsafe Deserialization via pickle or yaml.load in Python",
+  "summary": "Untrusted data flows into pickle.loads(), pickle.load(), or yaml.load() without specifying a safe Loader. Both pickle and the default YAML loader execute arbitrary Python code during deserialization, allowing an attacker who controls the serialized input to achieve remote code execution on the server.",
+
+  "why_it_matters": "Python's pickle module is explicitly documented as unsafe for untrusted data because it can execute arbitrary code during deserialization by design. The __reduce__ method on pickled objects specifies a callable and arguments that the unpickler invokes automatically. An attacker can craft a pickle payload that executes os.system(), subprocess.call(), or any other function. Similarly, yaml.load() with the default FullLoader (or the legacy Loader) supports Python-specific YAML tags (!!python/object, !!python/apply) that instantiate arbitrary objects. These vulnerabilities have been exploited in production systems including SciPy, TensorFlow model loading, and various ML pipelines.",
+
+  "how_to_fix": "Eliminate pickle and unsafe YAML loading for any data that may originate from untrusted sources.\n\n1. Replace pickle with JSON (json.loads), MessagePack (msgpack), or Protocol Buffers for serialization of data that crosses trust boundaries.\n2. For YAML, always use yaml.safe_load() instead of yaml.load(). If you need custom YAML tags, create a restricted Loader that only supports the tags you need.\n3. If pickle is required for internal purposes (e.g., caching computed results), ensure the data source is cryptographically authenticated (e.g., HMAC-signed) and never exposed to user input.\n4. For machine learning model loading, use framework-specific safe loading functions (e.g., torch.load with weights_only=True, safetensors format).\n5. Add a pre-commit hook or linter rule that flags new uses of pickle.loads/load and yaml.load without safe_load.",
+
+  "unsafe_example": "# UNSAFE: deserializing user-supplied data with pickle\nimport pickle\nfrom flask import request\n\n@app.route('/process', methods=['POST'])\ndef process():\n    data = request.get_data()\n    obj = pickle.loads(data)  # RCE if attacker controls data\n    return str(obj)",
+
+  "safe_example": "# SAFE: use JSON for untrusted data deserialization\nimport json\nfrom flask import request\n\n@app.route('/process', methods=['POST'])\ndef process():\n    data = request.get_data()\n    obj = json.loads(data)  # JSON cannot execute code\n    return str(obj)\n\n# SAFE: use yaml.safe_load for YAML input\nimport yaml\n\ndef parse_config(yaml_string):\n    return yaml.safe_load(yaml_string)  # Rejects Python-specific tags",
+
+  "developer_notes": "The taint analysis traces data from Flask request sources to pickle/yaml sinks. If your code uses pickle only for internal caching where the data never comes from user input, the finding may be a false positive. However, consider that internal data sources can still be compromised (e.g., a Redis cache poisoned by an adjacent vulnerability), so migrating away from pickle even for internal use is recommended as defense-in-depth. Note that yaml.safe_load() raises an exception for any YAML tag that could construct arbitrary Python objects, which is the correct behavior for untrusted input.",
+
+  "verification_checklist": [
+    "No pickle.loads() or pickle.load() call receives data from untrusted sources",
+    "All yaml.load() calls use yaml.safe_load() or specify SafeLoader explicitly",
+    "JSON or another safe format is used for deserializing data from HTTP requests, message queues, and file uploads",
+    "ML model loading uses safe loading functions (weights_only=True, safetensors) where available",
+    "A linter rule or pre-commit hook flags new uses of pickle.loads/load and yaml.load without SafeLoader"
+  ],
+
+  "references": [
+    {"title": "CWE-502: Deserialization of Untrusted Data", "url": "https://cwe.mitre.org/data/definitions/502.html"},
+    {"title": "OWASP Top 10 A08:2021 Software and Data Integrity Failures", "url": "https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/"},
+    {"title": "OWASP Deserialization Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html"},
+    {"title": "Python pickle documentation security warning", "url": "https://docs.python.org/3/library/pickle.html"}
+  ]
+}

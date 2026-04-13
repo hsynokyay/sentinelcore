@@ -6,6 +6,11 @@ import { StatusBadge } from "@/components/badges/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useTriageFinding } from "./hooks";
+import { AnalysisTrace } from "./analysis-trace";
+import { RemediationPanel } from "./remediation-panel";
+import { DeveloperHandoff } from "./developer-handoff";
+import { ExportFindingButton } from "@/features/export/export-finding-button";
+import { ExportFindingSarifButton } from "@/features/export/export-sarif-buttons";
 import type { Finding } from "@/lib/types";
 
 const triageStatuses = [
@@ -49,6 +54,10 @@ export function FindingDetail({ finding }: FindingDetailProps) {
           <Badge variant="outline" className="text-xs uppercase">
             {finding.finding_type}
           </Badge>
+          <div className="ml-auto flex items-center gap-1.5">
+            <ExportFindingButton finding={finding} />
+            <ExportFindingSarifButton finding={finding} />
+          </div>
         </div>
       </div>
 
@@ -66,15 +75,28 @@ export function FindingDetail({ finding }: FindingDetailProps) {
         <code className="text-sm bg-muted px-2 py-1 rounded font-mono">{location}</code>
       </section>
 
-      {/* Evidence */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Evidence</h3>
-        <div className="border rounded-lg p-4 bg-muted/30">
-          <p className="text-sm text-muted-foreground italic">
-            Evidence details will be shown here when available.
-          </p>
-        </div>
-      </section>
+      {/* Analysis Trace — SAST evidence chain */}
+      {finding.taint_paths && finding.taint_paths.length > 0 && (
+        <AnalysisTrace steps={finding.taint_paths} />
+      )}
+
+      {/* Evidence placeholder for findings without a trace */}
+      {(!finding.taint_paths || finding.taint_paths.length === 0) && (
+        <section>
+          <h3 className="text-sm font-medium text-muted-foreground mb-2">Evidence</h3>
+          <div className="border rounded-lg p-4 bg-muted/30">
+            <p className="text-sm text-muted-foreground italic">
+              Evidence details will appear here when the finding has an
+              analysis trace.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* Remediation guidance */}
+      {finding.remediation && (
+        <RemediationPanel remediation={finding.remediation} />
+      )}
 
       {/* Timeline */}
       <section>

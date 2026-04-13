@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-PY-CRYPTO-001",
+  "version": "1.0.0",
+  "title": "Weak Cryptographic Hash (MD5/SHA-1) in Python",
+  "summary": "hashlib.md5() or hashlib.sha1() is used for hashing. Both MD5 and SHA-1 are cryptographically broken with practical collision attacks publicly demonstrated. Using these algorithms for integrity verification, digital signatures, certificate validation, or password hashing enables forgery, tampering, and compliance violations.",
+
+  "why_it_matters": "MD5 has been considered broken since 2004, and practical collision attacks can be executed in seconds on consumer hardware. SHA-1 was publicly broken in 2017 by the SHAttered attack, which produced two different PDF files with identical SHA-1 hashes. NIST deprecated SHA-1 for digital signatures in 2011 and disallowed it entirely in 2030-compliant systems. PCI DSS, FIPS 140-2, and SOC 2 all require the use of strong cryptographic algorithms. In Python applications, hashlib.md5() and hashlib.sha1() are commonly used for file checksums, token generation, and password hashing, all of which are unsafe with these algorithms.",
+
+  "how_to_fix": "Replace all cryptographic uses of MD5 and SHA-1 with SHA-256 or stronger.\n\n1. For file integrity checks and checksums, replace hashlib.md5() with hashlib.sha256().\n2. For HMAC operations, use hmac.new(key, msg, hashlib.sha256) instead of MD5 or SHA-1 based HMACs.\n3. For password hashing, never use any raw hash function. Use bcrypt (via the bcrypt package), scrypt (hashlib.scrypt), or Argon2 (via argon2-cffi) which are designed for password storage.\n4. For token generation, use secrets.token_hex() or secrets.token_urlsafe() instead of hashing random data.\n5. In FIPS-compliant environments, set the usedforsecurity=False parameter on hashlib calls that are genuinely non-cryptographic (e.g., cache key generation) to avoid FIPS errors while documenting the intent.",
+
+  "unsafe_example": "# UNSAFE: MD5 hash for file integrity verification\nimport hashlib\n\ndef compute_checksum(data):\n    return hashlib.md5(data).hexdigest()  # Broken: collisions are trivial",
+
+  "safe_example": "# SAFE: SHA-256 hash for file integrity verification\nimport hashlib\n\ndef compute_checksum(data):\n    return hashlib.sha256(data).hexdigest()\n\n# For password hashing, use bcrypt\nimport bcrypt\n\ndef hash_password(password: str) -> str:\n    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()",
+
+  "developer_notes": "This rule flags hashlib.md5() and hashlib.sha1() calls via AST pattern matching. Non-cryptographic uses of MD5 (e.g., generating cache keys or content-addressable identifiers where collision resistance is not a security requirement) are lower risk but should still be migrated for consistency and to avoid security audit findings. In Python 3.9+, hashlib functions accept a usedforsecurity=False parameter that documents the intent and allows the call to succeed in FIPS mode. If you use this parameter, add a code comment explaining why the use case does not require collision resistance.",
+
+  "verification_checklist": [
+    "No hashlib.md5() or hashlib.sha1() calls remain in security-sensitive code paths",
+    "Password hashing uses bcrypt, scrypt, or Argon2 instead of raw hash functions",
+    "HMAC operations use SHA-256 or stronger",
+    "Non-cryptographic uses of MD5 are documented with usedforsecurity=False and a justification comment",
+    "Token generation uses the secrets module instead of hashing random values"
+  ],
+
+  "references": [
+    {"title": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm", "url": "https://cwe.mitre.org/data/definitions/327.html"},
+    {"title": "CWE-328: Use of Weak Hash", "url": "https://cwe.mitre.org/data/definitions/328.html"},
+    {"title": "OWASP Top 10 A02:2021 Cryptographic Failures", "url": "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"},
+    {"title": "OWASP Password Storage Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"}
+  ]
+}

@@ -16,6 +16,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		"scans.create": true, "scans.read": true, "scans.cancel": true,
 		"findings.read": true, "findings.triage": true, "findings.legal_hold": true,
 		"targets.create": true, "targets.read": true, "targets.verify": true, "targets.approve": true,
+		"authprofiles.create": true, "authprofiles.read": true, "authprofiles.delete": true,
+		"artifacts.create": true, "artifacts.read": true, "artifacts.delete": true,
 		"audit.read": true,
 		"updates.import": true, "updates.trust": true,
 		"system.config": true,
@@ -32,6 +34,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		"scans.create": true, "scans.read": true, "scans.cancel": true,
 		"findings.read": true, "findings.triage": true, "findings.legal_hold": true,
 		"targets.create": true, "targets.read": true, "targets.verify": true,
+		"authprofiles.create": true, "authprofiles.read": true, "authprofiles.delete": true,
+		"artifacts.create": true, "artifacts.read": true, "artifacts.delete": true,
 		"audit.read": true,
 		// Phase 4: governance
 		"governance.settings.read": true, "governance.settings.write": true,
@@ -46,6 +50,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		"scans.create": true, "scans.read": true,
 		"findings.read": true, "findings.triage": true,
 		"targets.read": true,
+		"authprofiles.read": true,
+		"artifacts.read": true, "artifacts.create": true,
 		// Phase 4: governance
 		"governance.approvals.read": true,
 		"webhooks.read": true,

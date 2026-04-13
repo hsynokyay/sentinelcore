@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/select";
 
 import { useProjects, useScanTargets, useCreateScan } from "./hooks";
+import { useAuthProfiles } from "@/features/auth-profiles/hooks";
+import { useSourceArtifacts } from "@/features/artifacts/hooks";
 import { scanFormSchema, type ScanFormValues } from "./scan-form-schema";
 
 interface CreateScanDialogProps {
@@ -46,8 +48,9 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
     resolver: zodResolver(scanFormSchema),
     defaultValues: {
       project_id: "",
-      scan_type: "SAST",
+      scan_type: "sast",
       target_id: "",
+      source_artifact_id: "",
       scan_profile: "standard",
       label: "",
       environment: "",
@@ -55,18 +58,34 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
   });
 
   const selectedProjectId = watch("project_id");
+  const selectedScanType = watch("scan_type");
+  const selectedTargetId = watch("target_id");
 
   const { data: projectsData, isLoading: loadingProjects } = useProjects();
   const { data: targetsData, isLoading: loadingTargets } = useScanTargets(selectedProjectId);
+  const { data: authProfiles } = useAuthProfiles(selectedProjectId || undefined);
+  const { data: artifacts } = useSourceArtifacts(selectedProjectId || undefined);
   const createScan = useCreateScan();
 
   const projects = projectsData?.projects ?? [];
   const targets = targetsData?.targets ?? [];
+  const selectedTarget = targets.find((t) => t.id === selectedTargetId);
+  const attachedProfile = selectedTarget?.auth_config_id
+    ? (authProfiles ?? []).find((p) => p.id === selectedTarget.auth_config_id)
+    : undefined;
 
-  // Reset target when project changes
+  // Reset target/artifact when project changes
   useEffect(() => {
     setValue("target_id", "");
+    setValue("source_artifact_id", "");
   }, [selectedProjectId, setValue]);
+
+  // Reset artifact selection whenever scan type changes (only sast uses it).
+  useEffect(() => {
+    if (selectedScanType !== "sast") {
+      setValue("source_artifact_id", "");
+    }
+  }, [selectedScanType, setValue]);
 
   // Reset form when dialog closes
   useEffect(() => {
@@ -77,7 +96,15 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
   }, [open, reset, createScan]);
 
   const onSubmit = (values: ScanFormValues) => {
-    const { project_id, scan_type, target_id, scan_profile, label, environment } = values;
+    const {
+      project_id,
+      scan_type,
+      target_id,
+      source_artifact_id,
+      scan_profile,
+      label,
+      environment,
+    } = values;
 
     const configOverride: { label?: string; environment?: string } = {};
     if (label) configOverride.label = label;
@@ -88,7 +115,8 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
         projectId: project_id,
         data: {
           scan_type,
-          target_id,
+          target_id: target_id || undefined,
+          source_artifact_id: source_artifact_id || undefined,
           scan_profile,
           config_override: Object.keys(configOverride).length > 0 ? configOverride : undefined,
         },
@@ -156,9 +184,9 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
                     <SelectValue placeholder="Select scan type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="SAST">SAST</SelectItem>
-                    <SelectItem value="DAST">DAST</SelectItem>
-                    <SelectItem value="SCA">SCA</SelectItem>
+                    <SelectItem value="sast">SAST</SelectItem>
+                    <SelectItem value="dast">DAST</SelectItem>
+                    <SelectItem value="full">SAST + DAST (full)</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -168,64 +196,168 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
             )}
           </div>
 
-          {/* Target */}
-          <div className="space-y-1.5">
-            <Label>Target</Label>
-            <Controller
-              control={control}
-              name="target_id"
-              render={({ field }) => (
-                <Select
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  disabled={!selectedProjectId}
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        !selectedProjectId
-                          ? "Select a project first"
-                          : loadingTargets
-                            ? "Loading..."
-                            : "Select target"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {targets.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.label || t.identifier}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          {/*
+            Input selection is driven by scan_type:
+              • dast  → Target is required
+              • full  → Target is required (SAST component reuses the target's repo if any)
+              • sast  → Source Artifact (primary) OR Target (legacy)
+          */}
+          {(selectedScanType === "dast" || selectedScanType === "full") && (
+            <div className="space-y-1.5">
+              <Label>Target</Label>
+              <Controller
+                control={control}
+                name="target_id"
+                render={({ field }) => (
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    disabled={!selectedProjectId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          !selectedProjectId
+                            ? "Select a project first"
+                            : loadingTargets
+                              ? "Loading..."
+                              : targets.length === 0
+                                ? "No targets in this project — add one from Targets"
+                                : "Select target"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {targets.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.label || t.base_url}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {errors.target_id && (
+                <p className="text-xs text-destructive">
+                  {errors.target_id.message}
+                </p>
               )}
-            />
-            {errors.target_id && (
-              <p className="text-xs text-destructive">{errors.target_id.message}</p>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Scan Mode */}
-          <div className="space-y-1.5">
-            <Label>Scan Mode</Label>
-            <Controller
-              control={control}
-              name="scan_profile"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select scan mode" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="passive">Passive</SelectItem>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="aggressive">Aggressive</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
+          {selectedScanType === "sast" && (
+            <>
+              <div className="space-y-1.5">
+                <Label>Source Artifact</Label>
+                <Controller
+                  control={control}
+                  name="source_artifact_id"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value || "__none__"}
+                      onValueChange={(v) =>
+                        field.onChange(v === "__none__" ? "" : v)
+                      }
+                      disabled={!selectedProjectId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            !selectedProjectId
+                              ? "Select a project first"
+                              : (artifacts ?? []).length === 0
+                                ? "No artifacts — upload one from Source Artifacts"
+                                : "Select source artifact"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {(artifacts ?? []).map((a) => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name} ({a.entry_count} files)
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Upload source bundles from the{" "}
+                  <span className="underline">Source Artifacts</span> page.
+                </p>
+              </div>
+
+              {/* Target fallback for SAST — collapsed to a single optional line */}
+              <div className="space-y-1.5">
+                <Label>
+                  Or scan a target{" "}
+                  <span className="text-muted-foreground font-normal">
+                    (legacy git-based SAST)
+                  </span>
+                </Label>
+                <Controller
+                  control={control}
+                  name="target_id"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value || "__none__"}
+                      onValueChange={(v) =>
+                        field.onChange(v === "__none__" ? "" : v)
+                      }
+                      disabled={!selectedProjectId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="None" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">None</SelectItem>
+                        {targets.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.label || t.base_url}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {errors.target_id && (
+                  <p className="text-xs text-destructive">
+                    {errors.target_id.message}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Scan Mode — DAST/full only. SAST runs at a fixed intensity. */}
+          {(selectedScanType === "dast" || selectedScanType === "full") && (
+            <div className="space-y-1.5">
+              <Label>Scan Mode</Label>
+              <Controller
+                control={control}
+                name="scan_profile"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select scan mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="passive">
+                        Passive — observation only
+                      </SelectItem>
+                      <SelectItem value="standard">
+                        Standard — balanced active checks
+                      </SelectItem>
+                      <SelectItem value="aggressive">
+                        Aggressive — full active coverage
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          )}
 
           {/* Label */}
           <div className="space-y-1.5">
@@ -243,23 +375,35 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
             <Input placeholder="e.g. staging, production" {...register("environment")} />
           </div>
 
-          {/* Auth Profile (disabled) */}
-          <div className="space-y-1.5">
-            <Label className="text-muted-foreground">Auth Profile</Label>
-            <div className="relative group">
-              <Select disabled>
-                <SelectTrigger className="opacity-50">
-                  <SelectValue placeholder="Not configured" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_none">None</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-foreground text-background text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                Coming soon
-              </div>
+          {/* Auth Profile (DAST/full only — attachment lives on the target) */}
+          {(selectedScanType === "dast" || selectedScanType === "full") && (
+            <div className="space-y-1.5">
+              <Label>Auth Profile</Label>
+              {selectedTarget ? (
+                attachedProfile ? (
+                  <div className="px-3 py-2 text-sm bg-muted rounded-md border">
+                    <div className="font-medium">{attachedProfile.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {attachedProfile.auth_type.replace("_", " ")} · credentials{" "}
+                      {attachedProfile.has_credentials ? "stored" : "missing"}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 text-sm text-muted-foreground bg-muted rounded-md border">
+                    No auth profile attached to this target — scan will run
+                    unauthenticated.
+                  </div>
+                )
+              ) : (
+                <div className="px-3 py-2 text-sm text-muted-foreground bg-muted rounded-md border">
+                  Select a target to see its auth profile.
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Attach or change auth profiles from the Targets page.
+              </p>
             </div>
-          </div>
+          )}
 
           {/* Error */}
           {createScan.isError && (

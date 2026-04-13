@@ -1,9 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Filter } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
 import { ErrorState } from "@/components/data/error-state";
 import { ChangeSummaryStrip } from "@/components/security/change-summary-strip";
+import { useRegisterCommands } from "@/components/layout/command-provider";
+import type { DynamicCommand } from "@/components/layout/command-provider";
 import { RisksTable } from "@/features/risks/risks-table";
 import { RisksEmptyState } from "@/features/risks/risks-empty-state";
 import { SeverityDistributionChart } from "@/features/risks/severity-distribution-chart";
@@ -34,6 +38,36 @@ export default function RisksPage() {
   const projectId = explicitProjectId || projects[0]?.id || "";
   const [status, setStatus] = useState<StatusFilter>("active");
 
+  // Register contextual commands — these appear in the palette only
+  // while the /risks page is mounted. Selecting one changes the
+  // status filter and the palette closes automatically.
+  useRegisterCommands([
+    {
+      id: "risks-filter-active",
+      label: "Filter: Active risks",
+      group: "Context",
+      icon: Filter,
+      onSelect: () => setStatus("active"),
+      keywords: ["active", "open"],
+    },
+    {
+      id: "risks-filter-resolved",
+      label: "Filter: Resolved risks",
+      group: "Context",
+      icon: Filter,
+      onSelect: () => setStatus("user_resolved"),
+      keywords: ["resolved", "closed"],
+    },
+    {
+      id: "risks-filter-all",
+      label: "Filter: All risks",
+      group: "Context",
+      icon: Filter,
+      onSelect: () => setStatus("all"),
+      keywords: ["all", "everything"],
+    },
+  ]);
+
   const { data, isLoading, isError, refetch } = useRisks({
     project_id: projectId,
     status,
@@ -54,6 +88,23 @@ export default function RisksPage() {
     () => computeRiskSummaryTiles(allRisksData?.risks ?? []),
     [allRisksData],
   );
+
+  // Register loaded risks as jump targets in the command palette.
+  // Typing "# sql" in the palette filters to risks matching "sql".
+  const riskRouter = useRouter();
+  const riskJumpCommands: DynamicCommand[] = useMemo(
+    () =>
+      (allRisksData?.risks ?? []).slice(0, 50).map((r) => ({
+        id: `risk-jump-${r.id}`,
+        label: r.title,
+        group: "Risks",
+        icon: AlertTriangle,
+        onSelect: () => riskRouter.push(`/risks/${r.id}`),
+        keywords: [r.severity, r.vuln_class.replace(/_/g, " "), `${r.risk_score}`],
+      })),
+    [allRisksData, riskRouter],
+  );
+  useRegisterCommands(riskJumpCommands);
 
   return (
     <div>

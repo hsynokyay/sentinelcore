@@ -1,0 +1,13 @@
+{
+  "language": "java",
+  "framework": "java-logging",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "org.slf4j.Logger", "method": "info", "vuln_class": "sensitive_logging"},
+    {"kind": "sink", "receiver_fqn": "org.slf4j.Logger", "method": "warn", "vuln_class": "sensitive_logging"},
+    {"kind": "sink", "receiver_fqn": "org.slf4j.Logger", "method": "error", "vuln_class": "sensitive_logging"},
+    {"kind": "sink", "receiver_fqn": "org.slf4j.Logger", "method": "debug", "vuln_class": "sensitive_logging"},
+    {"kind": "sink", "receiver_fqn": "java.util.logging.Logger", "method": "info", "vuln_class": "sensitive_logging"},
+    {"kind": "sink", "receiver_fqn": "java.util.logging.Logger", "method": "warning", "vuln_class": "sensitive_logging"},
+    {"kind": "sink", "receiver_fqn": "java.util.logging.Logger", "method": "severe", "vuln_class": "sensitive_logging"}
+  ]
+}

@@ -33,6 +33,37 @@ type findingResponse struct {
 	CorrelationConfidence   *string            `json:"correlation_confidence,omitempty"`
 	CorrelatedFindingIDs    []string           `json:"correlated_finding_ids,omitempty"`
 	StateTransitions        []stateTransition  `json:"state_transitions,omitempty"`
+	TaintPaths              []taintPathStep    `json:"taint_paths,omitempty"`
+	RuleID                  string             `json:"rule_id,omitempty"`
+	Remediation             *remediationBlock  `json:"remediation,omitempty"`
+}
+
+// remediationBlock is the subset of the remediation pack exposed in the API.
+type remediationBlock struct {
+	Title                 string              `json:"title"`
+	Summary               string              `json:"summary"`
+	WhyItMatters          string              `json:"why_it_matters"`
+	HowToFix              string              `json:"how_to_fix"`
+	UnsafeExample         string              `json:"unsafe_example"`
+	SafeExample           string              `json:"safe_example"`
+	DeveloperNotes        string              `json:"developer_notes,omitempty"`
+	VerificationChecklist []string            `json:"verification_checklist"`
+	References            []remediationRef    `json:"references"`
+}
+
+type remediationRef struct {
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+type taintPathStep struct {
+	StepIndex   int    `json:"step_index"`
+	FilePath    string `json:"file_path"`
+	LineStart   int    `json:"line_start"`
+	LineEnd     int    `json:"line_end,omitempty"`
+	StepKind    string `json:"step_kind"`
+	Detail      string `json:"detail"`
+	FunctionFQN string `json:"function_fqn,omitempty"`
 }
 
 type stateTransition struct {
@@ -171,20 +202,26 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		var correlationConfidence *string
 		var correlatedFindingIDs []string
 
+		var ruleID *string
 		qErr := conn.QueryRow(ctx,
 			`SELECT id, project_id, scan_job_id, finding_type, severity, status, title,
 			        COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at,
-			        sla_deadline, assigned_to, legal_hold, correlation_confidence, correlated_finding_ids
+			        sla_deadline, assigned_to, legal_hold, correlation_confidence, correlated_finding_ids,
+			        rule_id
 			 FROM findings.findings WHERE id = $1`, id,
 		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status,
 			&f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt,
-			&slaDeadline, &assignedTo, &legalHold, &correlationConfidence, &correlatedFindingIDs)
+			&slaDeadline, &assignedTo, &legalHold, &correlationConfidence, &correlatedFindingIDs,
+			&ruleID)
 		if qErr != nil {
 			return qErr
 		}
 
 		f.CreatedAt = createdAt.Format(time.RFC3339)
 		f.LineNumber = lineNumber
+		if ruleID != nil {
+			f.RuleID = *ruleID
+		}
 		if slaDeadline != nil {
 			s := slaDeadline.Format(time.RFC3339)
 			f.SLADeadline = &s
@@ -216,11 +253,54 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 			st.CreatedAt = stCreatedAt.Format(time.RFC3339)
 			f.StateTransitions = append(f.StateTransitions, st)
 		}
-		return rows.Err()
+		if rErr := rows.Err(); rErr != nil {
+			return rErr
+		}
+
+		// Query taint paths (SAST evidence chain).
+		tpRows, tpErr := conn.Query(ctx,
+			`SELECT step_index, file_path, line_start, COALESCE(line_end, 0),
+			        step_kind, detail, COALESCE(function_fqn, '')
+			   FROM findings.taint_paths
+			  WHERE finding_id = $1
+			  ORDER BY step_index ASC`, id)
+		if tpErr != nil {
+			return tpErr
+		}
+		defer tpRows.Close()
+		for tpRows.Next() {
+			var tp taintPathStep
+			if sErr := tpRows.Scan(&tp.StepIndex, &tp.FilePath, &tp.LineStart, &tp.LineEnd, &tp.StepKind, &tp.Detail, &tp.FunctionFQN); sErr != nil {
+				return sErr
+			}
+			f.TaintPaths = append(f.TaintPaths, tp)
+		}
+		return tpRows.Err()
 	})
 	if err != nil {
 		writeError(w, http.StatusNotFound, "finding not found", "NOT_FOUND")
 		return
+	}
+
+	// Attach remediation pack if one exists for this rule.
+	if f.RuleID != "" && h.remediation != nil {
+		if pack := h.remediation.Get(f.RuleID); pack != nil {
+			refs := make([]remediationRef, 0, len(pack.References))
+			for _, r := range pack.References {
+				refs = append(refs, remediationRef{Title: r.Title, URL: r.URL})
+			}
+			f.Remediation = &remediationBlock{
+				Title:                 pack.Title,
+				Summary:               pack.Summary,
+				WhyItMatters:          pack.WhyItMatters,
+				HowToFix:              pack.HowToFix,
+				UnsafeExample:         pack.UnsafeExample,
+				SafeExample:           pack.SafeExample,
+				DeveloperNotes:        pack.DeveloperNotes,
+				VerificationChecklist: pack.VerificationChecklist,
+				References:            refs,
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"finding": f})

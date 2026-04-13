@@ -1,0 +1,26 @@
+{
+  "language": "java",
+  "framework": "jdk-process",
+  "models": [
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.lang.Runtime",
+      "method": "exec",
+      "vuln_class": "command_injection",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.lang.ProcessBuilder",
+      "method": "command",
+      "vuln_class": "command_injection",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.lang.ProcessBuilder",
+      "method": "start",
+      "vuln_class": "command_injection"
+    }
+  ]
+}

@@ -42,7 +42,7 @@ export function DataTable<T>({ columns, data, isLoading, emptyMessage = "No data
         {data.map((item, idx) => (
           <TableRow
             key={idx}
-            className={onRowClick ? "cursor-pointer hover:bg-muted/50" : ""}
+            className={onRowClick ? "group/row cursor-pointer hover:bg-muted/50" : ""}
             onClick={() => onRowClick?.(item)}
           >
             {columns.map((col) => (

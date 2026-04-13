@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-CRYPTO-001",
+  "version": "1.0.0",
+  "title": "Weak Cryptographic Hash (MD5/SHA-1) in Node.js",
+  "summary": "crypto.createHash() is called with 'md5' or 'sha1', both of which are cryptographically broken hash algorithms. MD5 has been broken since 2004 with practical collision attacks, and SHA-1 was publicly demonstrated as collision-vulnerable in 2017 (SHAttered). Using these algorithms for integrity checks, digital signatures, certificate validation, or password hashing enables forgery and tampering attacks.",
+
+  "why_it_matters": "Cryptographic hash functions are foundational to data integrity, digital signatures, and authentication. When a weak hash is used, an attacker can generate collisions (two different inputs producing the same hash), undermining the integrity guarantee. MD5 collisions can be computed in seconds on modern hardware. SHA-1 collisions require more effort but are within reach of well-resourced attackers. Regulatory frameworks (PCI DSS, NIST SP 800-131A) explicitly prohibit MD5 and SHA-1 for cryptographic purposes. Using weak hashes in security-sensitive contexts can result in compliance violations, data tampering, and forged certificates or signatures.",
+
+  "how_to_fix": "Replace weak hash algorithms with SHA-256 or stronger.\n\n1. For general-purpose integrity checks and checksums, replace crypto.createHash('md5') or crypto.createHash('sha1') with crypto.createHash('sha256').\n2. For password hashing, never use any raw hash function. Use bcrypt (via the bcrypt or bcryptjs package), scrypt (crypto.scrypt), or Argon2 (via argon2 package) which are designed to resist brute-force attacks.\n3. For HMAC operations, use crypto.createHmac('sha256', key) instead of HMAC-MD5 or HMAC-SHA1.\n4. Search the codebase for all occurrences of 'md5' and 'sha1' strings passed to crypto functions and replace them.\n5. Update any external integrations or APIs that require MD5/SHA-1 to negotiate stronger algorithms.",
+
+  "unsafe_example": "// UNSAFE: MD5 hash for file integrity check\nconst crypto = require('crypto');\nconst hash = crypto.createHash('md5');\nhash.update(fileContents);\nconst checksum = hash.digest('hex');",
+
+  "safe_example": "// SAFE: SHA-256 hash for file integrity check\nconst crypto = require('crypto');\nconst hash = crypto.createHash('sha256');\nhash.update(fileContents);\nconst checksum = hash.digest('hex');\n\n// For password hashing, use bcrypt instead of any raw hash\nconst bcrypt = require('bcrypt');\nconst saltRounds = 12;\nconst passwordHash = await bcrypt.hash(userPassword, saltRounds);",
+
+  "developer_notes": "This rule matches the first argument to crypto.createHash() against known weak algorithm names. It does not flag HMAC usage separately, but the same principle applies: HMAC-MD5 and HMAC-SHA1 should be replaced with HMAC-SHA256. Note that some third-party APIs and legacy protocols (e.g., certain OAuth 1.0 implementations) mandate HMAC-SHA1. In those cases, document the external requirement and plan for migration. Non-cryptographic uses of MD5 (e.g., cache key generation where collision resistance is not required) are lower risk but should still be migrated for consistency and to avoid audit findings.",
+
+  "verification_checklist": [
+    "No crypto.createHash('md5') or crypto.createHash('sha1') calls remain in security-sensitive code paths",
+    "Password hashing uses bcrypt, scrypt, or Argon2 instead of raw hash functions",
+    "HMAC operations use SHA-256 or stronger",
+    "External API integrations that mandate weak hashes are documented as accepted risk with a migration plan",
+    "Automated tests verify that the application produces SHA-256 checksums where applicable"
+  ],
+
+  "references": [
+    {"title": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm", "url": "https://cwe.mitre.org/data/definitions/327.html"},
+    {"title": "CWE-328: Use of Weak Hash", "url": "https://cwe.mitre.org/data/definitions/328.html"},
+    {"title": "OWASP Top 10 A02:2021 Cryptographic Failures", "url": "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"},
+    {"title": "OWASP Cryptographic Storage Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html"}
+  ]
+}

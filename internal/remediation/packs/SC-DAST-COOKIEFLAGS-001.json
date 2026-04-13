@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-DAST-COOKIEFLAGS-001",
+  "version": "1.0.0",
+  "title": "Insecure cookie configuration: missing Secure, HttpOnly, or SameSite flags",
+  "summary": "Session cookies were observed in HTTP responses without one or more of the recommended security flags: Secure, HttpOnly, and SameSite. Without the Secure flag, cookies may be transmitted over unencrypted HTTP connections. Without HttpOnly, cookies are accessible to client-side JavaScript and vulnerable to theft via XSS. Without SameSite, cookies are sent with cross-origin requests, increasing CSRF risk.",
+
+  "why_it_matters": "Session cookies are the primary mechanism for maintaining authenticated state in web applications. If an attacker can steal or misuse a session cookie, they gain full access to the victim's account. The Secure flag prevents cookie transmission over HTTP, mitigating session hijacking via network sniffing. The HttpOnly flag prevents JavaScript access, mitigating cookie theft via XSS. The SameSite flag restricts cross-origin cookie attachment, mitigating CSRF. Each flag addresses a distinct attack vector, and all three should be set on session cookies for comprehensive protection.",
+
+  "how_to_fix": "Set all three security flags on session cookies and any cookies containing sensitive data:\n\n1. **Secure** — Ensures the cookie is only sent over HTTPS connections.\n2. **HttpOnly** — Prevents JavaScript from accessing the cookie via `document.cookie`.\n3. **SameSite** — Controls when the cookie is sent with cross-site requests:\n   - `Strict`: cookie is never sent with cross-site requests (strongest protection, may affect UX for inbound links)\n   - `Lax`: cookie is sent with top-level navigations using safe methods (GET) but not with cross-site POST requests or subresource loads (recommended default)\n4. **Path** — Set `Path=/` or restrict to the narrowest applicable path.\n5. **Max-Age / Expires** — Set appropriate session timeouts.\n\n**Framework-specific configuration:**\n- Express (express-session): `{ cookie: { secure: true, httpOnly: true, sameSite: 'strict' } }`\n- Django: `SESSION_COOKIE_SECURE = True`, `SESSION_COOKIE_HTTPONLY = True`, `SESSION_COOKIE_SAMESITE = 'Strict'`\n- Spring Boot: `server.servlet.session.cookie.secure=true`, `server.servlet.session.cookie.http-only=true`, `server.servlet.session.cookie.same-site=strict`\n- ASP.NET: configure in `CookiePolicyOptions` or `CookieAuthenticationOptions`\n- Rails: `Rails.application.config.session_store :cookie_store, secure: true, httponly: true, same_site: :strict`\n- PHP: `session.cookie_secure = 1`, `session.cookie_httponly = 1`, `session.cookie_samesite = Strict` in php.ini",
+
+  "unsafe_example": "Set-Cookie: session=abc123def456\nSet-Cookie: session=abc123def456; Path=/\n\n<!-- Both examples above are missing Secure, HttpOnly, and SameSite flags -->\n<!-- The cookie will be sent over HTTP, accessible to JavaScript, and attached to cross-origin requests -->",
+
+  "safe_example": "Set-Cookie: session=abc123def456; Secure; HttpOnly; SameSite=Strict; Path=/\n\n<!-- All three security flags are set: -->\n<!-- Secure: only sent over HTTPS -->\n<!-- HttpOnly: not accessible to JavaScript -->\n<!-- SameSite=Strict: not sent with cross-origin requests -->",
+
+  "developer_notes": "When choosing the SameSite value, consider your application's requirements. SameSite=Strict provides the strongest protection but may cause usability issues: if a user clicks a link to your site from an external page, the session cookie will not be sent on that initial request, and the user will appear logged out until they navigate again. SameSite=Lax is a practical compromise for most applications. Note that `SameSite=None` (required for legitimate cross-site cookie use, such as SSO or embedded widgets) must always be paired with the `Secure` flag — browsers will reject `SameSite=None` cookies without `Secure`. Always test cookie changes in your staging environment, as incorrect cookie configuration can break authentication flows.",
+
+  "verification_checklist": [
+    "All session cookies include the Secure flag and are only transmitted over HTTPS",
+    "All session cookies include the HttpOnly flag and are not accessible via document.cookie",
+    "All session cookies include a SameSite attribute set to Strict or Lax",
+    "Framework session configuration explicitly sets all three cookie security flags",
+    "Browser developer tools confirm the correct flags are present on cookies in the Application/Storage tab"
+  ],
+
+  "references": [
+    {"title": "CWE-614: Sensitive Cookie in HTTPS Session Without 'Secure' Attribute", "url": "https://cwe.mitre.org/data/definitions/614.html"},
+    {"title": "OWASP Session Management Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"},
+    {"title": "OWASP Testing Guide: Testing for Cookies Attributes", "url": "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/02-Testing_for_Cookies_Attributes"},
+    {"title": "MDN Web Docs: Set-Cookie", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie"}
+  ]
+}

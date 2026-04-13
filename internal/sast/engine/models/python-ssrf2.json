@@ -1,0 +1,9 @@
+{
+  "language": "python",
+  "framework": "python-http-phase2",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "urllib.request", "method": "urlopen", "vuln_class": "ssrf"},
+    {"kind": "sink", "receiver_fqn": "httpx", "method": "get", "vuln_class": "ssrf"},
+    {"kind": "sink", "receiver_fqn": "httpx", "method": "post", "vuln_class": "ssrf"}
+  ]
+}

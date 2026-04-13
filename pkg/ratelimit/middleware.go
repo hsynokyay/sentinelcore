@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,14 +24,36 @@ type TierConfig struct {
 	UploadWindow time.Duration
 }
 
-// DefaultTierConfig returns production-safe rate limit tiers.
+// DefaultTierConfig returns production-safe rate limit tiers. Login limit and
+// window are overridable via LOGIN_RATE_LIMIT and LOGIN_RATE_WINDOW env vars so
+// pilot/demo environments can relax the default without a code change.
 func DefaultTierConfig() TierConfig {
+	loginLimit := envInt("LOGIN_RATE_LIMIT", 60)
+	loginWindow := envDuration("LOGIN_RATE_WINDOW", time.Minute)
 	return TierConfig{
-		DefaultLimit:  100, DefaultWindow: time.Minute,
-		LoginLimit:    10,  LoginWindow:   time.Minute,
-		ScanLimit:     20,  ScanWindow:    time.Minute,
-		UploadLimit:   5,   UploadWindow:  time.Minute,
+		DefaultLimit:  envInt("DEFAULT_RATE_LIMIT", 100), DefaultWindow: envDuration("DEFAULT_RATE_WINDOW", time.Minute),
+		LoginLimit:    loginLimit, LoginWindow: loginWindow,
+		ScanLimit:     envInt("SCAN_RATE_LIMIT", 20), ScanWindow: envDuration("SCAN_RATE_WINDOW", time.Minute),
+		UploadLimit:   envInt("UPLOAD_RATE_LIMIT", 5), UploadWindow: envDuration("UPLOAD_RATE_WINDOW", time.Minute),
 	}
+}
+
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
+}
+
+func envDuration(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return def
 }
 
 // HTTPMiddleware returns HTTP middleware that enforces per-user rate limits

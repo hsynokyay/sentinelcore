@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-DAST-SSRF-001",
+  "version": "1.0.0",
+  "title": "Server-Side Request Forgery (SSRF)",
+  "summary": "The application was observed making server-side HTTP requests using a URL or hostname derived from user input without sufficient validation. An attacker may exploit this to make the server send requests to internal services, cloud metadata endpoints (e.g., 169.254.169.254), or other resources that are not directly accessible from the public internet.",
+
+  "why_it_matters": "SSRF allows an attacker to use the vulnerable server as a proxy to reach internal systems that are protected by firewalls or network segmentation. Common exploitation targets include cloud instance metadata services (AWS IMDSv1 at 169.254.169.254, GCP, Azure equivalents), internal admin panels, databases, and other microservices. A successful SSRF attack can lead to credential theft (cloud IAM tokens), internal network reconnaissance, data exfiltration, or remote code execution via internal services. SSRF is ranked as OWASP Top 10 A10:2021 and has been involved in high-profile breaches including the Capital One incident.",
+
+  "how_to_fix": "Apply multiple layers of defense to prevent SSRF:\n\n1. **URL allowlist** — Maintain a strict allowlist of permitted domains or URL patterns. Reject any request whose target does not match the allowlist.\n2. **Block private and reserved IP ranges** — Resolve the target hostname to an IP address before making the request, and reject requests targeting private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), loopback (127.0.0.0/8), link-local (169.254.0.0/16), and other reserved ranges. Perform this check after DNS resolution to prevent DNS rebinding attacks.\n3. **Use a dedicated egress proxy** — Route all outbound server-side requests through an egress proxy that enforces destination allowlists and blocks access to internal networks.\n4. **Disable unnecessary URL schemes** — Restrict allowed URL schemes to `https://` (and `http://` only if required). Block `file://`, `gopher://`, `dict://`, `ftp://`, and other schemes that can be abused.\n5. **Enforce IMDSv2** — On AWS, configure EC2 instances to require IMDSv2 (token-based), which mitigates SSRF-based metadata theft by requiring a PUT request to obtain a session token.\n6. **Network-level controls** — Configure security groups and firewall rules so application servers cannot reach metadata endpoints or other sensitive internal services directly.",
+
+  "unsafe_example": "// UNSAFE: user-supplied URL used directly in server-side request\napp.get('/fetch', async (req, res) => {\n  const url = req.query.url;\n  const response = await fetch(url);\n  const data = await response.text();\n  res.send(data);\n});\n// Attacker can request: /fetch?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+
+  "safe_example": "// SAFE: URL validated against allowlist and private IP ranges blocked\nconst { URL } = require('url');\nconst dns = require('dns').promises;\nconst ipRangeCheck = require('ip-range-check');\n\nconst ALLOWED_DOMAINS = ['api.trusted-partner.com', 'cdn.example.com'];\nconst BLOCKED_RANGES = [\n  '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',\n  '127.0.0.0/8', '169.254.0.0/16', '0.0.0.0/8'\n];\n\napp.get('/fetch', async (req, res) => {\n  const parsed = new URL(req.query.url);\n  if (!['https:'].includes(parsed.protocol)) {\n    return res.status(400).send('Only HTTPS URLs are allowed');\n  }\n  if (!ALLOWED_DOMAINS.includes(parsed.hostname)) {\n    return res.status(400).send('Domain not in allowlist');\n  }\n  const { address } = await dns.lookup(parsed.hostname);\n  if (ipRangeCheck(address, BLOCKED_RANGES)) {\n    return res.status(400).send('Blocked destination');\n  }\n  const response = await fetch(parsed.href);\n  res.send(await response.text());\n});",
+
+  "developer_notes": "Be aware of DNS rebinding attacks: an attacker registers a domain whose DNS alternates between a public IP (to pass initial validation) and an internal IP (to reach internal services on the actual request). To mitigate this, resolve the hostname and pin the resolved IP for the actual request, or perform the IP check immediately before the outbound connection. For Java applications, use Apache HttpClient with a custom DnsResolver or a ConnectionManager that validates resolved addresses. In Python, the ssrf-proxy or advocate libraries provide SSRF-safe HTTP clients. Cloud environments should enforce IMDSv2 (AWS) or equivalent metadata service protections as a network-level backstop.",
+
+  "verification_checklist": [
+    "All server-side HTTP requests using user-supplied URLs validate the target against a domain or URL allowlist",
+    "DNS resolution is performed before the request and resolved IP addresses are checked against blocked private/reserved ranges",
+    "Only https:// (and http:// if explicitly required) URL schemes are permitted; file://, gopher://, and other schemes are blocked",
+    "Cloud metadata endpoints (169.254.169.254, fd00:ec2::254) are unreachable from application servers via network controls or IMDSv2",
+    "Automated tests verify that SSRF payloads targeting internal addresses and metadata endpoints are rejected"
+  ],
+
+  "references": [
+    {"title": "CWE-918: Server-Side Request Forgery (SSRF)", "url": "https://cwe.mitre.org/data/definitions/918.html"},
+    {"title": "OWASP Top 10 A10:2021 Server-Side Request Forgery", "url": "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"},
+    {"title": "OWASP Server-Side Request Forgery Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"}
+  ]
+}

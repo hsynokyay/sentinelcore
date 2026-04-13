@@ -26,6 +26,13 @@ export interface NextBestActionCta {
   variant?: "default" | "outline" | "ghost";
 }
 
+/** A detail row in the panel's metadata section — used for score
+ *  reduction, effort estimate, and verification guidance. */
+export interface NextBestActionDetail {
+  label: string;
+  value: string;
+}
+
 export interface NextBestActionProps {
   /** Severity that drives the left rail colour. Same vocabulary as the
    *  table row strip — risk detail and risk row share a single visual
@@ -42,6 +49,11 @@ export interface NextBestActionProps {
    *  "Confirmed at runtime"). 2-4 reasons reads best — fewer feels thin,
    *  more starts to compete with the title. */
   reasons: string[];
+  /** Structured detail rows rendered between the reasons and the CTAs.
+   *  Typically includes expected score reduction, estimated effort, and
+   *  verification guidance — but the panel is generic, so any label/value
+   *  pair works. */
+  details?: NextBestActionDetail[];
   /** Primary call-to-action. Almost always a navigation that starts the
    *  investigation flow. */
   primaryAction?: NextBestActionCta;
@@ -105,6 +117,7 @@ export function NextBestAction({
   intensity,
   title,
   reasons,
+  details,
   primaryAction,
   secondaryAction,
   className,
@@ -149,6 +162,22 @@ export function NextBestAction({
               </li>
             ))}
           </ul>
+        )}
+
+        {/* Structured details — score reduction, effort, verification.
+            Rendered as a compact two-column grid so the labels align and
+            the values are scannable. */}
+        {details && details.length > 0 && (
+          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+            {details.map((d) => (
+              <div key={d.label} className="contents">
+                <dt className="text-muted-foreground whitespace-nowrap">
+                  {d.label}
+                </dt>
+                <dd className="text-foreground">{d.value}</dd>
+              </div>
+            ))}
+          </dl>
         )}
 
         {(primaryAction || secondaryAction) && (

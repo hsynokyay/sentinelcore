@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-DAST-AUTHZ-001",
+  "version": "1.0.0",
+  "title": "Sensitive form accessible without authentication",
+  "summary": "A form handling sensitive operations (such as account settings, user management, or administrative functions) was observed accessible by an unauthenticated user. This may indicate missing authentication enforcement on the endpoint. Verify that unauthenticated access to this form is intentional and does not expose sensitive functionality.",
+
+  "why_it_matters": "When sensitive forms are accessible without authentication, any user — including unauthenticated attackers — can potentially view or submit data intended only for authorized users. This can lead to unauthorized account modifications, data exposure, privilege escalation, or administrative actions performed by anonymous users. Missing authentication on sensitive endpoints is classified under OWASP Top 10 A01:2021 (Broken Access Control) and is one of the most commonly exploited vulnerability classes.",
+
+  "how_to_fix": "Enforce authentication on all endpoints that serve or process sensitive forms:\n\n1. **Apply authentication middleware** — Ensure that authentication checks occur before the route handler renders the form or processes the submission. This should be enforced at the middleware or filter level, not within individual route handlers.\n   - Express: `app.use('/admin', ensureAuthenticated, adminRouter)`\n   - Spring Security: configure `http.authorizeRequests().antMatchers(\"/admin/**\").authenticated()`\n   - Django: use `@login_required` decorator or `LoginRequiredMixin`\n   - Rails: use `before_action :authenticate_user!`\n2. **Check both GET and POST** — Ensure authentication is enforced on both the form rendering (GET) and the form submission (POST/PUT/DELETE) endpoints. Protecting only the submission endpoint still leaks form structure and field names.\n3. **Implement role-based access** — For administrative forms, verify not just that the user is authenticated, but that they hold the required role or permission.\n4. **Return appropriate status codes** — Unauthenticated requests should receive a 401 (Unauthorized) response; authenticated but unprivileged requests should receive 403 (Forbidden). Never return the form content with a 200 status to unauthenticated users.\n5. **Audit route configuration** — Review route configuration files and middleware chains to ensure no sensitive endpoints have been inadvertently excluded from authentication requirements.",
+
+  "unsafe_example": "// UNSAFE: Express route serves admin form without authentication check\napp.get('/admin/settings', (req, res) => {\n  res.render('admin-settings', { settings: getSettings() });\n});\n\napp.post('/admin/settings', (req, res) => {\n  updateSettings(req.body);\n  res.redirect('/admin/settings');\n});",
+
+  "safe_example": "// SAFE: authentication middleware enforced on all admin routes\nconst ensureAuthenticated = (req, res, next) => {\n  if (!req.isAuthenticated()) {\n    return res.status(401).redirect('/login');\n  }\n  next();\n};\n\nconst ensureAdmin = (req, res, next) => {\n  if (req.user.role !== 'admin') {\n    return res.status(403).send('Forbidden');\n  }\n  next();\n};\n\napp.use('/admin', ensureAuthenticated, ensureAdmin);\n\napp.get('/admin/settings', (req, res) => {\n  res.render('admin-settings', { settings: getSettings() });\n});\n\napp.post('/admin/settings', (req, res) => {\n  updateSettings(req.body);\n  res.redirect('/admin/settings');\n});",
+
+  "developer_notes": "Before remediating, confirm that the observed unauthenticated access is not intentional (e.g., a public-facing contact form or a self-service registration page). If access is intentional, document the decision and ensure that the form does not expose internal data or accept sensitive input. For single-page applications, remember that client-side route guards alone are insufficient — authentication must be enforced on the API endpoints that the forms call. Server-rendered applications should validate the session before rendering the HTML. Consider using an integration test that verifies unauthenticated requests to sensitive endpoints return 401 or 302-to-login.",
+
+  "verification_checklist": [
+    "Authentication middleware is applied to all routes serving or processing sensitive forms",
+    "Both GET (form rendering) and POST (form submission) endpoints require authentication",
+    "Administrative forms additionally enforce role-based or permission-based authorization",
+    "Unauthenticated requests receive 401 status codes, not 200 with form content",
+    "Integration tests verify that unauthenticated access to sensitive endpoints is rejected"
+  ],
+
+  "references": [
+    {"title": "CWE-284: Improper Access Control", "url": "https://cwe.mitre.org/data/definitions/284.html"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"},
+    {"title": "OWASP Access Control Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Access_Control_Cheat_Sheet.html"},
+    {"title": "OWASP Authentication Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html"}
+  ]
+}

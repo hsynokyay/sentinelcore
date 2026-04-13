@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-SQL-001",
+  "version": "1.0.0",
+  "title": "Remediate Python SQL Injection",
+  "summary": "User-controlled input is concatenated or formatted into a SQL query string passed to cursor.execute() with a single argument. Use parameterized queries with %s placeholders and pass user input as the second argument to prevent SQL injection.",
+  "why_it_matters": "SQL injection allows attackers to manipulate database queries to read sensitive data, modify or delete records, bypass authentication, and in some cases execute operating system commands. It remains one of the most common and damaging vulnerability classes in web applications. A single SQL injection vulnerability can expose an entire database, including user credentials, personal information, financial records, and business-critical data. Automated tools make SQL injection exploitation trivial even for unsophisticated attackers.",
+  "how_to_fix": "1. Replace string concatenation or formatting in SQL queries with parameterized placeholders (%s).\n2. Pass user input as a tuple in the second argument to cursor.execute().\n3. Never use f-strings, format(), or + concatenation to build SQL queries with user input.\n4. For complex queries, consider using an ORM like SQLAlchemy.\n5. Apply the principle of least privilege to database accounts used by the application.",
+  "unsafe_example": "from flask import request\nimport sqlite3\n\ndef get_user():\n    user_id = request.args.get(\"id\")\n    conn = sqlite3.connect(\"app.db\")\n    cursor = conn.cursor()\n    # VULNERABLE: string concatenation in SQL query\n    cursor.execute(\"SELECT * FROM users WHERE id = \" + user_id)\n    return cursor.fetchone()",
+  "safe_example": "from flask import request\nimport sqlite3\n\ndef get_user():\n    user_id = request.args.get(\"id\")\n    conn = sqlite3.connect(\"app.db\")\n    cursor = conn.cursor()\n    # SAFE: parameterized query with placeholder\n    cursor.execute(\"SELECT * FROM users WHERE id = %s\", (user_id,))\n    return cursor.fetchone()",
+  "developer_notes": "Parameterized queries work because the database driver sends the query structure and the parameter values separately. The database engine compiles the query first and then binds the parameters, making it impossible for user input to alter the query structure. Note that the placeholder style varies by database driver: %s for psycopg2/MySQLdb, ? for sqlite3, and :name for cx_Oracle. Always use the style appropriate for your driver. Table and column names cannot be parameterized -- if those must be dynamic, validate them against an explicit allowlist.",
+  "verification_checklist": [
+    "Confirm all cursor.execute() calls use parameterized queries with two arguments",
+    "Verify no SQL strings are built using concatenation, f-strings, or format() with user input",
+    "Check that the correct placeholder style is used for the database driver (%s, ?, or :name)",
+    "Ensure database accounts follow the principle of least privilege",
+    "Run the SAST scanner to confirm SC-PY-SQL-001 no longer triggers"
+  ],
+  "references": [
+    {"title": "CWE-89: Improper Neutralization of Special Elements used in an SQL Command", "url": "https://cwe.mitre.org/data/definitions/89.html"},
+    {"title": "OWASP SQL Injection Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"},
+    {"title": "Python DB-API 2.0 Specification", "url": "https://peps.python.org/pep-0249/"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"}
+  ]
+}

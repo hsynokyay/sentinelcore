@@ -33,12 +33,16 @@ export async function getProjects(): Promise<{ projects: Project[] }> {
 }
 
 export async function getScanTargets(projectId: string): Promise<{ targets: ScanTarget[] }> {
-  return api.get<{ targets: ScanTarget[] }>(`/api/v1/projects/${projectId}/scan-targets`);
+  const res = await api.get<{ scan_targets?: ScanTarget[]; targets?: ScanTarget[] }>(
+    `/api/v1/projects/${projectId}/scan-targets`,
+  );
+  return { targets: res.scan_targets ?? res.targets ?? [] };
 }
 
 export interface CreateScanPayload {
   scan_type: string;
-  target_id: string;
+  target_id?: string;
+  source_artifact_id?: string;
   scan_profile?: string;
   config_override?: { label?: string; environment?: string };
 }

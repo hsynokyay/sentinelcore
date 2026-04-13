@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JAVA-SQL-001",
+  "version": "1.0.0",
+  "title": "SQL Injection via unsanitized input",
+  "summary": "User-controlled input is concatenated directly into a SQL query string and passed to a JDBC execution method. An attacker can inject arbitrary SQL, potentially reading, modifying, or deleting data, or escalating to OS-level access via database features like xp_cmdshell or COPY.",
+
+  "why_it_matters": "SQL injection consistently ranks among the most exploited vulnerability classes (OWASP Top 10 A03:2021). A single injectable query can compromise the entire database — including other tenants in shared environments. Exploitation is trivial with automated tools like sqlmap, and successful attacks routinely lead to full data breaches, regulatory penalties, and reputational damage.",
+
+  "how_to_fix": "Replace string concatenation with parameterized queries (PreparedStatement). Every user-supplied value must be bound as a parameter, never interpolated into the query text.\n\n1. Identify every place where user input (request.getParameter, @RequestParam, getHeader, getCookies, etc.) flows into a SQL string.\n2. Replace Statement with PreparedStatement.\n3. Use positional placeholders (?) for every dynamic value.\n4. Bind values via setString, setInt, setLong, etc.\n5. For dynamic table or column names (which cannot be parameterized), validate against a strict allowlist of known-safe identifiers.\n6. Never use string concatenation, String.format, or StringBuilder to construct queries with user input.",
+
+  "unsafe_example": "// UNSAFE: user input concatenated into query\nString id = request.getParameter(\"id\");\nString sql = \"SELECT * FROM users WHERE id = \" + id;\nStatement stmt = conn.createStatement();\nResultSet rs = stmt.executeQuery(sql);",
+
+  "safe_example": "// SAFE: parameterized query with PreparedStatement\nString id = request.getParameter(\"id\");\nString sql = \"SELECT * FROM users WHERE id = ?\";\nPreparedStatement ps = conn.prepareStatement(sql);\nps.setString(1, id);\nResultSet rs = ps.executeQuery();",
+
+  "developer_notes": "If you use an ORM (Hibernate, JPA, MyBatis), ensure named parameters or criteria queries are used rather than raw SQL concatenation. Spring Data JPA's @Query annotation with :param syntax is safe. Native queries built with string concatenation are not.",
+
+  "verification_checklist": [
+    "Query uses PreparedStatement with positional parameters (?)",
+    "No user input is concatenated into SQL strings",
+    "Dynamic table/column names are validated against an allowlist",
+    "ORM queries use named parameters, not string interpolation",
+    "Automated tests cover the fixed query path"
+  ],
+
+  "references": [
+    {"title": "CWE-89: SQL Injection", "url": "https://cwe.mitre.org/data/definitions/89.html"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"},
+    {"title": "OWASP SQL Injection Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"},
+    {"title": "OWASP Query Parameterization Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Query_Parameterization_Cheat_Sheet.html"}
+  ]
+}

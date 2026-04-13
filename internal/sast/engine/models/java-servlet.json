@@ -1,0 +1,34 @@
+{
+  "language": "java",
+  "framework": "servlet",
+  "models": [
+    {
+      "kind": "source",
+      "receiver_fqn": "javax.servlet.http.HttpServletRequest",
+      "method": "getParameter",
+      "taint_kind": "http_input",
+      "applies_to": "return"
+    },
+    {
+      "kind": "source",
+      "receiver_fqn": "javax.servlet.http.HttpServletRequest",
+      "method": "getHeader",
+      "taint_kind": "http_input",
+      "applies_to": "return"
+    },
+    {
+      "kind": "source",
+      "receiver_fqn": "javax.servlet.http.HttpServletRequest",
+      "method": "getCookies",
+      "taint_kind": "http_input",
+      "applies_to": "return"
+    },
+    {
+      "kind": "source",
+      "receiver_fqn": "javax.servlet.http.HttpServletRequest",
+      "method": "getQueryString",
+      "taint_kind": "http_input",
+      "applies_to": "return"
+    }
+  ]
+}

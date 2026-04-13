@@ -4,6 +4,7 @@ import { ChartContainer } from "@/components/security/chart-container";
 import { MicroInsight } from "@/components/security/micro-insight";
 import { InsightTooltip } from "@/components/security/insight-tooltip";
 import { severityFillVar } from "@/lib/security/intensity";
+import type { MicroInsightTone } from "@/components/security/micro-insight";
 import type { RiskCluster, RiskSeverity } from "@/lib/types";
 
 /**
@@ -218,7 +219,22 @@ function DistributionBar({
         .join(", ")}`}
       className="flex h-9 w-full overflow-hidden rounded-md bg-[var(--contrib-track)]"
     >
-      {visibleSegments.map((seg) => (
+      {visibleSegments.map((seg) => {
+        // Footer insight: contextual one-liner for each severity band.
+        const footerTone: MicroInsightTone =
+          seg.severity === "critical" || seg.severity === "high"
+            ? "negative"
+            : "neutral";
+        const footerText =
+          seg.severity === "critical"
+            ? "Immediate attention recommended"
+            : seg.severity === "high"
+              ? "Schedule remediation soon"
+              : seg.percent >= 40
+                ? "Largest segment of your surface"
+                : `${seg.percent}% of total`;
+
+        return (
         <InsightTooltip
           key={seg.severity}
           content={
@@ -232,6 +248,9 @@ function DistributionBar({
               </p>
             </div>
           }
+          footer={
+            <MicroInsight text={footerText} tone={footerTone} className="text-[10px]" />
+          }
         >
           <div
             className="h-full transition-[filter] hover:brightness-110 cursor-default"
@@ -243,7 +262,8 @@ function DistributionBar({
             data-count={seg.count}
           />
         </InsightTooltip>
-      ))}
+        );
+      })}
     </div>
   );
 }

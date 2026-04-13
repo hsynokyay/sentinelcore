@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
 import { CommandPalette } from "./command-palette";
+import { CommandProvider } from "./command-provider";
 
 /**
  * AppShell — the dashboard layout root. Wraps every authenticated
@@ -42,15 +43,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header onOpenCommandPalette={() => setPaletteOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-6 bg-background">
-          {children}
-        </main>
+    <CommandProvider>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Header onOpenCommandPalette={() => setPaletteOpen(true)} />
+          <main className="flex-1 overflow-y-auto p-6 bg-background">
+            {children}
+          </main>
+        </div>
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       </div>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-    </div>
+    </CommandProvider>
   );
 }

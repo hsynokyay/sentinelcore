@@ -6,7 +6,8 @@ import { SeverityBadge } from "@/components/badges/severity-badge";
 import { Badge } from "@/components/ui/badge";
 import { ScoreDisplay } from "@/components/security/score-display";
 import { SeverityStrip } from "@/components/security/severity-strip";
-import type { RiskCluster, RiskStatus } from "@/lib/types";
+import { lifecycleState } from "@/lib/security/lifecycle";
+import type { RiskCluster } from "@/lib/types";
 
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -30,34 +31,55 @@ const exposureColors: Record<string, string> = {
 };
 
 /**
- * Map a risk lifecycle status to the visual state shared by every
- * security primitive (ScoreDisplay, SeverityStrip).
+ * Classify a reason into base / boost / penalty for coloring.
  *
- * - `active` and `auto_resolved` render as `active` because auto-resolved
- *   is transient (auto-reactivates the moment findings return), so the
- *   row should still feel live.
- * - `user_resolved` and `muted` are explicit user actions and earn the
- *   desaturated graphics treatment that visually steps the row back.
- *
- * Mirrors the helper in `risk-detail.tsx`. Kept local for now — if a
- * third consumer appears we'll promote it to `lib/security/`.
+ * Convention: the first reason in `top_reasons` (sort_order 0) is
+ * always the severity-base score. The rest are boosts (positive) or
+ * penalties (negative). Null-weight reasons are contextual links
+ * (e.g. "CWE-601") — they get the muted treatment.
  */
-function statusToLifecycleState(
-  status: RiskStatus,
-): "active" | "resolved" | "muted" {
-  if (status === "user_resolved") return "resolved";
-  if (status === "muted") return "muted";
-  return "active";
+type ReasonKind = "base" | "boost" | "penalty" | "context";
+
+function classifyReason(
+  weight: number | null,
+  isFirst: boolean,
+): ReasonKind {
+  if (weight == null) return "context";
+  if (isFirst) return "base";
+  return weight >= 0 ? "boost" : "penalty";
 }
+
+const reasonKindClass: Record<ReasonKind, string> = {
+  base: "text-[var(--contrib-base)]",
+  boost: "text-[var(--contrib-boost)]",
+  penalty: "text-[var(--contrib-penalty)]",
+  context: "text-muted-foreground",
+};
 
 function ReasonsSummary({ risk }: { risk: RiskCluster }) {
   if (!risk.top_reasons || risk.top_reasons.length === 0) return null;
-  const parts = risk.top_reasons.map((r) => {
-    if (r.weight != null) return `${r.label} (${r.weight >= 0 ? "+" : ""}${r.weight})`;
-    return r.label;
-  });
+
   return (
-    <span className="text-xs text-muted-foreground truncate">{parts.join(" · ")}</span>
+    <span className="text-xs truncate">
+      {risk.top_reasons.map((r, idx) => {
+        const kind = classifyReason(r.weight, idx === 0);
+        const weightStr =
+          r.weight != null
+            ? ` (${r.weight >= 0 ? "+" : ""}${r.weight})`
+            : "";
+        return (
+          <span key={`${r.code}-${idx}`}>
+            {idx > 0 && (
+              <span className="text-muted-foreground/50"> · </span>
+            )}
+            <span className={reasonKindClass[kind]}>
+              {r.label}
+              {weightStr}
+            </span>
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
@@ -73,20 +95,20 @@ const columns: Column<RiskCluster>[] = [
     render: (r) => (
       <SeverityStrip
         severity={r.severity}
-        state={statusToLifecycleState(r.status)}
+        state={lifecycleState(r.status)}
       />
     ),
   },
   {
     key: "risk_score",
     header: "Score",
-    className: "w-[140px]",
+    className: "w-[120px]",
     render: (r) => (
       <ScoreDisplay
         score={r.risk_score}
         severity={r.severity}
         variant="sm"
-        state={statusToLifecycleState(r.status)}
+        state={lifecycleState(r.status)}
       />
     ),
   },

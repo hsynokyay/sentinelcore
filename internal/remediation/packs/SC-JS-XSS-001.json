@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-XSS-001",
+  "version": "1.0.0",
+  "title": "Cross-Site Scripting (XSS) via unsanitized output",
+  "summary": "User-controlled input from req.query, req.params, or req.body flows directly into res.send(), res.write(), or template interpolation without output encoding. An attacker can inject arbitrary HTML and JavaScript that executes in the victim's browser, enabling session hijacking, credential theft, and defacement.",
+
+  "why_it_matters": "Cross-Site Scripting is the most prevalent web application vulnerability (OWASP Top 10 A03:2021). Reflected and stored XSS allow attackers to execute JavaScript in the context of a trusted origin, bypassing same-origin policy protections. Exploitation is trivial — a single malicious link or stored payload can steal session cookies, redirect users to phishing pages, or perform actions on behalf of the victim. In single-page applications, XSS often escalates to full account takeover because tokens are accessible to JavaScript.",
+
+  "how_to_fix": "Never concatenate user input directly into HTML responses. Apply context-aware output encoding at the point of rendering.\n\n1. Use a template engine with auto-escaping enabled by default (EJS with `<%= %>`, Handlebars, Nunjucks). Avoid raw interpolation (`<%- %>` in EJS, `{{{ }}}` in Handlebars) unless the value has been explicitly sanitized.\n2. For APIs that return HTML fragments, sanitize with a proven library like DOMPurify (server-side via jsdom) before embedding user content.\n3. Set the Content-Security-Policy header to restrict inline scripts: `Content-Security-Policy: default-src 'self'; script-src 'self'`.\n4. Set `X-Content-Type-Options: nosniff` to prevent MIME-type sniffing attacks.\n5. In React/Next.js applications, avoid `dangerouslySetInnerHTML` — if unavoidable, sanitize with DOMPurify first.\n6. For JSON API responses, set `Content-Type: application/json` to prevent the browser from interpreting the response as HTML.",
+
+  "unsafe_example": "// UNSAFE: user input concatenated directly into HTML response\napp.get('/greet', (req, res) => {\n  res.send('<h1>Hello, ' + req.query.name + '</h1>');\n});",
+
+  "safe_example": "// SAFE: template engine with auto-escaping + CSP header\nconst createDOMPurify = require('dompurify');\nconst { JSDOM } = require('jsdom');\nconst DOMPurify = createDOMPurify(new JSDOM('').window);\n\napp.use((req, res, next) => {\n  res.setHeader('Content-Security-Policy', \"default-src 'self'; script-src 'self'\");\n  next();\n});\n\napp.get('/greet', (req, res) => {\n  const safeName = DOMPurify.sanitize(req.query.name);\n  res.render('greet', { name: safeName });\n});",
+
+  "developer_notes": "Auto-escaping in template engines only protects against HTML-context XSS. If you inject user input into JavaScript blocks, CSS, or URL attributes within templates, you need context-specific encoding. For example, embedding user input inside a <script> tag requires JavaScript string escaping, not HTML entity encoding. When using React, JSX auto-escapes by default, but dangerouslySetInnerHTML, href attributes with javascript: URIs, and server-side rendering with raw interpolation are common bypass vectors.",
+
+  "verification_checklist": [
+    "No user input is concatenated directly into res.send() or res.write() calls",
+    "Template engine has auto-escaping enabled and raw interpolation is not used with user input",
+    "Content-Security-Policy header is set to restrict inline scripts",
+    "Any use of dangerouslySetInnerHTML is sanitized with DOMPurify",
+    "JSON API responses set Content-Type: application/json"
+  ],
+
+  "references": [
+    {"title": "CWE-79: Improper Neutralization of Input During Web Page Generation", "url": "https://cwe.mitre.org/data/definitions/79.html"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"},
+    {"title": "OWASP XSS Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Scripting_Prevention_Cheat_Sheet.html"},
+    {"title": "OWASP Content Security Policy Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html"}
+  ]
+}

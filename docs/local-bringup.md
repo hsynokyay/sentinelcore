@@ -41,7 +41,10 @@ Then open **http://localhost:3000**.
 |------|------|
 | Login | Real JWT auth flow |
 | Findings | 25 findings across all severities, types, statuses |
-| Scans | 3 completed scans (SAST, DAST, DAST) |
+| Scans | 3 completed scans (SAST, DAST, DAST); launch new scans from UI |
+| Targets | CRUD for scan targets (web_app, api, graphql) — feeds scan launch |
+| Auth Profiles | DAST credentials (bearer / api key / basic auth), encrypted at rest |
+| Source Artifacts | Upload ZIP bundles for SAST scans, validated and sandbox-safe |
 | Attack Surface | 5 entries (routes, forms, API endpoint) |
 | Approvals | 2 approval requests (1 pending, 1 approved) |
 | Notifications | 5 notifications for admin user |

@@ -1,0 +1,7 @@
+{
+  "language": "javascript",
+  "framework": "express-redirect",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "res", "method": "redirect", "vuln_class": "open_redirect"}
+  ]
+}

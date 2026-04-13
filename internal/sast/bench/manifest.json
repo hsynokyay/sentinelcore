@@ -1,0 +1,55 @@
+{
+  "version": "1.1.0",
+  "description": "SentinelCore SAST Benchmark Corpus v3 — 43 cases across 4 languages (Java, JS, Python, C#) and 8 vulnerability classes",
+  "cases": [
+    {"id": "SQLI-P-001", "file": "sqli/positive/BenchSqli001.java",       "class": "sql_injection",    "expect": "positive", "rule": "SC-JAVA-SQL-001"},
+    {"id": "SQLI-P-002", "file": "sqli/positive/BenchSqli002.java",       "class": "sql_injection",    "expect": "positive", "rule": "SC-JAVA-SQL-001"},
+    {"id": "SQLI-P-003", "file": "sqli/positive/BenchSqli003.java",       "class": "sql_injection",    "expect": "positive", "rule": "SC-JAVA-SQL-001"},
+    {"id": "SQLI-N-001", "file": "sqli/negative/BenchSqliSafe001.java",   "class": "sql_injection",    "expect": "negative", "rule": "SC-JAVA-SQL-001"},
+    {"id": "SQLI-N-002", "file": "sqli/negative/BenchSqliSafe002.java",   "class": "sql_injection",    "expect": "negative", "rule": "SC-JAVA-SQL-001"},
+
+    {"id": "CMD-P-001",  "file": "cmdi/positive/BenchCmd001.java",        "class": "command_injection","expect": "positive", "rule": "SC-JAVA-CMD-001"},
+    {"id": "CMD-P-002",  "file": "cmdi/positive/BenchCmd002.java",        "class": "command_injection","expect": "positive", "rule": "SC-JAVA-CMD-001"},
+    {"id": "CMD-N-001",  "file": "cmdi/negative/BenchCmdSafe001.java",    "class": "command_injection","expect": "negative", "rule": "SC-JAVA-CMD-001"},
+
+    {"id": "PATH-P-001", "file": "pathtr/positive/BenchPath001.java",     "class": "path_traversal",   "expect": "positive", "rule": "SC-JAVA-PATH-001"},
+    {"id": "PATH-P-002", "file": "pathtr/positive/BenchPath002.java",     "class": "path_traversal",   "expect": "positive", "rule": "SC-JAVA-PATH-001"},
+    {"id": "PATH-N-001", "file": "pathtr/negative/BenchPathSafe001.java", "class": "path_traversal",   "expect": "negative", "rule": "SC-JAVA-PATH-001"},
+
+    {"id": "CRYPTO-P-001", "file": "crypto/positive/BenchCrypto001.java",       "class": "weak_crypto",  "expect": "positive", "rule": "SC-JAVA-CRYPTO-001"},
+    {"id": "CRYPTO-P-002", "file": "crypto/positive/BenchCrypto002.java",       "class": "weak_crypto",  "expect": "positive", "rule": "SC-JAVA-CRYPTO-001"},
+    {"id": "CRYPTO-P-003", "file": "crypto/positive/BenchCrypto003.java",       "class": "weak_crypto",  "expect": "positive", "rule": "SC-JAVA-CRYPTO-001"},
+    {"id": "CRYPTO-N-001", "file": "crypto/negative/BenchCryptoSafe001.java",   "class": "weak_crypto",  "expect": "negative", "rule": "SC-JAVA-CRYPTO-001"},
+    {"id": "CRYPTO-N-002", "file": "crypto/negative/BenchCryptoSafe002.java",   "class": "weak_crypto",  "expect": "negative", "rule": "SC-JAVA-CRYPTO-001"},
+
+    {"id": "SECRET-P-001", "file": "secret/positive/BenchSecret001.java",       "class": "hardcoded_secret", "expect": "positive", "rule": "SC-JAVA-SECRET-001"},
+    {"id": "SECRET-P-002", "file": "secret/positive/BenchSecret002.java",       "class": "hardcoded_secret", "expect": "positive", "rule": "SC-JAVA-SECRET-001"},
+    {"id": "SECRET-P-003", "file": "secret/positive/BenchSecret003.java",       "class": "hardcoded_secret", "expect": "positive", "rule": "SC-JAVA-SECRET-001"},
+    {"id": "SECRET-N-001", "file": "secret/negative/BenchSecretSafe001.java",   "class": "hardcoded_secret", "expect": "negative", "rule": "SC-JAVA-SECRET-001"},
+    {"id": "SECRET-N-002", "file": "secret/negative/BenchSecretSafe002.java",   "class": "hardcoded_secret", "expect": "negative", "rule": "SC-JAVA-SECRET-001"},
+
+    {"id": "SSRF-P-001",    "file": "ssrf/positive/BenchSsrf001.java",              "class": "ssrf",           "expect": "positive", "rule": "SC-JAVA-SSRF-001"},
+    {"id": "SSRF-P-002",    "file": "ssrf/positive/BenchSsrf002.java",              "class": "ssrf",           "expect": "positive", "rule": "SC-JAVA-SSRF-001"},
+    {"id": "SSRF-N-001",    "file": "ssrf/negative/BenchSsrfSafe001.java",          "class": "ssrf",           "expect": "negative", "rule": "SC-JAVA-SSRF-001"},
+    {"id": "REDIR-P-001",   "file": "redirect/positive/BenchRedirect001.java",      "class": "open_redirect",  "expect": "positive", "rule": "SC-JAVA-REDIRECT-001"},
+    {"id": "REDIR-N-001",   "file": "redirect/negative/BenchRedirectSafe001.java",  "class": "open_redirect",  "expect": "negative", "rule": "SC-JAVA-REDIRECT-001"},
+    {"id": "JSSQLI-P-001",  "file": "jssqli/positive/BenchJsSqli001.js",            "class": "sql_injection",  "expect": "positive", "rule": "SC-JS-SQL-001"},
+    {"id": "JSSQLI-N-001",  "file": "jssqli/negative/BenchJsSqliSafe001.js",        "class": "sql_injection",  "expect": "negative", "rule": "SC-JS-SQL-001"},
+    {"id": "JSSSRF-P-001",  "file": "jsssrf/positive/BenchJsSsrf001.js",            "class": "ssrf",           "expect": "positive", "rule": "SC-JS-SSRF-001"},
+    {"id": "JSSSRF-N-001",  "file": "jsssrf/negative/BenchJsSsrfSafe001.js",        "class": "ssrf",           "expect": "negative", "rule": "SC-JS-SSRF-001"},
+
+    {"id": "CS-CMD-P-001",    "file": "cscmdi/positive/BenchCsCmd001.cs",            "class": "command_injection",    "expect": "positive", "rule": "SC-CSHARP-CMD-001"},
+    {"id": "CS-CMD-N-001",    "file": "cscmdi/negative/BenchCsCmdSafe001.cs",        "class": "command_injection",    "expect": "negative", "rule": "SC-CSHARP-CMD-001"},
+    {"id": "CS-PATH-P-001",   "file": "cspath/positive/BenchCsPath001.cs",           "class": "path_traversal",       "expect": "positive", "rule": "SC-CSHARP-PATH-001"},
+    {"id": "CS-PATH-N-001",   "file": "cspath/negative/BenchCsPathSafe001.cs",       "class": "path_traversal",       "expect": "negative", "rule": "SC-CSHARP-PATH-001"},
+    {"id": "CS-SQLI-P-001",   "file": "cssqli/positive/BenchCsSqli001.cs",           "class": "sql_injection",        "expect": "positive", "rule": "SC-CSHARP-SQL-001"},
+    {"id": "CS-SQLI-P-002",   "file": "cssqli/positive/BenchCsSqli002.cs",           "class": "sql_injection",        "expect": "positive", "rule": "SC-CSHARP-SQL-001"},
+    {"id": "CS-SQLI-N-001",   "file": "cssqli/negative/BenchCsSqliSafe001.cs",       "class": "sql_injection",        "expect": "negative", "rule": "SC-CSHARP-SQL-001"},
+    {"id": "CS-DESER-P-001",  "file": "csdeser/positive/BenchCsDeser001.cs",         "class": "unsafe_deserialization","expect": "positive", "rule": "SC-CSHARP-DESER-001"},
+    {"id": "CS-DESER-N-001",  "file": "csdeser/negative/BenchCsDeserSafe001.cs",     "class": "unsafe_deserialization","expect": "negative", "rule": "SC-CSHARP-DESER-001"},
+    {"id": "CS-SSRF-P-001",   "file": "csssrf/positive/BenchCsSsrf001.cs",           "class": "ssrf",                 "expect": "positive", "rule": "SC-CSHARP-SSRF-001"},
+    {"id": "CS-SSRF-N-001",   "file": "csssrf/negative/BenchCsSsrfSafe001.cs",       "class": "ssrf",                 "expect": "negative", "rule": "SC-CSHARP-SSRF-001"},
+    {"id": "CS-SECRET-P-001", "file": "cssecret/positive/BenchCsSecret001.cs",       "class": "hardcoded_secret",     "expect": "positive", "rule": "SC-CSHARP-SECRET-001"},
+    {"id": "CS-SECRET-N-001", "file": "cssecret/negative/BenchCsSecretSafe001.cs",   "class": "hardcoded_secret",     "expect": "negative", "rule": "SC-CSHARP-SECRET-001"}
+  ]
+}

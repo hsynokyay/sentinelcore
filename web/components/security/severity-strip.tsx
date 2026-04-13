@@ -62,15 +62,22 @@ export function SeverityStrip({
   const desaturated = state === "resolved" || state === "muted";
   const isVertical = orientation === "vertical";
 
-  // Vertical: pin top + bottom + left, set explicit width.
+  // Vertical: pin top + bottom + left. Width is set via className for
+  // the default 3px case so the `group-hover/row:w-[5px]` can override
+  // it (inline styles beat classNames, so hover-widen can't work with
+  // an inline width). Non-default thicknesses fall back to inline style
+  // (no hover-widen, which is fine — only table rows use the 3px default
+  // and need the hover behavior).
+  //
   // Horizontal: pin left + right + top, set explicit height.
+  const defaultVertical = isVertical && thickness === 3;
   const positionStyle: React.CSSProperties = isVertical
     ? {
         position: "absolute",
         top: 0,
         bottom: 0,
         left: 0,
-        width: thickness,
+        ...(defaultVertical ? {} : { width: thickness }),
       }
     : {
         position: "absolute",
@@ -90,10 +97,18 @@ export function SeverityStrip({
         isVertical ? "rounded-r-sm" : "rounded-b-sm",
         severityBgClass(severity),
         desaturated && "opacity-40 saturate-[.7]",
-        // The graphics-dim transition mirrors the ScoreDisplay's so that
-        // a row entering the resolved state animates uniformly across both
-        // its rail and its score ring/echo.
-        "transition-[opacity,filter] duration-[var(--duration-base)]",
+        // Smooth transitions for opacity/filter (lifecycle dim) and
+        // width (hover-widen). The width transition uses the same fast
+        // duration as other micro-interactions so it feels snappy.
+        "transition-[opacity,filter,width] duration-[var(--duration-base)]",
+        // Default vertical strip: class-based width so hover can override.
+        // Non-default thickness uses inline style (see positionStyle).
+        defaultVertical && "w-[3px]",
+        // Hover-widen: when the parent row has `group/row` (set by
+        // DataTable on clickable rows), the strip widens from 3px to 5px
+        // on hover, giving the row a subtle "selected" feel without any
+        // layout shift (the strip is out of normal flow).
+        defaultVertical && "group-hover/row:w-[5px]",
         className,
       )}
       style={positionStyle}

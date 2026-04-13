@@ -58,11 +58,30 @@ const columns: Column<Scan>[] = [
     render: (s) => <StatusBadge status={s.status} />,
   },
   {
-    key: "target",
-    header: "Target",
-    render: (s) => (
-      <span className="text-sm font-mono text-muted-foreground">{s.target_id}</span>
-    ),
+    key: "input",
+    header: "Input",
+    render: (s) => {
+      if (s.source_artifact_id) {
+        return (
+          <span className="text-sm">
+            <span className="text-muted-foreground">artifact:</span>{" "}
+            {s.source_artifact_name || s.source_artifact_id.slice(0, 8)}
+          </span>
+        );
+      }
+      if (s.target_id) {
+        return (
+          <span className="text-sm">
+            {s.target_label || s.target_base_url || (
+              <span className="font-mono text-muted-foreground">
+                {s.target_id.slice(0, 8)}
+              </span>
+            )}
+          </span>
+        );
+      }
+      return <span className="text-xs text-muted-foreground">—</span>;
+    },
   },
   {
     key: "progress",

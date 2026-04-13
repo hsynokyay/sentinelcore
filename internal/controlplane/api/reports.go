@@ -303,7 +303,7 @@ func (h *Handlers) ScanActivity(w http.ResponseWriter, r *http.Request) {
 
 	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		query := `SELECT scan_type, COUNT(*) AS count,
-				  COALESCE(AVG(EXTRACT(EPOCH FROM (finished_at - started_at))), 0) AS avg_dur
+				  COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at))), 0) AS avg_dur
 				  FROM scans.scan_jobs WHERE 1=1`
 		args := []any{}
 		argIdx := 1
