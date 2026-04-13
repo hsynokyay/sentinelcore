@@ -46,6 +46,32 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* ─── SentinelCore security tokens ──────────────────────────────────── */
+  /* Severity palette — single source of truth for every severity colour. */
+  --color-severity-critical: var(--severity-critical);
+  --color-severity-high: var(--severity-high);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-low: var(--severity-low);
+  --color-severity-info: var(--severity-info);
+
+  /* Signal channels — runtime confirmation, public exposure, etc.       */
+  --color-signal-runtime: var(--signal-runtime);
+  --color-signal-exposure: var(--signal-exposure);
+  --color-signal-new: var(--signal-new);
+  --color-signal-muted: var(--signal-muted);
+
+  /* Contribution bars (used by the "Why ranked highly?" explanation).   */
+  --color-contrib-track: var(--contrib-track);
+  --color-contrib-base: var(--contrib-base);
+  --color-contrib-boost: var(--contrib-boost);
+  --color-contrib-penalty: var(--contrib-penalty);
+
+  /* Trust/status strip pulse dot colours.                                */
+  --color-pulse-ok: var(--pulse-ok);
+  --color-pulse-warn: var(--pulse-warn);
+  --color-pulse-err: var(--pulse-err);
+
 }
 
 :root {
@@ -81,6 +107,46 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ─── SentinelCore security tokens — light mode ─────────────────────── */
+  /* Severity: same hue as dark mode, slightly darker chroma for AA text. */
+  --severity-critical: oklch(0.585 0.233 14);    /* red   */
+  --severity-high:     oklch(0.682 0.185 42);    /* amber */
+  --severity-medium:   oklch(0.780 0.165 88);    /* yellow */
+  --severity-low:      oklch(0.625 0.190 254);   /* blue   */
+  --severity-info:     oklch(0.545 0.020 260);   /* slate  */
+
+  /* Signal channels. */
+  --signal-runtime:  oklch(0.635 0.260 302);     /* violet */
+  --signal-exposure: oklch(0.585 0.233 14);      /* shares critical hue */
+  --signal-new:      oklch(0.725 0.180 155);     /* green  */
+  --signal-muted:    oklch(0.545 0.020 260);     /* slate  */
+
+  /* Contribution bars. */
+  --contrib-track:   oklch(0.925 0.003 260);
+  --contrib-base:    oklch(0.555 0.015 260);
+  --contrib-boost:   oklch(0.725 0.180 155);
+  --contrib-penalty: oklch(0.585 0.233 14);
+
+  /* Trust strip pulse dots. */
+  --pulse-ok:   oklch(0.725 0.180 155);
+  --pulse-warn: oklch(0.780 0.165 88);
+  --pulse-err:  oklch(0.585 0.233 14);
+
+  /* Intensity halos — box-shadow values used by Level 3+ elements.      */
+  --halo-critical: 0 0 0 1px oklch(0.585 0.233 14 / 0.35), 0 0 12px oklch(0.585 0.233 14 / 0.15);
+  --halo-runtime:  0 0 0 1px oklch(0.635 0.260 302 / 0.35), 0 0 12px oklch(0.635 0.260 302 / 0.15);
+  --halo-exposure: 0 0 0 1px oklch(0.585 0.233 14 / 0.35), 0 0 12px oklch(0.585 0.233 14 / 0.15);
+
+  /* Motion tokens — plain CSS variables (outside @theme inline) so they
+     always resolve on :root. Tailwind v4 tree-shakes @theme tokens that
+     have no reference in the built CSS, so anything we don't want
+     garbage-collected lives here. */
+  --ease-out-sentinel: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 100ms;
+  --duration-base: 150ms;
+  --duration-slow: 250ms;
+  --duration-score: 700ms;
 }
 
 .dark {
@@ -115,6 +181,45 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* ─── SentinelCore security tokens — dark mode (reference palette) ──── */
+  /* Severity: brighter, higher-chroma values designed against --surface-1. */
+  --severity-critical: oklch(0.695 0.250 14);    /* red     */
+  --severity-high:     oklch(0.745 0.195 46);    /* amber   */
+  --severity-medium:   oklch(0.865 0.175 92);    /* yellow  */
+  --severity-low:      oklch(0.705 0.200 252);   /* blue    */
+  --severity-info:     oklch(0.635 0.020 260);   /* slate   */
+
+  /* Signal channels. */
+  --signal-runtime:  oklch(0.720 0.265 302);     /* violet  */
+  --signal-exposure: oklch(0.695 0.250 14);
+  --signal-new:      oklch(0.765 0.190 158);     /* green   */
+  --signal-muted:    oklch(0.635 0.020 260);
+
+  /* Contribution bars. */
+  --contrib-track:   oklch(0.285 0.012 260);
+  --contrib-base:    oklch(0.635 0.020 260);
+  --contrib-boost:   oklch(0.765 0.190 158);
+  --contrib-penalty: oklch(0.695 0.250 14);
+
+  /* Trust strip pulse dots. */
+  --pulse-ok:   oklch(0.765 0.190 158);
+  --pulse-warn: oklch(0.865 0.175 92);
+  --pulse-err:  oklch(0.695 0.250 14);
+
+  /* Intensity halos — Level 3+ security chrome. */
+  --halo-critical: 0 0 0 1px oklch(0.695 0.250 14 / 0.40), 0 0 14px oklch(0.695 0.250 14 / 0.22);
+  --halo-runtime:  0 0 0 1px oklch(0.720 0.265 302 / 0.40), 0 0 14px oklch(0.720 0.265 302 / 0.22);
+  --halo-exposure: 0 0 0 1px oklch(0.695 0.250 14 / 0.40), 0 0 14px oklch(0.695 0.250 14 / 0.22);
+
+  /* Motion tokens inherit from :root — duplicated here for symmetry so a
+     future dark-specific tweak (e.g. slower score fill in high-contrast
+     mode) has a natural place to live. */
+  --ease-out-sentinel: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 100ms;
+  --duration-base: 150ms;
+  --duration-slow: 250ms;
+  --duration-score: 700ms;
 }
 
 @layer base {
@@ -126,5 +231,70 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* ─── SentinelCore utilities ──────────────────────────────────────────── */
+
+/* Tabular figures — the single most important typographic rule for a
+   data-dense security product. Apply to every number rendered in tables,
+   charts, tooltips, KPI tiles, and score displays. */
+@utility tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── SentinelCore keyframes ──────────────────────────────────────────── */
+
+@keyframes score-fill {
+  0% {
+    stroke-dashoffset: var(--score-ring-circumference, 0);
+  }
+  100% {
+    stroke-dashoffset: var(--score-ring-target, 0);
+  }
+}
+
+@keyframes contrib-fill {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: var(--contrib-target-width, 0%);
+  }
+}
+
+@keyframes score-reopen {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-trust {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Reduced-motion: every non-essential animation collapses to 0ms. This
+   applies to the whole app, not just the security layer, and must ship
+   before any new motion is introduced. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

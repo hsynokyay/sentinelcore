@@ -6,9 +6,11 @@ import { SeverityBadge } from "@/components/badges/severity-badge";
 import { StatusBadge } from "@/components/badges/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ScoreDisplay } from "@/components/security/score-display";
 import { RiskEvidencePanel } from "./risk-evidence-panel";
+import { RiskNextBestAction } from "./risk-next-best-action";
 import { useResolveRisk, useReopenRisk } from "./hooks";
-import type { RiskClusterDetail } from "@/lib/types";
+import type { RiskClusterDetail, RiskStatus } from "@/lib/types";
 
 const roleColors: Record<string, string> = {
   sast: "bg-violet-100 text-violet-800",
@@ -25,6 +27,23 @@ function formatDate(s: string | null | undefined): string {
   return new Date(s).toLocaleString();
 }
 
+/**
+ * Map a risk status to the visual state of the ScoreDisplay ring.
+ *
+ * - `active` and `auto_resolved` render as `active` because auto-resolved
+ *   is transient (auto-reactivates the moment findings return), so the
+ *   score should still feel live.
+ * - `user_resolved` and `muted` are explicit user actions and earn the
+ *   desaturated ring treatment that visually steps the risk back.
+ */
+function statusToScoreState(
+  status: RiskStatus,
+): "active" | "resolved" | "muted" {
+  if (status === "user_resolved") return "resolved";
+  if (status === "muted") return "muted";
+  return "active";
+}
+
 export function RiskDetail({ risk }: { risk: RiskClusterDetail }) {
   const resolve = useResolveRisk();
   const reopen = useReopenRisk();
@@ -34,11 +53,16 @@ export function RiskDetail({ risk }: { risk: RiskClusterDetail }) {
   const canResolve = risk.status === "active" || risk.status === "auto_resolved";
   const canReopen = risk.status === "user_resolved" || risk.status === "muted";
 
+  // Visual state for the score ring. Glow is earned: only critical-severity
+  // active clusters receive the halo (Level 3+ in the intensity model).
+  const scoreState = statusToScoreState(risk.status);
+  const showGlow = risk.severity === "critical" && scoreState === "active";
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <section className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+      <section className="flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-semibold text-foreground truncate">{risk.title}</h1>
           <div className="mt-2 flex items-center gap-2 flex-wrap">
             <SeverityBadge severity={risk.severity} />
@@ -56,34 +80,43 @@ export function RiskDetail({ risk }: { risk: RiskClusterDetail }) {
             </Badge>
           </div>
         </div>
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="text-right">
-            <div className="text-4xl font-bold tabular-nums">{risk.risk_score}</div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              risk score
+        <div className="flex flex-col items-end gap-4 shrink-0">
+          <ScoreDisplay
+            score={risk.risk_score}
+            severity={risk.severity}
+            variant="hero"
+            state={scoreState}
+            glow={showGlow}
+          />
+          {(canResolve || canReopen) && (
+            <div className="flex gap-2">
+              {canResolve && (
+                <Button
+                  disabled={busy}
+                  onClick={() => resolve.mutate({ id: risk.id, reason })}
+                >
+                  Resolve
+                </Button>
+              )}
+              {canReopen && (
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => reopen.mutate(risk.id)}
+                >
+                  Reopen
+                </Button>
+              )}
             </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            {canResolve && (
-              <Button
-                disabled={busy}
-                onClick={() => resolve.mutate({ id: risk.id, reason })}
-              >
-                Resolve
-              </Button>
-            )}
-            {canReopen && (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => reopen.mutate(risk.id)}
-              >
-                Reopen
-              </Button>
-            )}
-          </div>
+          )}
         </div>
       </section>
+
+      {/* Next best action — derived from severity + signals. Skips itself
+          for resolved/muted risks. Sits between the header and the
+          resolution reason input so the user reads the recommendation
+          before deciding to type a resolution rationale. */}
+      <RiskNextBestAction risk={risk} />
 
       {canResolve && (
         <input

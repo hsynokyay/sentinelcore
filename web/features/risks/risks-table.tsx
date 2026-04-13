@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { DataTable, type Column } from "@/components/data/data-table";
 import { SeverityBadge } from "@/components/badges/severity-badge";
 import { Badge } from "@/components/ui/badge";
-import type { RiskCluster } from "@/lib/types";
+import { ScoreDisplay } from "@/components/security/score-display";
+import { SeverityStrip } from "@/components/security/severity-strip";
+import type { RiskCluster, RiskStatus } from "@/lib/types";
 
 function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr);
@@ -20,14 +22,6 @@ function formatRelativeDate(dateStr: string): string {
   return date.toLocaleDateString();
 }
 
-const scoreBarColor: Record<string, string> = {
-  critical: "bg-red-600",
-  high: "bg-orange-500",
-  medium: "bg-yellow-500",
-  low: "bg-blue-500",
-  info: "bg-slate-400",
-};
-
 const exposureColors: Record<string, string> = {
   public: "bg-red-100 text-red-800",
   authenticated: "bg-amber-100 text-amber-800",
@@ -35,16 +29,25 @@ const exposureColors: Record<string, string> = {
   unknown: "bg-gray-100 text-gray-600",
 };
 
-function ScoreBar({ score, severity }: { score: number; severity: string }) {
-  const color = scoreBarColor[severity] ?? "bg-slate-400";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 w-20 rounded bg-muted overflow-hidden">
-        <div className={`h-full ${color}`} style={{ width: `${Math.min(100, score)}%` }} />
-      </div>
-      <span className="text-sm font-semibold tabular-nums w-8 text-right">{score}</span>
-    </div>
-  );
+/**
+ * Map a risk lifecycle status to the visual state shared by every
+ * security primitive (ScoreDisplay, SeverityStrip).
+ *
+ * - `active` and `auto_resolved` render as `active` because auto-resolved
+ *   is transient (auto-reactivates the moment findings return), so the
+ *   row should still feel live.
+ * - `user_resolved` and `muted` are explicit user actions and earn the
+ *   desaturated graphics treatment that visually steps the row back.
+ *
+ * Mirrors the helper in `risk-detail.tsx`. Kept local for now — if a
+ * third consumer appears we'll promote it to `lib/security/`.
+ */
+function statusToLifecycleState(
+  status: RiskStatus,
+): "active" | "resolved" | "muted" {
+  if (status === "user_resolved") return "resolved";
+  if (status === "muted") return "muted";
+  return "active";
 }
 
 function ReasonsSummary({ risk }: { risk: RiskCluster }) {
@@ -60,10 +63,32 @@ function ReasonsSummary({ risk }: { risk: RiskCluster }) {
 
 const columns: Column<RiskCluster>[] = [
   {
+    // The severity rail. The cell is `relative` so the absolutely-
+    // positioned SeverityStrip uses it as its containing block — the
+    // strip pins to top/bottom/left and naturally fills the row height
+    // set by the other cells.
+    key: "severity-rail",
+    header: "",
+    className: "w-[6px] p-0 relative",
+    render: (r) => (
+      <SeverityStrip
+        severity={r.severity}
+        state={statusToLifecycleState(r.status)}
+      />
+    ),
+  },
+  {
     key: "risk_score",
     header: "Score",
-    className: "w-[160px]",
-    render: (r) => <ScoreBar score={r.risk_score} severity={r.severity} />,
+    className: "w-[140px]",
+    render: (r) => (
+      <ScoreDisplay
+        score={r.risk_score}
+        severity={r.severity}
+        variant="sm"
+        state={statusToLifecycleState(r.status)}
+      />
+    ),
   },
   {
     key: "severity",
@@ -120,9 +145,13 @@ const columns: Column<RiskCluster>[] = [
 export function RisksTable({
   data,
   isLoading,
+  emptyContent,
 }: {
   data: RiskCluster[];
   isLoading?: boolean;
+  /** Rich empty content — wired up by the /risks page to show
+   *  canonical empty states ("no risks yet" / "no matching risks"). */
+  emptyContent?: React.ReactNode;
 }) {
   const router = useRouter();
   return (
@@ -131,6 +160,7 @@ export function RisksTable({
       data={data}
       isLoading={isLoading}
       onRowClick={(row) => router.push(`/risks/${row.id}`)}
+      emptyContent={emptyContent}
       emptyMessage="No risks yet. Risks appear after the first scan completes."
     />
   );
