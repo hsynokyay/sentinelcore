@@ -9,8 +9,14 @@
 **Tech Stack:** Go 1.26, `github.com/coreos/go-oidc/v3`, `golang.org/x/oauth2`, existing `pkg/crypto/aesgcm` for client_secret-at-rest, existing `pkg/auth` for JWT issuance, Redis for state store, Next.js 16 + React 19 for settings UI.
 
 **Phase dependencies:**
-- **Phase 1 (RBAC refactor) must be deployed before this plan starts** — `auth.roles`, `auth.permissions`, `auth.role_permissions`, the `sso.manage` permission, `Principal.Can()`, `RequirePermission` middleware, and the `is_builtin` column on `auth.roles` all come from Phase 1.
+- **Phase 1 (RBAC refactor) must be deployed before this plan starts** — `auth.roles`, `auth.permissions`, `auth.role_permissions`, the `sso.manage` permission, the `developer` role (created fresh in Phase 1), `Principal.Can()`, `RequirePermission` middleware, and the `is_builtin` column on `auth.roles` all come from Phase 1.
 - Phase 2 (API key scopes) is **not** required for Phase 3 — this plan is independent.
+
+**Phase 1 dependency assertion:** the dep-check in Task 1.1 Step 4 specifically queries for the `developer` role rather than just `is_builtin = true`. The `developer` role is brand-new in Phase 1 (vs. renames of pre-existing roles), so its presence is a clean signal that Phase 1's data migration completed, not just the schema migration.
+
+**Migration numbering note:** This plan uses migration numbers 029, 030, 031. Phase 2 uses 026, 027, 028. If Phase 2's plan grows, numbering will collide — re-number at merge time. The agent should `ls migrations/` before applying to confirm next-available numbers.
+
+**Note on core.users RLS:** the JIT-provisioning transaction issues `SET LOCAL app.current_org_id` before INSERT/UPDATE on `core.users`. Phase 1 does NOT enable RLS on `core.users` (users are looked up by tenancy at query time via `org_id` predicates), so the SET LOCAL is defense-in-depth for the future. If Phase 1 has added RLS to `core.users` by the time Phase 3 ships, the SET LOCAL becomes load-bearing and any failure must abort the transaction (already handled in the helper below).
 
 ---
 
@@ -176,9 +182,14 @@ psql "$DATABASE_URL" -c "\d auth.oidc_providers"
 - [ ] **Step 4: Verify FK to auth.roles resolves (Phase 1 must be applied)**
 
 ```bash
-psql "$DATABASE_URL" -c "SELECT id FROM auth.roles WHERE is_builtin = true;"
-# Expected: owner, admin, security_engineer, auditor, developer.
-# If this errors, Phase 1 is not applied — abort this plan.
+# Specifically check for `developer` (brand-new role in Phase 1, not a rename).
+# Its presence proves Phase 1's seed-and-rewrite migration completed.
+psql "$DATABASE_URL" -tc "SELECT id FROM auth.roles WHERE id = 'developer';" | grep -q developer || {
+    echo "ERROR: Phase 1 RBAC migration not detected. Apply migrations 024-025 first."
+    exit 1
+}
+psql "$DATABASE_URL" -c "SELECT id FROM auth.roles WHERE is_builtin = true ORDER BY id;"
+# Expected: admin, auditor, developer, owner, security_engineer.
 ```
 
 - [ ] **Step 5: Verify CHECK constraints reject bad input**
@@ -637,9 +648,9 @@ func TestResolveRole(t *testing.T) {
 	defaultRole := "developer"
 
 	cases := []struct {
-		name   string
-		groups []string
-		want   string
+		name            string
+		groups          []string
+		want            string
 		wantFromMapping bool
 	}{
 		{"no groups → default", nil, "developer", false},
@@ -647,12 +658,9 @@ func TestResolveRole(t *testing.T) {
 		{"single match: auditor", []string{"auditors"}, "auditor", true},
 		{"two matches: priority wins", []string{"auditors", "sec-engs"}, "security_engineer", true},
 		{"all three: admin wins by priority", []string{"auditors", "sec-engs", "admins"}, "admin", true},
-		{"tie broken by role_id asc", []string{"A", "B"}, "role_a", true},  // see tie-breaker test below
 		{"case-sensitive match", []string{"SEC-ENGS"}, "developer", false}, // not "sec-engs"
 	}
-
-	// Main table:
-	for _, tc := range cases[:5] {
+	for _, tc := range cases {
 		got, ok := ResolveRole(tc.groups, mappings, defaultRole)
 		if got != tc.want || ok != tc.wantFromMapping {
 			t.Errorf("%s: ResolveRole(%v) = (%q, %v), want (%q, %v)",
@@ -660,7 +668,7 @@ func TestResolveRole(t *testing.T) {
 		}
 	}
 
-	// Tie-breaker test (separate mapping set):
+	// Tie-breaker test (separate mapping set: same priority, different roles):
 	tieMappings := []GroupMapping{
 		{Group: "A", Role: "role_b", Priority: 5},
 		{Group: "B", Role: "role_a", Priority: 5},
@@ -668,12 +676,6 @@ func TestResolveRole(t *testing.T) {
 	got, ok := ResolveRole([]string{"A", "B"}, tieMappings, "developer")
 	if got != "role_a" || !ok {
 		t.Errorf("tie broken ASC: got=%q ok=%v, want role_a/true", got, ok)
-	}
-
-	// Case-sensitive:
-	got, ok = ResolveRole([]string{"SEC-ENGS"}, mappings, defaultRole)
-	if got != "developer" || ok {
-		t.Errorf("case-sensitive: got %q ok=%v, want developer/false", got, ok)
 	}
 }
 ```
@@ -880,8 +882,11 @@ package sso
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -993,37 +998,87 @@ func (c *Client) Exchange(ctx context.Context, code, pkceVerifier string) (idTok
 // Known error sentinels: ErrNonceMismatch, ErrAudMismatch,
 // ErrIssuerMismatch, ErrTokenExpired, ErrClaimsMalformed. Callers SHOULD
 // errors.Is-check these to decide the sso_login_events.error_code.
+//
+// We pre-parse iss/aud/exp from the raw token bytes BEFORE calling
+// go-oidc's Verify so our sentinel classification is authoritative
+// rather than depending on go-oidc's error message format (which is
+// not a stable API). Signature verification still goes through
+// go-oidc's verifier (uses cached JWKS, handles kid rotation).
 func (c *Client) VerifyIDToken(ctx context.Context, rawIDToken, expectedNonce string) (*Claims, error) {
 	ctx = maybeInsecure(ctx, c.issuerURL)
-	tok, err := c.verifier.Verify(ctx, rawIDToken)
+
+	// Pre-parse: split jwt, base64-decode the claims segment, inspect iss/aud/exp.
+	// This is NOT a signature check — it just gives us typed errors before
+	// go-oidc reports them as opaque strings.
+	claimsRaw, err := parseJWTClaimsUnverified(rawIDToken)
 	if err != nil {
-		// go-oidc's error messages embed reason; wrap into sentinels.
-		switch {
-		case containsErr(err, "expired"):
-			return nil, fmt.Errorf("%w: %v", ErrTokenExpired, err)
-		case containsErr(err, "aud claim"):
-			return nil, fmt.Errorf("%w: %v", ErrAudMismatch, err)
-		case containsErr(err, "iss"):
-			return nil, fmt.Errorf("%w: %v", ErrIssuerMismatch, err)
-		default:
-			return nil, fmt.Errorf("sso: id_token verify: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrClaimsMalformed, err)
+	}
+	if iss, _ := claimsRaw["iss"].(string); iss != c.issuerURL {
+		return nil, fmt.Errorf("%w: got %q want %q", ErrIssuerMismatch, iss, c.issuerURL)
+	}
+	if !audContains(claimsRaw["aud"], c.clientID) {
+		return nil, fmt.Errorf("%w: aud does not contain %q", ErrAudMismatch, c.clientID)
+	}
+	if exp, ok := claimsRaw["exp"].(float64); ok {
+		if int64(exp) < time.Now().Unix() {
+			return nil, ErrTokenExpired
 		}
 	}
-
-	var c1 Claims
-	if err := tok.Claims(&c1); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrClaimsMalformed, err)
-	}
-	if err := tok.Claims(&c1.Raw); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrClaimsMalformed, err)
-	}
-
-	// Nonce binding: go-oidc doesn't check nonce — we do it here.
-	gotNonce, _ := c1.Raw["nonce"].(string)
-	if gotNonce != expectedNonce {
+	if gotNonce, _ := claimsRaw["nonce"].(string); gotNonce != expectedNonce {
 		return nil, ErrNonceMismatch
 	}
-	return &c1, nil
+
+	// Now: signature + full validation via go-oidc (checks iss/aud/exp too,
+	// but our pre-check fires first with typed errors so this is a belt-
+	// and-brace for crypto correctness).
+	tok, err := c.verifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		return nil, fmt.Errorf("sso: id_token verify: %w", err)
+	}
+
+	var out Claims
+	if err := tok.Claims(&out); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrClaimsMalformed, err)
+	}
+	out.Raw = claimsRaw // reuse the pre-parsed map
+	return &out, nil
+}
+
+// parseJWTClaimsUnverified splits a JWT and decodes the claims segment
+// WITHOUT signature verification. Used only to produce typed errors
+// before handing off to go-oidc. Never trust these values until
+// Verify() succeeds — but for iss/aud/exp/nonce sentinel classification
+// they're fine (a tampered token will just fail signature check next).
+func parseJWTClaimsUnverified(raw string) (map[string]any, error) {
+	segs := strings.Split(raw, ".")
+	if len(segs) != 3 {
+		return nil, errors.New("malformed jwt: want 3 segments")
+	}
+	b, err := base64.RawURLEncoding.DecodeString(segs[1])
+	if err != nil {
+		return nil, fmt.Errorf("claims b64: %w", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, fmt.Errorf("claims json: %w", err)
+	}
+	return m, nil
+}
+
+// audContains handles aud being either a string or []string (RFC 7519 §4.1.3).
+func audContains(raw any, want string) bool {
+	switch v := raw.(type) {
+	case string:
+		return v == want
+	case []any:
+		for _, e := range v {
+			if s, ok := e.(string); ok && s == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // EndSessionURL returns the provider's end_session_endpoint if discovery
@@ -1037,28 +1092,14 @@ func (c *Client) EndSessionURL() string {
 }
 
 func maybeInsecure(ctx context.Context, issuer string) context.Context {
-	// Allow http://localhost during dev tests.
-	if len(issuer) >= 17 && issuer[:17] == "http://localhost:" {
-		return oidc.InsecureIssuerURLContext(ctx, issuer)
-	}
-	if len(issuer) >= 16 && issuer[:16] == "http://127.0.0.1" {
+	// Allow http://localhost and http://127.0.0.1 during dev tests.
+	// `strings.HasPrefix` handles both "http://localhost/..." (no port)
+	// and "http://localhost:8180/..." (with port) correctly.
+	if strings.HasPrefix(issuer, "http://localhost") ||
+		strings.HasPrefix(issuer, "http://127.0.0.1") {
 		return oidc.InsecureIssuerURLContext(ctx, issuer)
 	}
 	return ctx
-}
-
-func containsErr(err error, substr string) bool {
-	return err != nil && len(err.Error()) >= len(substr) &&
-		(len(substr) == 0 || indexOf(err.Error(), substr) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }
 ```
 
@@ -1552,6 +1593,75 @@ func (s *ProviderStore) UpdateEndSessionURL(ctx context.Context, id, endSessionU
 		endSessionURL, id)
 	return err
 }
+
+// PublicProvider is the subset of a Provider safe to return from the
+// unauthenticated /auth/sso/enabled endpoint — no issuer, no client ID,
+// no secret. Just what the login page needs to render buttons.
+type PublicProvider struct {
+	ProviderSlug string
+	DisplayName  string
+}
+
+// ListEnabledPublicByOrgSlug returns enabled providers for an org keyed
+// by its URL slug. Used by the public /auth/sso/enabled handler.
+// Does NOT require the caller to have set app.current_org_id — this
+// endpoint is pre-auth and the SELECT is constrained by org.slug.
+// Never returns secrets or IdP URLs.
+func (s *ProviderStore) ListEnabledPublicByOrgSlug(ctx context.Context, orgSlug string) ([]PublicProvider, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT op.provider_slug, op.display_name
+		FROM auth.oidc_providers op
+		JOIN core.organizations o ON o.id = op.org_id
+		WHERE o.slug = $1 AND op.enabled = true
+		ORDER BY op.display_name ASC
+	`, orgSlug)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled providers by org slug: %w", err)
+	}
+	defer rows.Close()
+	var out []PublicProvider
+	for rows.Next() {
+		var p PublicProvider
+		if err := rows.Scan(&p.ProviderSlug, &p.DisplayName); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// ListEnabledForOrg returns enabled providers for an org by its UUID.
+// Used by the authenticated password-login USE_SSO path to suggest
+// which IdP an SSO-only user should use. Caller MUST have set
+// app.current_org_id (RLS applies).
+func (s *ProviderStore) ListEnabledForOrg(ctx context.Context, orgID string) ([]Provider, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id::text, org_id::text, provider_slug, display_name, issuer_url,
+		       client_id, scopes, default_role_id, sync_role_on_login,
+		       sso_logout_enabled, COALESCE(end_session_url, ''), enabled,
+		       created_at, updated_at
+		FROM auth.oidc_providers
+		WHERE org_id = $1 AND enabled = true
+		ORDER BY display_name ASC
+	`, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled providers for org: %w", err)
+	}
+	defer rows.Close()
+	var out []Provider
+	for rows.Next() {
+		var p Provider
+		if err := rows.Scan(&p.ID, &p.OrgID, &p.ProviderSlug, &p.DisplayName,
+			&p.IssuerURL, &p.ClientID, &p.Scopes, &p.DefaultRoleID,
+			&p.SyncRoleOnLogin, &p.SSOLogoutEnabled, &p.EndSessionURL,
+			&p.Enabled, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		// ClientSecret intentionally not populated — this is for UX, not login.
+		out = append(out, p)
+	}
+	return out, nil
+}
 ```
 
 - [ ] **Step 2: Write store tests**
@@ -1812,7 +1922,22 @@ func (h *Handlers) CreateSSOProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.audit.Emit(r.Context(), /* auth.sso.provider.create event */)
+	h.audit.Emit(r.Context(), audit.AuditEvent{
+		ActorType:    "user",
+		ActorID:      principal.UserID,
+		Action:       "auth.sso.provider.create",
+		ResourceType: "sso_provider",
+		ResourceID:   id,
+		OrgID:        principal.OrgID,
+		Result:       "success",
+		Details: map[string]any{
+			"provider_slug": p.ProviderSlug,
+			"issuer_url":    p.IssuerURL,
+			"default_role":  p.DefaultRoleID,
+			"scopes":        p.Scopes,
+			// client_secret deliberately absent.
+		},
+	})
 
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id})
 }
@@ -1834,6 +1959,7 @@ func (h *Handlers) GetSSOProvider(w http.ResponseWriter, r *http.Request) {
 
 // PATCH /api/v1/sso/providers/{id} — sso.manage
 func (h *Handlers) UpdateSSOProvider(w http.ResponseWriter, r *http.Request) {
+	principal, _ := auth.PrincipalFromContext(r.Context())
 	id := r.PathValue("id")
 	var req providerJSON
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1866,13 +1992,31 @@ func (h *Handlers) UpdateSSOProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.audit.Emit(r.Context(), /* auth.sso.provider.update — redact new secret */)
+	h.audit.Emit(r.Context(), audit.AuditEvent{
+		ActorType:    "user",
+		ActorID:      principal.UserID,
+		Action:       "auth.sso.provider.update",
+		ResourceType: "sso_provider",
+		ResourceID:   id,
+		OrgID:        principal.OrgID,
+		Result:       "success",
+		Details: map[string]any{
+			"provider_slug":     merged.ProviderSlug,
+			"secret_rotated":    req.ClientSecret != "",
+			"enabled":           merged.Enabled,
+			"default_role":      merged.DefaultRoleID,
+			"sync_role_on_login": merged.SyncRoleOnLogin,
+			"sso_logout_enabled": merged.SSOLogoutEnabled,
+			// req.ClientSecret itself deliberately absent.
+		},
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // DELETE /api/v1/sso/providers/{id} — sso.manage
 func (h *Handlers) DeleteSSOProvider(w http.ResponseWriter, r *http.Request) {
+	principal, _ := auth.PrincipalFromContext(r.Context())
 	id := r.PathValue("id")
 	if err := h.ssoProviders.Delete(r.Context(), id); err != nil {
 		if errors.Is(err, sso.ErrProviderNotFound) {
@@ -1883,7 +2027,15 @@ func (h *Handlers) DeleteSSOProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.audit.Emit(r.Context(), /* auth.sso.provider.delete */)
+	h.audit.Emit(r.Context(), audit.AuditEvent{
+		ActorType:    "user",
+		ActorID:      principal.UserID,
+		Action:       "auth.sso.provider.delete",
+		ResourceType: "sso_provider",
+		ResourceID:   id,
+		OrgID:        principal.OrgID,
+		Result:       "success",
+	})
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -2193,7 +2345,7 @@ func (h *Handlers) SSOCallback(w http.ResponseWriter, r *http.Request) {
 	// Consume state (single-use).
 	stored, err := h.ssoState.Take(r.Context(), stateTok)
 	if errors.Is(err, ssostate.ErrStateNotFound) {
-		h.logSSOEvent(r, "", "callback_error", "state_not_found", nil, nil, nil, r.RemoteAddr, r.UserAgent())
+		h.logSSOEvent(r, "", "callback_error", "state_not_found", nil, nil, nil)
 		writeError(w, http.StatusBadRequest, "state invalid or expired", "BAD_REQUEST")
 		return
 	}
@@ -2202,21 +2354,40 @@ func (h *Handlers) SSOCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reload the provider (state carries provider_id + org_id).
+	// Wrong-tenant check (spec line 331):
+	// 1. Resolve URL's org_slug → urlOrgID.
+	// 2. Reload provider by stored.ProviderID → p.
+	// 3. Assert stored.OrgID == urlOrgID AND p.OrgID == stored.OrgID
+	//    AND p.ProviderSlug == providerSlug (URL slug).
+	// If any check fails, the state was crafted for org X and submitted
+	// to org Y's URL — reject without revealing which check failed.
+	var urlOrgID string
+	err = h.pool.QueryRow(r.Context(),
+		`SELECT id::text FROM core.organizations WHERE slug = $1`, orgSlug).
+		Scan(&urlOrgID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		h.logSSOEvent(r, "", "callback_error", "org_not_found", nil, nil, nil)
+		writeError(w, http.StatusBadRequest, "invalid callback", "BAD_REQUEST")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "org lookup", "INTERNAL")
+		return
+	}
+	if stored.OrgID != urlOrgID {
+		h.logSSOEvent(r, "", "callback_error", "state_org_mismatch", nil, nil, nil)
+		writeError(w, http.StatusBadRequest, "invalid callback", "BAD_REQUEST")
+		return
+	}
+
 	p, err := h.ssoProviders.Get(r.Context(), stored.ProviderID)
 	if err != nil {
 		writeError(w, 500, "provider lookup", "INTERNAL")
 		return
 	}
-	// Wrong-tenant check: URL org slug must match state's org.
-	if p.ProviderSlug != providerSlug {
-		h.logSSOEvent(r, p.ID, "callback_error", "provider_mismatch", nil, nil, nil, r.RemoteAddr, r.UserAgent())
-		writeError(w, http.StatusBadRequest, "state/provider mismatch", "BAD_REQUEST")
-		return
-	}
-	if !providerOrgMatchesURL(r.Context(), h.pool, p.OrgID, orgSlug) {
-		h.logSSOEvent(r, p.ID, "callback_error", "org_mismatch", nil, nil, nil, r.RemoteAddr, r.UserAgent())
-		writeError(w, http.StatusBadRequest, "state/org mismatch", "BAD_REQUEST")
+	if p.OrgID != urlOrgID || p.ProviderSlug != providerSlug {
+		h.logSSOEvent(r, p.ID, "callback_error", "state_provider_mismatch", nil, nil, nil)
+		writeError(w, http.StatusBadRequest, "invalid callback", "BAD_REQUEST")
 		return
 	}
 
@@ -2224,13 +2395,13 @@ func (h *Handlers) SSOCallback(w http.ResponseWriter, r *http.Request) {
 	redirectURL := h.publicBaseURL + "/api/v1/auth/sso/" + orgSlug + "/" + providerSlug + "/callback"
 	client, err := h.ssoClients.Get(r.Context(), p, redirectURL)
 	if err != nil {
-		h.logSSOEvent(r, p.ID, "callback_error", "discovery_failed", nil, nil, nil, r.RemoteAddr, r.UserAgent())
+		h.logSSOEvent(r, p.ID, "callback_error", "discovery_failed", nil, nil, nil)
 		writeError(w, 502, "provider discovery", "BAD_GATEWAY")
 		return
 	}
 	rawIDToken, err := client.Exchange(r.Context(), code, stored.PKCEVerifier)
 	if err != nil {
-		h.logSSOEvent(r, p.ID, "callback_error", "code_exchange_failed", nil, nil, nil, r.RemoteAddr, r.UserAgent())
+		h.logSSOEvent(r, p.ID, "callback_error", "code_exchange_failed", nil, nil, nil)
 		writeError(w, http.StatusBadRequest, "code exchange failed", "BAD_REQUEST")
 		return
 	}
@@ -2246,12 +2417,12 @@ func (h *Handlers) SSOCallback(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, sso.ErrTokenExpired):   code = "token_expired"
 		case errors.Is(err, sso.ErrClaimsMalformed): code = "claims_malformed"
 		}
-		h.logSSOEvent(r, p.ID, "claim_error", code, nil, nil, nil, r.RemoteAddr, r.UserAgent())
+		h.logSSOEvent(r, p.ID, "claim_error", code, nil, nil, nil)
 		writeError(w, http.StatusBadRequest, "id_token verification failed", "BAD_REQUEST")
 		return
 	}
 	if claims.Sub == "" || claims.Email == "" {
-		h.logSSOEvent(r, p.ID, "claim_error", "missing_required_claim", &claims.Sub, &claims.Email, nil, r.RemoteAddr, r.UserAgent())
+		h.logSSOEvent(r, p.ID, "claim_error", "missing_required_claim", &claims.Sub, &claims.Email, nil)
 		writeError(w, http.StatusBadRequest, "id_token missing sub or email", "BAD_REQUEST")
 		return
 	}
@@ -2267,13 +2438,16 @@ func (h *Handlers) SSOCallback(w http.ResponseWriter, r *http.Request) {
 	userID, createdJIT, err := h.resolveOrProvisionSSOUser(r.Context(),
 		p.OrgID, p.ProviderSlug, claims, resolvedRole, p.SyncRoleOnLogin)
 	if err != nil {
-		h.logSSOEvent(r, p.ID, "user_error", "provision_failed", &claims.Sub, &claims.Email, &resolvedRole, r.RemoteAddr, r.UserAgent())
+		h.logSSOEvent(r, p.ID, "user_error", "provision_failed", &claims.Sub, &claims.Email, &resolvedRole)
 		writeError(w, 500, "user provision failed", "INTERNAL")
 		return
 	}
 
 	// Mint session (reuses existing pkg/auth helpers + Phase 1 RBAC cache).
-	tokens, err := h.auth.IssueSession(r.Context(), userID, p.OrgID, resolvedRole)
+	// Pass the rawIDToken so it can be stashed in Redis under
+	// `sso:idtoken:{jti}` for use by /sso/logout's id_token_hint param.
+	// pkg/auth.IssueSession is extended to accept an optional idToken.
+	tokens, err := h.auth.IssueSession(r.Context(), userID, p.OrgID, resolvedRole, rawIDToken)
 	if err != nil {
 		writeError(w, 500, "session issue", "INTERNAL")
 		return
@@ -2293,7 +2467,7 @@ func (h *Handlers) SSOCallback(w http.ResponseWriter, r *http.Request) {
 			"sync_role":      p.SyncRoleOnLogin,
 		},
 	})
-	h.logSSOEvent(r, p.ID, "success", "", &claims.Sub, &claims.Email, &resolvedRole, r.RemoteAddr, r.UserAgent())
+	h.logSSOEvent(r, p.ID, "success", "", &claims.Sub, &claims.Email, &resolvedRole)
 
 	http.Redirect(w, r, stored.ReturnTo, http.StatusFound)
 }
@@ -2313,7 +2487,14 @@ func (h *Handlers) resolveOrProvisionSSOUser(
 	tx, err := h.pool.Begin(ctx)
 	if err != nil { return "", false, err }
 	defer tx.Rollback(ctx)
-	_, _ = tx.Exec(ctx, `SET LOCAL app.current_org_id = $1`, orgID)
+	// RLS context: pkg/auth/rls handles escaping for us. Must not silently
+	// swallow the error — if SET LOCAL fails, subsequent queries will see
+	// NULL for app.current_org_id which either (a) fails RLS open with
+	// zero rows (silent data leak avoidance) or (b) breaks the policy
+	// cast. Either way: fail fast.
+	if _, err := tx.Exec(ctx, `SET LOCAL app.current_org_id = $1`, orgID); err != nil {
+		return "", false, fmt.Errorf("set RLS context: %w", err)
+	}
 
 	// Step 1: (org, provider, external_id).
 	var (
@@ -2371,34 +2552,128 @@ func (h *Handlers) resolveOrProvisionSSOUser(
 	}
 
 	// Step 3: JIT insert with ON CONFLICT for race safety.
+	//
+	// core.users has two UNIQUE constraints: (org_id, username) and
+	// (org_id, email). PostgreSQL's ON CONFLICT can only specify ONE
+	// target. We pick (org_id, email) since that's the stable identity
+	// for a human; username is a derived display handle we control.
+	//
+	// Username derivation: use claims.Sub (globally unique per IdP by
+	// spec) as the base. If sub is very long or contains problematic
+	// characters, fall back to email local-part + first 8 chars of a
+	// hash of sub (ensures uniqueness + readability).
+	username := deriveUsername(claims.Sub, claims.Email)
+
+	// Pre-flight: check (org_id, username) uniqueness. If another row
+	// already owns that username (extremely unlikely — would be another
+	// SSO user from the same IdP with the same sub, which is impossible
+	// by contract, or a pre-existing local user with a colliding handle),
+	// append a short hash suffix to disambiguate.
+	var existingUsernameUID string
+	err = tx.QueryRow(ctx,
+		`SELECT id::text FROM core.users WHERE org_id = $1 AND username = $2`,
+		orgID, username).Scan(&existingUsernameUID)
+	if err == nil {
+		// Collision — append 6-char hex hash of sub.
+		username = username + "-" + hashHex6(claims.Sub)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return "", false, err
+	}
+
 	err = tx.QueryRow(ctx, `
 		INSERT INTO core.users (
-		    org_id, email, display_name, role, status,
+		    org_id, username, email, display_name, role, status,
 		    identity_provider, external_id, password_hash
-		) VALUES ($1, $2, $3, $4, 'active', $5, $6, NULL)
+		) VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, NULL)
 		ON CONFLICT (org_id, email) DO UPDATE
 		    SET identity_provider = EXCLUDED.identity_provider,
-		        external_id = EXCLUDED.external_id
+		        external_id       = EXCLUDED.external_id
 		RETURNING id::text
-	`, orgID, claims.Email, claims.Name, resolvedRole, providerSlug, claims.Sub).Scan(&id)
+	`, orgID, username, claims.Email, claims.Name, resolvedRole, providerSlug, claims.Sub).Scan(&id)
 	if err != nil {
 		return "", false, err
 	}
 	return id, true, tx.Commit(ctx)
 }
+
+// deriveUsername produces a URL-safe, display-friendly username from an
+// IdP sub or email. Truncated to 64 chars; lowered; non-alnum replaced
+// with `-`. Never empty (falls back to email local-part on weird sub).
+func deriveUsername(sub, email string) string {
+	base := sub
+	if base == "" || len(base) > 64 {
+		if at := strings.Index(email, "@"); at > 0 {
+			base = email[:at]
+		}
+	}
+	// Sanitize.
+	out := make([]byte, 0, len(base))
+	for i := 0; i < len(base); i++ {
+		c := base[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+			out = append(out, c)
+		case c >= 'A' && c <= 'Z':
+			out = append(out, c+32) // to lower
+		default:
+			out = append(out, '-')
+		}
+	}
+	if len(out) == 0 {
+		return "sso-user"
+	}
+	if len(out) > 64 {
+		out = out[:64]
+	}
+	return string(out)
+}
+
+func hashHex6(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:6]
+}
+```
+
+> Imports needed for the JIT helper above: `crypto/sha256`, `encoding/hex`, `strings`, plus the existing `errors`, `fmt`, and `github.com/jackc/pgx/v5`.
 ```
 
 - [ ] **Step 3: Implement logSSOEvent helper**
 
 ```go
 // logSSOEvent writes a diagnostic row into auth.sso_login_events.
-// Claims are redacted: any value longer than 64 chars is truncated,
-// and keys matching regex (?i)(secret|token|password|key|hash) are removed.
+//
+// Claims are redacted: any value longer than 64 chars is truncated, and
+// keys matching regex (?i)(secret|token|password|key|hash) are removed
+// before serialization.
+//
+// IP extraction: production runs behind nginx (see deploy/docker-compose).
+// Use the SAME helper the audit emitter uses (see pkg/audit or
+// internal/controlplane/api/audit.go) so SSO events and audit events
+// agree on what counts as the client IP. If no shared helper exists
+// yet, factor one out as part of this task.
+//
+// Caller convention: pass r and the function reads X-Forwarded-For
+// itself. Existing call sites in this plan that pass r.RemoteAddr +
+// r.UserAgent() should be updated to just pass r.
 func (h *Handlers) logSSOEvent(r *http.Request, providerID, outcome, errCode string,
-	externalID, email, roleGranted *string, ip, ua string) {
-	// ... implementation
+	externalID, email, roleGranted *string) {
+	// Implementation outline:
+	//   ip := clientIP(r)        // shared helper — see note above
+	//   ua := r.UserAgent()
+	//   redacted := redactClaims(...)
+	//   _, _ = h.pool.Exec(r.Context(), `
+	//       INSERT INTO auth.sso_login_events
+	//           (provider_id, outcome, error_code, external_id, email,
+	//            role_granted, claims_redacted, ip_address, user_agent)
+	//       VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8::inet, $9)
+	//   `, providerID, outcome, errCode, externalID, email, roleGranted,
+	//      redacted, ip, ua)
+	//   // Errors are intentionally ignored — diagnostics must never break
+	//   // the auth flow.
 }
 ```
+
+> All call sites of `logSSOEvent` in the callback handler must be updated to drop the trailing `r.RemoteAddr, r.UserAgent()` arguments — the function reads them from `r` directly.
 
 - [ ] **Step 4: Run all SSO tests**
 
@@ -2424,10 +2699,17 @@ Public endpoint used by the login page to render "Sign in with X" buttons:
 
 ```go
 // GET /api/v1/auth/sso/enabled?org=<slug> — public
-// Returns [{provider_slug, display_name, start_url}] for enabled providers
-// of the given org. Does NOT reveal issuer_url / client_id (reconnaissance
-// surface minimisation — an attacker shouldn't be able to enumerate
-// which IdP a tenant uses without a valid session).
+//
+// Returns enabled providers for an org. Never reveals issuer_url /
+// client_id (reconnaissance surface minimisation).
+//
+// Anti-enumeration: org-slug presence can be inferred from whether the
+// response list is non-empty. Mitigations:
+//   - This route is wired behind the existing per-IP rate limiter at
+//     30 req/min (see routes.go where the route is registered).
+//   - Unknown orgs get `{providers: []}` — same shape as known orgs
+//     with no providers. 404 would reveal a slug doesn't exist; we
+//     avoid that signal intentionally.
 func (h *Handlers) EnabledSSOProviders(w http.ResponseWriter, r *http.Request) {
 	orgSlug := r.URL.Query().Get("org")
 	if orgSlug == "" {
@@ -2435,11 +2717,8 @@ func (h *Handlers) EnabledSSOProviders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	providers, err := h.ssoProviders.ListEnabledPublicByOrgSlug(r.Context(), orgSlug)
-	// Store method: SELECT provider_slug, display_name FROM auth.oidc_providers
-	//   JOIN core.organizations o ON o.id = oidc_providers.org_id
-	//   WHERE o.slug = $1 AND enabled = true
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"providers": []any{}}) // fail-open: empty list
+		writeJSON(w, 200, map[string]any{"providers": []any{}}) // fail-closed-as-empty
 		return
 	}
 	out := make([]map[string]any, 0, len(providers))
@@ -2608,11 +2887,19 @@ func (h *Handlers) SSOLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 302 to IdP end_session with id_token_hint + post_logout_redirect_uri.
-	// We don't have the id_token anymore (we discarded it) — many IdPs
-	// accept end_session without it, but some (Keycloak) require it.
-	// For v1 we send without id_token_hint and document the known limitation.
-	endURL := p.EndSessionURL + "?post_logout_redirect_uri=" + url.QueryEscape(h.publicBaseURL+"/login")
+	// To support Keycloak (and any IdP that requires id_token_hint per
+	// OIDC RP-Initiated Logout 1.0), retain the id_token alongside the
+	// session in Redis under key `sso:idtoken:{jti}` with the same TTL
+	// as the access token. CreateSession is extended (Task 5.3) to
+	// accept and store the id_token on SSO logins. Here we read it back.
+	idToken, _ := h.auth.IDTokenForSession(r.Context(), principal.JTI)
+
+	q := url.Values{}
+	q.Set("post_logout_redirect_uri", h.publicBaseURL+"/login")
+	if idToken != "" {
+		q.Set("id_token_hint", idToken)
+	}
+	endURL := p.EndSessionURL + "?" + q.Encode()
 	writeJSON(w, 200, map[string]any{"redirect": endURL})
 }
 ```
@@ -2882,9 +3169,16 @@ Table-driven integration test that mutates each query param of the callback URL 
 - code: missing, invalid (makes IdP reject)
 - id_token: signature stripped, aud changed, nonce stripped, exp in past
 
-- [ ] **Step 2: Concurrent callback test**
+- [ ] **Step 2: Concurrent callback tests (two scenarios)**
 
-Fire 10 concurrent callback requests with the SAME state token. Assert: exactly 1 succeeds, other 9 all get `state not found`.
+**Scenario A: single-use state**. Fire 10 concurrent callback requests with the SAME state token. Assert: exactly 1 succeeds (consumes the Redis state via GETDEL), other 9 all get `state_not_found`. This validates the Redis atomicity.
+
+**Scenario B: user-creation race (spec line 333)**. This is the real race to defend against:
+  - Construct TWO valid state tokens (s1, s2) for the same org + provider, both referencing an unprovisioned email address `alice@example.com`.
+  - Set up the fake IdP to return the SAME id_token claims (same sub + email) for both callbacks.
+  - Fire both callbacks concurrently.
+  - Assert: exactly ONE row is inserted into `core.users` for `alice@example.com`. The other callback's INSERT lands on the `ON CONFLICT (org_id, email) DO UPDATE` path and still succeeds (user is logged in with the same userID). No duplicate user, no transaction deadlock, both sessions are valid.
+  - If either callback returns 500 with a `duplicate key` error, the ON CONFLICT clause is not saving us — investigate the `(org_id, username)` unique constraint (may need `ON CONFLICT DO NOTHING` on the username side).
 
 - [ ] **Step 3: Open-redirect regression**
 
