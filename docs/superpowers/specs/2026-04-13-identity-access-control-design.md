@@ -1,7 +1,7 @@
 # Identity & Access Control — Design Spec
 
 **Date:** 2026-04-13
-**Status:** Draft
+**Status:** Draft (reviewed, issues resolved)
 **Scope:** SSO (OIDC), granular RBAC, scoped API keys for SentinelCore
 
 ## Problem
@@ -135,7 +135,7 @@ CREATE TABLE auth.oidc_group_mappings (
     provider_id UUID NOT NULL REFERENCES auth.oidc_providers(id) ON DELETE CASCADE,
     group_claim TEXT NOT NULL,
     role_id     TEXT NOT NULL REFERENCES auth.roles(id),
-    priority    INT NOT NULL DEFAULT 100,            -- lower = higher priority
+    priority    INT NOT NULL DEFAULT 100,            -- lower numeric value = higher priority (1 beats 100)
     UNIQUE (provider_id, group_claim)
 );
 
@@ -154,18 +154,22 @@ CREATE POLICY oidc_group_mappings_isolation ON auth.oidc_group_mappings
 ALTER TABLE core.api_keys
     ADD COLUMN IF NOT EXISTS is_service_account BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS description TEXT,
-    ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMPTZ;
+    ADD COLUMN IF NOT EXISTS rotated_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES core.users(id);
 -- scopes column already exists as TEXT[].
 ALTER TABLE core.api_keys ALTER COLUMN user_id DROP NOT NULL;
 ALTER TABLE core.api_keys ADD CONSTRAINT api_keys_principal_check
     CHECK (user_id IS NOT NULL OR is_service_account = true);
+-- created_by is the human who issued the key (always set). user_id is the
+-- principal it authenticates as (NULL for tenant-owned service accounts).
+-- Backfill: existing rows' created_by = user_id.
 ```
 
 **Design notes:**
 
 - Role/permission slugs as TEXT PK (not UUID) — stable identifiers referenced in code. No JOIN needed for display.
 - OIDC provider `client_secret` encrypted via existing `pkg/crypto/aesgcm`. Never returned by any GET endpoint; only write-only in create/update.
-- RLS on all new `auth.*` tables: `org_id` isolation consistent with the rest of the schema.
+- RLS on SSO tables (`auth.oidc_providers`, `auth.oidc_group_mappings`) for `org_id` isolation. **The three RBAC tables (`auth.roles`, `auth.permissions`, `auth.role_permissions`) are intentionally global — no RLS.** They hold built-in reference data shared across tenants. Write access is gated at the application layer by `sso.manage` / `users.manage` permissions (future custom-role feature). Built-in role/permission rows have `is_builtin = true` and are never mutated at runtime.
 - `api_keys.user_id` relaxed to nullable to support tenant-owned service accounts (see API key section).
 
 ## Role & Permission Matrix
@@ -241,7 +245,7 @@ The seed data (roles + permissions + role_permissions) ships as part of the migr
 Two migration strategies for handling in-flight JWTs carrying old role strings:
 
 1. **Force re-login** — invalidate all JTIs in Redis at deploy time. Clean but causes a 15-minute user-visible disruption.
-2. **Compatibility translator** (recommended) — `compatMode` middleware translates old role strings (`platform_admin` → `owner`) at JWT validation time. Zero user disruption. Flag is removed after 14 days.
+2. **Compatibility translator** (recommended) — the translator lives in **exactly one chokepoint**: `pkg/auth/jwt.go` at the end of `ValidateToken()`, after signature + expiry verification, before the claims are returned to the middleware. This guarantees that `Principal.Role` always holds a new-vocabulary string (`owner`, `admin`, ...) regardless of JWT age. The RBAC cache only ever stores new-vocabulary keys. Flag removed after 14 days via a single-line delete in `ValidateToken()`. No code outside JWT validation ever sees old strings.
 
 ## OIDC Flow Design
 
@@ -264,6 +268,11 @@ Org-scoped paths avoid ambiguity when two tenants use Azure AD — each has its 
 2. Browser → GET /api/v1/auth/sso/{org}/{provider}/start
    Backend:
      - Generate: state (random 32B), nonce (32B), PKCE verifier (43-128 chars) + challenge (S256)
+     - Validate return_to parameter BEFORE storing:
+         must match regex ^/[^/].*$ (starts with / but not //)
+         must not contain scheme characters (no ':' before any '/')
+         reject otherwise (redirect to /dashboard instead).
+         This prevents open-redirect / phishing via crafted start URLs.
      - Store in Redis under key sso:state:{state} with TTL 5m:
          { org_id, provider_id, pkce_verifier, nonce, return_to }
      - 302 redirect to IdP authorize URL with:
@@ -291,7 +300,9 @@ Org-scoped paths avoid ambiguity when two tenants use Azure AD — each has its 
       local user rather than creating a duplicate.
    f. If still not found → JIT provisioning:
         - Resolve role from groups[] using auth.oidc_group_mappings
-          (lowest-priority value wins when multiple groups match)
+          (when multiple groups match, the mapping with the lowest numeric
+           priority value wins — i.e. priority=1 beats priority=100;
+           ties broken by role_id ASC for determinism)
         - If no group match, use provider.default_role_id
         - INSERT INTO core.users (..., identity_provider=provider.slug, external_id=sub,
                                    password_hash=NULL, role=<resolved>)
@@ -324,6 +335,15 @@ Org-scoped paths avoid ambiguity when two tenants use Azure AD — each has its 
 ### Session semantics after SSO
 
 Same JWT issuer as password login. JTI stored in Redis. SSO-only users (`password_hash IS NULL`) cannot use the password login endpoint — the handler rejects them with `USE_SSO` pointing to the active provider. Mixed-mode users (has both `password_hash` and `external_id`) can use either path.
+
+**Refresh token flow:** unchanged for SSO users. They use the same `POST /api/v1/auth/refresh` endpoint as password users. The refresh token is bound to the session, not to the IdP — we do not attempt to refresh against the IdP. This means a user disabled at the IdP retains access until their refresh token expires (7 days) unless we implement back-channel logout or periodic revalidation. Accepted for v1; documented as a known gap.
+
+**Logout flow:**
+- Default logout (`POST /api/v1/auth/logout`): revokes the local JTI in Redis, clears cookies, emits audit event. **Does NOT hit the IdP `end_session_endpoint`.** User's IdP session remains; they can log back into SentinelCore without re-entering credentials until the IdP session expires.
+- Full SSO logout (opt-in): new endpoint `POST /api/v1/auth/sso/logout` performs the local logout AND redirects the browser to `provider.end_session_endpoint` with `id_token_hint` + `post_logout_redirect_uri`. Settings page exposes a "Sign out of IdP on logout" toggle per-provider.
+- Back-channel logout (IdP → SentinelCore): **not supported in v1.** The spec's SSO providers (Azure AD, Okta, Keycloak) all support OIDC back-channel logout, but implementing it requires a public endpoint that verifies a logout token and invalidates the JTI. Documented as future extension.
+
+**IdP account deactivation propagation:** a user disabled at the IdP continues to have a valid SentinelCore session until their access + refresh token both expire. The `sync_role_on_login` flag on the provider triggers re-evaluation of role and `status` on next login only. Customers requiring immediate IdP-driven deactivation should enable back-channel logout when that feature ships; until then, administrators must also disable the user in SentinelCore.
 
 ### Admin UX
 
@@ -425,7 +445,16 @@ Every key operation emits an audit event. Successful uses are NOT audited per-re
 
 ### Role-downgrade response
 
-When a user's role is downgraded, user-owned API keys with scopes exceeding the new role's permissions are auto-revoked with audit event `api_key.auto_revoke` (reason: `role_downgrade`). Service-account keys (both service-owned and tenant-owned) are unaffected — that's their purpose.
+When a user's role is downgraded, user-owned API keys with scopes exceeding the new role's permissions are auto-revoked and their active JTIs are invalidated. Both operations run **in the same transaction as the `UPDATE core.users` statement** via an `AFTER UPDATE OF role` trigger. Execution order inside the trigger:
+
+1. `UPDATE core.api_keys SET revoked = true WHERE user_id = NEW.id AND is_service_account = false AND scopes - <new_role_permissions> != '{}'`
+   (set-difference check — any scope not in the new role's permission set)
+2. `NOTIFY user_sessions_revoke, '<user_id>'` — the auth service's LISTEN worker invalidates all JTIs for that user in Redis. Until the NOTIFY is processed (usually <10ms), the short access-token TTL (15m) plus the `Principal.Can()` re-check on every request (which uses the fresh role via cache) means requests fail with `FORBIDDEN` rather than succeeding with old scopes.
+3. Audit event `api_key.auto_revoke` with reason `role_downgrade` emitted via the normal `pkg/audit` emitter after COMMIT.
+
+Service-account keys (both service-owned and tenant-owned) are unaffected by design. Tenant admins who want to revoke a service account do so explicitly via `DELETE /api/v1/api-keys/{id}`.
+
+**TOCTOU closure:** because the revocation runs in the same transaction as the role change, there is no commit window where the old role is visible to other transactions while the keys still work. Even with read-committed isolation, other sessions see `role = new_role` and `revoked = true` atomically.
 
 ## Middleware & Enforcement
 
@@ -539,7 +568,14 @@ Response: {
 }
 ```
 
-Frontend caches on app load, uses `<Can permission="scans.run">` component to gate UI:
+**Endpoint semantics:**
+- Passes through the same `AuthenticateMiddleware` as every other route — `Principal` is populated from JWT or API key.
+- `role` comes from `Principal.Role` (the JWT claim, translated by `compatMode` if old).
+- `permissions` are computed **live** from the process-level RBAC cache at request time — not embedded in the JWT. This means a role change takes effect on the user's next request after their JWT is refreshed (≤15m) or after session invalidation via the role-change trigger (immediate).
+- For API keys: `role` is empty string; `permissions` is the `scopes` array directly.
+- No DB read on the hot path — cache-only.
+
+Frontend caches on app load (sessionStorage), re-fetches on focus after 5 minutes to pick up role changes. Uses `<Can permission="scans.run">` component to gate UI:
 
 ```tsx
 <Can permission="scans.run">
@@ -575,13 +611,37 @@ Three phases, each independently shippable. Phase 2 and 3 depend on Phase 1's mi
 | 2.1 | Migration: add `is_service_account`, `description`, `rotated_at`. Relax `user_id` to nullable with CHECK. | Low |
 | 2.2 | Update `pkg/apikeys/apikeys.go`: scope validation + creator ceiling at creation. | Low |
 | 2.3 | Wire API key scope enforcement into unified `Principal.Can()`. | Low |
-| 2.4 | Backfill existing keys with minimal scopes (`findings.read`, `scans.read`). One week notice to tenants, dashboard banner listing affected keys. | Medium — tightens previously-implicit broader access. |
+| 2.4 | Backfill plan for existing keys. See detailed plan below the table. | High — tightens previously-implicit broader access. |
 | 2.5 | Add `POST /api/v1/api-keys/{id}/rotate` endpoint. | Low |
 | 2.6 | Hourly expiration sweep in retention-worker. | Low |
-| 2.7 | Frontend API keys page: scope picker, rotate/revoke, one-time plaintext modal. | Low |
+| 2.7 | Frontend API keys page: scope picker (grays out scopes exceeding current user's role ceiling), rotate/revoke, one-time plaintext modal. Client-side ceiling is UX only; server remains authoritative. | Low |
 | 2.8 | Role-downgrade auto-revoke hook: when `core.users.role` is updated, trigger-based function revokes user-owned keys with scopes exceeding new role. | Medium — trigger logic tested in isolation before rollout. |
 
 **Shippable when:** all keys have validated scopes, scope enforcement active, rotation + expiration verified.
+
+#### Phase 2.4 — API key backfill (detailed)
+
+This is the highest-customer-impact step in the rollout. Full plan:
+
+**T-7 days:** Enable backfill-preview mode.
+- SELECT every key in `core.api_keys` where `scopes = '{}'` OR `array_length(scopes, 1) = 0` (keys with no explicit scopes — today they effectively have all permissions).
+- Compute `proposed_scopes` per key as `creator_role_permissions ∩ {safe defaults}`. Safe defaults = `risks.read`, `findings.read`, `scans.read`, `scans.run`, `targets.read`, `audit.read` — the scopes every "generic automation key" historically used.
+- Write `proposed_scopes` into a new column `api_keys.proposed_scopes` (TEXT[], nullable). Do NOT modify `scopes` yet.
+- Dashboard banner to Owner + Admin roles: "N API keys will have their effective permissions narrowed on <date>. Review them." Links to new `/settings/api-keys?filter=backfill-pending` page showing each affected key with current blanket access vs. proposed narrowed scopes. Each key has a "Keep current broad access" button that explicitly copies the key's creator's full permission set into `scopes`. Ten working days of notice.
+
+**T-1 day:** Final reminder banner + email to Owner-role accounts.
+
+**T-0:** Backfill execution.
+- Rolling per-tenant (org_id), one tenant at a time, in `created_at` order. Each tenant's backfill is a single transaction.
+- For each key: `UPDATE core.api_keys SET scopes = COALESCE(proposed_scopes, ARRAY[...safe defaults...]) WHERE id = $1 AND (scopes = '{}' OR array_length(scopes, 1) = 0)`.
+- Emit audit event `api_key.backfill` per key with before/after.
+- Retention-worker handles the rolling — new CLI command `retention-worker backfill-api-key-scopes`.
+
+**T+1:** Monitor — spike in `INSUFFICIENT_SCOPE` 403s means a tenant's CI pipeline broke. Dashboard surfaces top-10 keys by denial count with the denied scope. Admin can re-scope in one click.
+
+**Emergency bypass:** if a tenant reports a broken integration, Owner can set `scopes` to the full permission list for their role via the normal UI. No escalation needed.
+
+**Documentation:** single migration guide page linked from the banner explaining (a) why the change, (b) how to identify the scopes your integration needs, (c) how to rotate keys to fresh ones with correct scopes, (d) escalation contact.
 
 ### Phase 3 — OIDC SSO (~1.5 weeks)
 
@@ -634,3 +694,5 @@ Phase 1 alone (~2 weeks) delivers most of the enterprise value. Phases 2 and 3 l
 - Custom per-tenant roles (`auth.roles.is_builtin = false`). Requires admin UI for role authoring. Permission enforcement unchanged.
 - Fine-grained resource-level permissions (project-scoped roles). Out of scope for this spec; requires deeper discussion of the `(principal, permission, resource)` tuple model.
 - Hardware token / MFA integration — deferred; enterprise customers typically enforce MFA at the IdP layer (Azure Conditional Access, Okta MFA policies) rather than at the application.
+- **AES-GCM key rotation for OIDC `client_secret`** — the current `pkg/crypto/aesgcm` encrypts with a single master key. When rotating the master key, existing rows must be re-encrypted. The standard approach is dual-key mode (decrypt attempts old then new; writes use new; background job re-encrypts with new). Out of scope for this spec but should be the first follow-up for any customer approaching their 1-year key-rotation mark.
+- **OIDC back-channel logout** — Azure AD, Okta, and Keycloak all support back-channel logout via `backchannel_logout_uri`. Implementing it requires a public endpoint that verifies the signed logout token and invalidates the local JTI. Deferred to v2; current behavior (local JTI invalidation only on explicit user logout, refresh-token rotation) is acceptable for v1.
