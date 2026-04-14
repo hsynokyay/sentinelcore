@@ -1958,7 +1958,7 @@ This is an iterative task. Each sub-step migrates one logical route group.
 | `GET /api/v1/findings/{id}/export.md` | `findings.read` |
 | `GET /api/v1/findings/{id}/export.sarif` | `findings.read` |
 
-#### Group C: scans (5 routes)
+#### Group C: scans (6 routes)
 
 | Route | Permission |
 |---|---|
@@ -2128,7 +2128,7 @@ This is an iterative task. Each sub-step migrates one logical route group.
 
 These routes remain wrapped only by `AuthenticateMiddleware` (or are entirely public). No `RequirePermission` wrapping, no inline permission check.
 
-**Total: 79 permission-gated routes across 19 groups.**
+**Total: 80 permission-gated routes across 19 groups.**
 
 - [ ] **Step 1: Create a helper to reduce boilerplate**
 
@@ -2424,7 +2424,7 @@ Commit the matrix fully populated:
 
 ```bash
 git add internal/controlplane/api/authz_matrix_test.go
-git commit -m "test(api): complete authz matrix for all 79 permission-gated routes"
+git commit -m "test(api): complete authz matrix for all 80 permission-gated routes"
 ```
 
 - [ ] **Step 25: CI guard against re-introduction**
