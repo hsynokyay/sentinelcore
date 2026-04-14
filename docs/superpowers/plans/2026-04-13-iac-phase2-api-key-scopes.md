@@ -807,9 +807,23 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	// Load creator's permissions + full catalog from the RBAC cache.
 	// h.RBACCache is set on Handlers during server initialization (Phase 1).
+	//
+	// Two code paths:
+	//   - User-backed caller: ceiling = their role's permissions.
+	//   - API-key-backed caller: principal.Role is empty (spec line 58);
+	//     ceiling = the calling key's scopes. This preserves the
+	//     ceiling-under-ceiling invariant: a key with {a,b} cannot mint
+	//     another key with {c} because c ∉ {a,b}.
 	creatorPerms := make(map[string]struct{})
-	for _, p := range h.RBACCache.PermissionsFor(principal.Role) {
-		creatorPerms[p] = struct{}{}
+	switch principal.Kind {
+	case "api_key":
+		for _, s := range principal.Scopes {
+			creatorPerms[s] = struct{}{}
+		}
+	default: // "user" or empty
+		for _, p := range h.RBACCache.PermissionsFor(principal.Role) {
+			creatorPerms[p] = struct{}{}
+		}
 	}
 	knownPerms := make(map[string]struct{})
 	for _, p := range h.RBACCache.AllPermissions() {
@@ -1406,12 +1420,9 @@ func drainPendingAuditEvents(ctx context.Context, pool *pgxpool.Pool, emitter *a
 			var detailsMap map[string]any
 			_ = json.Unmarshal(details, &detailsMap)
 
-			// org_id comes from the typed column (not JSONB) so it's
-			// always populated by the trigger. Fall back to details for
-			// rows written by the backfill CLI that pre-date the column.
-			if orgID == "" {
-				orgID, _ = detailsMap["org_id"].(string)
-			}
+			// org_id comes from the typed NOT NULL column (migration 028),
+			// not JSONB — always populated by the trigger, backfill CLI,
+			// and expiration sweep.
 			actorID, _ := detailsMap["user_id"].(string)
 
 			if err := emitter.Emit(ctx, audit.AuditEvent{
@@ -1608,6 +1619,7 @@ import (
     "log/slog"
     "os"
     "strings"
+    "time"
 
     "github.com/redis/go-redis/v9"
 )
@@ -1636,7 +1648,7 @@ func main() {
             _ = c.SAdd(ctx, "user:"+userID+":sessions", jti).Err()
             // Match the set TTL to the max possible session life so
             // stale entries GC themselves (matches CreateSession's EXPIRE).
-            _ = c.Expire(ctx, "user:"+userID+":sessions", 7*24*3600*1e9).Err()
+            _ = c.Expire(ctx, "user:"+userID+":sessions", 7*24*time.Hour).Err()
             indexed++
         }
         scanned += len(keys)
@@ -1869,6 +1881,11 @@ func executeForOrg(ctx context.Context, pool *pgxpool.Pool, orgID string) error 
 		return fmt.Errorf("org %s: %d keys have empty scopes but no proposed_scopes — run preview first", orgID, missingPreview)
 	}
 
+	// Execute uses proposed_scopes exclusively — defaultSafeScopes is
+	// only consulted during preview (runPreviewAll). Requiring the
+	// per-key proposed_scopes at execute time keeps the invariant
+	// "every scope change is audited" (the INSERT below filters on
+	// proposed_scopes IS NOT NULL).
 	tag, err := tx.Exec(ctx, `
 		UPDATE core.api_keys
 		SET scopes = proposed_scopes
@@ -1880,7 +1897,6 @@ func executeForOrg(ctx context.Context, pool *pgxpool.Pool, orgID string) error 
 	if err != nil {
 		return err
 	}
-	_ = defaultSafeScopes // retained for preview-mode use; execute requires explicit proposed_scopes per key
 
 	// Emit a backfill event per key. The trigger in Task 1.3 doesn't
 	// fire on UPDATE OF scopes (it's only on role change), so we
