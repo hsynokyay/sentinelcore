@@ -211,8 +211,33 @@ File: `migrations/028_role_downgrade_trigger.up.sql`:
 
 BEGIN;
 
+-- Small side table for events that trigger functions can't emit directly.
+-- org_id is included directly (not just in details JSONB) so the drainer
+-- can tenant-scope NATS emissions without JSONB parsing. Must come before
+-- the trigger function since the function inserts into this table.
+CREATE TABLE IF NOT EXISTS auth.pending_audit_events (
+    id          BIGSERIAL PRIMARY KEY,
+    org_id      UUID NOT NULL,
+    event_type  TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    details     JSONB NOT NULL,
+    processed   BOOLEAN NOT NULL DEFAULT false,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS pending_audit_events_unprocessed_idx
+    ON auth.pending_audit_events (org_id, created_at) WHERE processed = false;
+
+-- SECURITY DEFINER is required: the trigger fires under whatever session
+-- triggered the UPDATE on core.users, which may or may not have
+-- app.current_org_id set (an admin CLI path may not set it). The function
+-- must query auth.role_permissions (global) and update core.api_keys
+-- regardless of RLS on the calling session. search_path is pinned to
+-- prevent search-path injection attacks (standard PG hardening).
 CREATE OR REPLACE FUNCTION auth.revoke_excess_scope_keys_on_role_change()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = auth, core, pg_catalog
+AS $$
 DECLARE
     new_role_perms TEXT[];
     key_record RECORD;
@@ -236,15 +261,21 @@ BEGIN
     END IF;
 
     -- Find user-owned keys with scopes exceeding the new role.
-    -- `scopes - new_role_perms` = set of scopes NOT in new_role_perms.
-    -- If non-empty, the key has privileges the user no longer has.
+    -- NOTE: PostgreSQL core does NOT provide `-` (set-difference) on
+    -- text[] — only the `intarray` extension provides it, and only for
+    -- integer[]. So we use an EXISTS subquery to check "does the key have
+    -- any scope not in new_role_perms" without the extension dependency.
     FOR key_record IN
         SELECT id, prefix FROM core.api_keys
         WHERE user_id = NEW.id
           AND is_service_account = false
           AND revoked = false
           AND array_length(scopes, 1) > 0
-          AND array_length(scopes - new_role_perms, 1) > 0
+          AND EXISTS (
+              SELECT 1
+              FROM unnest(scopes) AS scope
+              WHERE scope <> ALL (new_role_perms)
+          )
     LOOP
         UPDATE core.api_keys
         SET revoked = true
@@ -253,14 +284,18 @@ BEGIN
         -- Emit a marker for the audit emitter (emitted from app code on
         -- COMMIT — the trigger itself can't reach NATS directly).
         -- We record the intent in a side table that the app reads post-commit.
-        INSERT INTO auth.pending_audit_events (event_type, resource_id, details, created_at)
+        -- org_id is populated directly from the triggering user row so the
+        -- drainer can tenant-scope the NATS emission.
+        INSERT INTO auth.pending_audit_events (org_id, event_type, resource_id, details, created_at)
         VALUES (
+            NEW.org_id,
             'api_key.auto_revoke',
             key_record.id::text,
             jsonb_build_object(
                 'reason', 'role_downgrade',
                 'prefix', key_record.prefix,
                 'user_id', NEW.id,
+                'org_id', NEW.org_id,
                 'old_role', OLD.role,
                 'new_role', NEW.role
             ),
@@ -277,17 +312,17 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Small side table for events that trigger functions can't emit directly.
-CREATE TABLE IF NOT EXISTS auth.pending_audit_events (
-    id          BIGSERIAL PRIMARY KEY,
-    event_type  TEXT NOT NULL,
-    resource_id TEXT NOT NULL,
-    details     JSONB NOT NULL,
-    processed   BOOLEAN NOT NULL DEFAULT false,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS pending_audit_events_unprocessed_idx
-    ON auth.pending_audit_events (created_at) WHERE processed = false;
+-- Ensure the function is owned by a superuser or the schema owner so
+-- SECURITY DEFINER runs with appropriate privileges. In this codebase
+-- migrations run as the `sentinelcore` user which owns both schemas, so
+-- no explicit OWNER change is needed — but we assert it:
+DO $$
+BEGIN
+    IF (SELECT proowner FROM pg_proc WHERE proname = 'revoke_excess_scope_keys_on_role_change') <>
+       (SELECT oid FROM pg_roles WHERE rolname = current_user) THEN
+        RAISE EXCEPTION 'function owner mismatch — SECURITY DEFINER may not bypass RLS as expected';
+    END IF;
+END $$;
 
 CREATE TRIGGER users_role_change_revoke_keys
     AFTER UPDATE OF role ON core.users
@@ -302,7 +337,20 @@ COMMIT;
 File: `migrations/028_role_downgrade_trigger.down.sql`:
 
 ```sql
+-- Refuse to roll back if unprocessed audit events still exist — otherwise
+-- legitimate key-revocation events would be silently dropped (violates
+-- the at-least-once audit delivery guarantee the up migration promises).
+-- Operators who intend to accept the loss can manually truncate first.
 BEGIN;
+DO $$
+DECLARE
+    pending_count INT;
+BEGIN
+    SELECT COUNT(*) INTO pending_count FROM auth.pending_audit_events WHERE processed = false;
+    IF pending_count > 0 THEN
+        RAISE EXCEPTION 'refusing to roll back 028: % unprocessed audit events in auth.pending_audit_events. Drain the queue (wait for the controlplane drainer) or truncate manually with: DELETE FROM auth.pending_audit_events WHERE processed = false;', pending_count;
+    END IF;
+END $$;
 DROP TRIGGER IF EXISTS users_role_change_revoke_keys ON core.users;
 DROP FUNCTION IF EXISTS auth.revoke_excess_scope_keys_on_role_change();
 DROP TABLE IF EXISTS auth.pending_audit_events;
@@ -508,26 +556,40 @@ func (e *PrivilegeEscalationError) Error() string {
 	return fmt.Sprintf("cannot grant scope you don't have: %q", e.Scope)
 }
 
+// EmptyScopesError — sentinel for requests with no scopes. Exposed as a
+// value so handlers can errors.Is() it to 400 BAD_REQUEST.
+var EmptyScopesError = fmt.Errorf("scopes must contain at least one permission")
+
+// DuplicateScopeError is returned when the requested list contains the
+// same scope twice. Also triggers 400 BAD_REQUEST at the handler.
+type DuplicateScopeError struct {
+	Scope string
+}
+
+func (e *DuplicateScopeError) Error() string {
+	return fmt.Sprintf("duplicate scope: %q", e.Scope)
+}
+
 // ValidateScopes enforces three rules on an API-key scope list:
 //   1. Must contain at least one scope.
 //   2. Every scope must exist in the permissions catalog (known).
 //   3. Every scope must be in the creator's own permission set.
 //   4. No duplicates (case-sensitive).
 //
-// Returns UnknownScopeError or PrivilegeEscalationError on the first
-// violation, or a generic error for empty/duplicate lists.
+// Returns one of the typed errors above so handlers can map each to the
+// correct HTTP status without string-matching.
 //
 // known + creator are passed as sets for O(1) lookup. Typical callers
 // obtain them from the RBAC cache.
 func ValidateScopes(requested []string, creator, known map[string]struct{}) error {
 	if len(requested) == 0 {
-		return fmt.Errorf("scopes must contain at least one permission")
+		return EmptyScopesError
 	}
 
 	seen := make(map[string]struct{}, len(requested))
 	for _, scope := range requested {
 		if _, dup := seen[scope]; dup {
-			return fmt.Errorf("duplicate scope: %q", scope)
+			return &DuplicateScopeError{Scope: scope}
 		}
 		seen[scope] = struct{}{}
 
@@ -643,21 +705,33 @@ func Create(ctx context.Context, pool *pgxpool.Pool, in CreateInput) (*CreateRes
 }
 ```
 
-Add `Description` and `IsServiceAccount` fields to `CreateResult` at the top of the file.
+Add `Description` and `IsServiceAccount` fields to `CreateResult` at the top of the file. **Explicitly verify the JSON tags** — the frontend (`web/lib/api.ts`) expects these exact keys:
 
-Note: the old `Create(ctx, pool, orgID, userID, name, scopes, expiresAt)` is removed. The existing single caller (`CreateAPIKey` handler) is updated in Task 2.3.
+```go
+type CreateResult struct {
+    ID               string     `json:"id"`
+    PlainText        string     `json:"plaintext"`          // shown once, never stored
+    Prefix           string     `json:"prefix"`
+    Name             string     `json:"name"`
+    Description      string     `json:"description,omitempty"`
+    Scopes           []string   `json:"scopes"`
+    ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+    IsServiceAccount bool       `json:"is_service_account"`
+}
+```
 
-- [ ] **Step 3: Build**
+`json:"plaintext"` (one word, lowercase) must match the frontend contract. Add an assertion in Task 2.3 Step 4's unit test: `assert.Contains(t, body, "\"plaintext\":")` so a future rename can't silently break the UI.
+
+**IMPORTANT — atomic commit with Task 2.3.** The old `Create(ctx, pool, orgID, userID, name, scopes, expiresAt)` signature is removed in this step, but the existing caller in `internal/controlplane/api/apikeys.go` still references it. Committing this task in isolation would leave `main` broken (breaks `git bisect`, breaks any CI "every commit builds" gate). So Task 2.2 does NOT produce a commit on its own — Steps 3–4 below only build the single package, and the commit is deferred to Task 2.3 Step 4 which stages both files together.
+
+- [ ] **Step 3: Build (package-level only)**
 
 Run: `go build ./pkg/apikeys/`
-Expected: exit 0.
+Expected: exit 0. (A full `go build ./...` will fail until Task 2.3 is applied — that's expected.)
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: (no commit yet — continue to Task 2.3)**
 
-```bash
-git add pkg/apikeys/apikeys.go
-git commit -m "feat(apikeys): Create accepts CreateInput with creator-ceiling validation"
-```
+Leave `pkg/apikeys/apikeys.go` staged but uncommitted. Proceed directly to Task 2.3. Both files will be committed together in Task 2.3 Step 4.
 
 ### Task 2.3: Update handler to pass creator + known permissions
 
@@ -701,12 +775,23 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Service-account keys require Owner or Admin.
-	if req.IsServiceAccount && principal.Role != "owner" && principal.Role != "admin" {
-		writeError(w, http.StatusForbidden,
-			"service-account keys require owner or admin role",
-			"FORBIDDEN")
-		return
+	// Service-account keys require a human Owner or Admin caller.
+	// Principal.Role is empty for api_key principals (spec line 58), so
+	// "API-key calls API-key-create for a service account" is rejected
+	// here to prevent key-chain privilege laundering.
+	if req.IsServiceAccount {
+		if principal.Kind == "api_key" {
+			writeError(w, http.StatusForbidden,
+				"service-account keys must be created by a human user, not another API key",
+				"FORBIDDEN")
+			return
+		}
+		if principal.Role != "owner" && principal.Role != "admin" {
+			writeError(w, http.StatusForbidden,
+				"service-account keys require owner or admin role",
+				"FORBIDDEN")
+			return
+		}
 	}
 
 	var expiresAt *time.Time
@@ -756,7 +841,12 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var unk *apikeys.UnknownScopeError
 		var esc *apikeys.PrivilegeEscalationError
+		var dup *apikeys.DuplicateScopeError
 		switch {
+		case errors.Is(err, apikeys.EmptyScopesError):
+			writeError(w, http.StatusBadRequest, err.Error(), "EMPTY_SCOPES")
+		case errors.As(err, &dup):
+			writeError(w, http.StatusBadRequest, err.Error(), "DUPLICATE_SCOPE")
 		case errors.As(err, &unk):
 			writeError(w, http.StatusBadRequest, err.Error(), "UNKNOWN_SCOPE")
 		case errors.As(err, &esc):
@@ -828,12 +918,20 @@ package api
 
 Expand with real test cases in the same pattern as the authz matrix test.
 
-- [ ] **Step 5: Run + commit**
+- [ ] **Step 5: Run + atomic commit (bundles Task 2.2's staged file)**
 
 ```bash
 go test ./internal/controlplane/api/ -run CreateAPIKey -v
-git add internal/controlplane/api/apikeys.go internal/controlplane/api/apikeys_create_test.go internal/policy/cache.go
-git commit -m "feat(apikeys): enforce creator ceiling + service-account role check at creation"
+# Combine 2.2's staged apikeys.go with 2.3's handler + test + cache method.
+# This is the single commit that fixes the signature change across the codebase.
+git add pkg/apikeys/apikeys.go \
+        internal/controlplane/api/apikeys.go \
+        internal/controlplane/api/apikeys_create_test.go \
+        internal/policy/cache.go
+git status  # verify all four files are staged (green) and working tree is clean
+git commit -m "feat(apikeys): CreateInput + enforce creator ceiling and service-account role"
+# Sanity: every commit on this branch from here on must `go build ./...` cleanly.
+go build ./... && echo "OK"
 ```
 
 ---
@@ -934,13 +1032,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// RotateResult bundles Rotate's output so the handler can audit both
+// old and new prefix without a separate pre-fetch (which would introduce
+// a TOCTOU window against concurrent rotates).
+type RotateResult struct {
+	CreateResult        // embedded: ID, PlainText, Prefix (new), Name, Scopes, ExpiresAt, IsServiceAccount
+	OldPrefix    string // prefix before this rotation, captured atomically
+}
+
 // Rotate replaces the key's plaintext in a single atomic UPDATE. The old
 // plaintext stops working immediately — there is no grace window where
-// both tokens are valid. Returns the new plaintext (shown once).
+// both tokens are valid. Returns both old and new prefix (so the handler
+// can audit without a separate pre-fetch TOCTOU).
 //
 // Tenant isolation via org_id predicate. Fails if key is revoked or
-// belongs to a different org.
-func Rotate(ctx context.Context, pool *pgxpool.Pool, keyID, orgID string) (*CreateResult, error) {
+// belongs to a different org. Uses a CTE to capture the old prefix in
+// the same statement as the UPDATE — atomic, no race.
+func Rotate(ctx context.Context, pool *pgxpool.Pool, keyID, orgID string) (*RotateResult, error) {
 	if keyID == "" || orgID == "" {
 		return nil, fmt.Errorf("keyID and orgID are required")
 	}
@@ -950,18 +1058,24 @@ func Rotate(ctx context.Context, pool *pgxpool.Pool, keyID, orgID string) (*Crea
 	prefix := PrefixOf(raw)
 	now := time.Now()
 
-	var result CreateResult
+	var result RotateResult
 	err := pool.QueryRow(ctx, `
-		UPDATE core.api_keys
+		WITH old AS (
+		    SELECT prefix FROM core.api_keys
+		    WHERE id = $4 AND org_id = $5
+		)
+		UPDATE core.api_keys k
 		SET key_hash   = $1,
 		    prefix     = $2,
 		    rotated_at = $3
-		WHERE id = $4
-		  AND org_id = $5
-		  AND revoked = false
-		RETURNING id, name, scopes, expires_at, is_service_account
+		FROM old
+		WHERE k.id = $4
+		  AND k.org_id = $5
+		  AND k.revoked = false
+		RETURNING k.id, k.name, k.scopes, k.expires_at, k.is_service_account, old.prefix
 	`, hash, prefix, now, keyID, orgID).Scan(
 		&result.ID, &result.Name, &result.Scopes, &result.ExpiresAt, &result.IsServiceAccount,
+		&result.OldPrefix,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("rotate api_key: %w (key not found, revoked, or cross-tenant)", err)
@@ -1001,8 +1115,10 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
@@ -1021,18 +1137,17 @@ func (h *Handlers) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up old prefix first for audit.
-	var oldPrefix string
-	if err := h.pool.QueryRow(r.Context(),
-		`SELECT prefix FROM core.api_keys WHERE id = $1 AND org_id = $2`,
-		keyID, principal.OrgID).Scan(&oldPrefix); err != nil {
-		writeError(w, http.StatusNotFound, "key not found", "NOT_FOUND")
-		return
-	}
-
+	// Single atomic call — Rotate captures old prefix via CTE in the
+	// same statement as the UPDATE. No TOCTOU window.
 	result, err := apikeys.Rotate(r.Context(), h.pool, keyID, principal.OrgID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "key not found or revoked", "NOT_FOUND")
+		// Discriminate: no-rows → 404 (tenant isolation or revoked).
+		// Anything else → 500 (DB error, serialization failure).
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "key not found or revoked", "NOT_FOUND")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL")
 		return
 	}
 
@@ -1045,14 +1160,14 @@ func (h *Handlers) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
 		OrgID:        principal.OrgID,
 		Result:       "success",
 		Details: map[string]any{
-			"old_prefix": oldPrefix,
+			"old_prefix": result.OldPrefix,
 			"new_prefix": result.Prefix,
 		},
 	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result.CreateResult) // omit OldPrefix from response body
 }
 ```
 
@@ -1126,21 +1241,67 @@ func sweepExpiredAPIKeys(ctx context.Context, pool *pgxpool.Pool, logger *slog.L
 }
 
 func runSweep(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger) {
-	tag, err := pool.Exec(ctx, `
+	// RETURNING gives us per-key identity + org so we can write an audit
+	// event for each expired key. We use pending_audit_events rather than
+	// calling audit.Emit directly (the retention-worker doesn't own an
+	// audit emitter; the controlplane drains pending_audit_events every
+	// 30s per Task 4.2). If audit.Emit is later plumbed into retention-worker,
+	// we can switch to direct emission.
+	rows, err := pool.Query(ctx, `
 		UPDATE core.api_keys
 		SET revoked = true
 		WHERE revoked = false
 		  AND expires_at IS NOT NULL
 		  AND expires_at < now()
+		RETURNING id, org_id, prefix, user_id, expires_at
 	`)
 	if err != nil {
 		logger.Warn("api key expiration sweep failed", "err", err)
 		return
 	}
-	if tag.RowsAffected() > 0 {
-		logger.Info("api key expiration sweep",
-			"revoked", tag.RowsAffected())
+	defer rows.Close()
+
+	type expiredKey struct {
+		id, orgID, prefix, userID string
+		expiresAt                 time.Time
 	}
+	var expired []expiredKey
+	for rows.Next() {
+		var k expiredKey
+		var userID *string
+		if err := rows.Scan(&k.id, &k.orgID, &k.prefix, &userID, &k.expiresAt); err != nil {
+			continue
+		}
+		if userID != nil {
+			k.userID = *userID
+		}
+		expired = append(expired, k)
+	}
+	rows.Close()
+
+	if len(expired) == 0 {
+		return
+	}
+
+	// Emit an audit event per expired key via pending_audit_events.
+	for _, k := range expired {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO auth.pending_audit_events (org_id, event_type, resource_id, details, created_at)
+			VALUES ($1, 'api_key.auto_expire', $2,
+			        jsonb_build_object(
+			            'reason', 'expired',
+			            'prefix', $3,
+			            'user_id', $4,
+			            'expires_at', $5
+			        ),
+			        now())
+		`, k.orgID, k.id, k.prefix, k.userID, k.expiresAt)
+		if err != nil {
+			logger.Warn("audit emit for expired key failed", "key_id", k.id, "err", err)
+		}
+	}
+
+	logger.Info("api key expiration sweep", "revoked", len(expired))
 }
 ```
 
@@ -1222,7 +1383,7 @@ func drainPendingAuditEvents(ctx context.Context, pool *pgxpool.Pool, emitter *a
 		}
 
 		rows, err := pool.Query(ctx, `
-			SELECT id, event_type, resource_id, details, created_at
+			SELECT id, org_id, event_type, resource_id, details, created_at
 			FROM auth.pending_audit_events
 			WHERE processed = false
 			ORDER BY created_at ASC
@@ -1236,16 +1397,21 @@ func drainPendingAuditEvents(ctx context.Context, pool *pgxpool.Pool, emitter *a
 		var processedIDs []int64
 		for rows.Next() {
 			var id int64
-			var eventType, resourceID string
+			var orgID, eventType, resourceID string
 			var details []byte
 			var createdAt time.Time
-			if err := rows.Scan(&id, &eventType, &resourceID, &details, &createdAt); err != nil {
+			if err := rows.Scan(&id, &orgID, &eventType, &resourceID, &details, &createdAt); err != nil {
 				continue
 			}
 			var detailsMap map[string]any
 			_ = json.Unmarshal(details, &detailsMap)
 
-			orgID, _ := detailsMap["org_id"].(string)
+			// org_id comes from the typed column (not JSONB) so it's
+			// always populated by the trigger. Fall back to details for
+			// rows written by the backfill CLI that pre-date the column.
+			if orgID == "" {
+				orgID, _ = detailsMap["org_id"].(string)
+			}
 			actorID, _ := detailsMap["user_id"].(string)
 
 			if err := emitter.Emit(ctx, audit.AuditEvent{
@@ -1374,7 +1540,6 @@ func listenOnce(ctx context.Context, pool *pgxpool.Pool, sessions *auth.SessionS
 		}
 		logger.Info("user sessions revoked on role change", "user_id", userID)
 	}
-	_ = pgx.Identifier{} // ensure pgx import is used if the helper changes
 }
 ```
 
@@ -1383,26 +1548,37 @@ func listenOnce(ctx context.Context, pool *pgxpool.Pool, sessions *auth.SessionS
 - [ ] **Step 2: Add SessionStore.RevokeAllForUser + user-indexed JTI tracking**
 
 In `pkg/auth/session.go`:
-- On `CreateSession(jti, userID)`: also `SADD user:{userID}:sessions jti`.
+- On `CreateSession(jti, userID)`: also `SADD user:{userID}:sessions jti` (and `EXPIRE` the set to access-token TTL + refresh-token TTL so abandoned sets GC themselves).
 - On `RevokeSession(jti)`: also pull the user_id from the session record and `SREM user:{userID}:sessions jti`.
 - Add:
   ```go
   func (s *SessionStore) RevokeAllForUser(ctx context.Context, userID string) error {
-      jtis, err := s.client.SMembers(ctx, "user:"+userID+":sessions").Result()
-      if err != nil {
-          return err
+      // Pipeline-based drain: use SPOP in a loop rather than SMembers+Del.
+      // SPOP removes one JTI atomically per call, so a concurrent
+      // CreateSession racing our drain either (a) adds a new JTI that we
+      // haven't popped yet (drained on the next iteration) or (b) adds
+      // after we finish — that session is legitimately post-revoke and
+      // should keep working.
+      key := "user:" + userID + ":sessions"
+      for {
+          jti, err := s.client.SPop(ctx, key).Result()
+          if err == redis.Nil {
+              return nil // set empty / gone
+          }
+          if err != nil {
+              return err
+          }
+          // RevokeSession deletes the session:<jti> hash. We're already
+          // SPOP-ed from the index set, so no SREM needed here.
+          _ = s.client.Del(ctx, "session:"+jti).Err()
       }
-      for _, jti := range jtis {
-          _ = s.RevokeSession(ctx, jti)
-      }
-      _ = s.client.Del(ctx, "user:"+userID+":sessions")
-      return nil
   }
   ```
+  Note: `RevokeSession` in CreateSession's companion path still does `SREM` for single-JTI revokes (from /auth/logout). The pipeline above is only used when draining an entire user.
 
 - [ ] **Step 3: Unit test**
 
-Test that after `RevokeAllForUser`, `IsActive(jti)` returns false for every JTI the user had.
+Test that after `RevokeAllForUser`, `IsActive(jti)` returns false for every JTI the user had. Add a concurrency test: start 10 goroutines creating sessions for user U while `RevokeAllForUser(U)` runs; assert no JTI leaks (every surviving JTI was created *after* the drain call started, or is absent).
 
 - [ ] **Step 4: Wire from server**
 
@@ -1412,12 +1588,89 @@ In `internal/controlplane/server.go`'s constructor or Start method:
 apikeys.StartSessionRevokeListener(ctx, s.pool, s.sessions, s.logger)
 ```
 
-- [ ] **Step 5: Run + commit**
+- [ ] **Step 5: One-shot JTI backfill on deploy**
+
+The user-indexed set `user:{userID}:sessions` is only populated by `CreateSession` from this deploy forward. Sessions created *before* the deploy exist as `session:{jti}` keys in Redis but have no entry in any user set — so a role-downgrade in the first hour post-deploy would `SPOP` an empty set, leaving those JWTs live until their 15m access-TTL expires (plus up to 7d refresh-TTL for refresh-flow paths).
+
+Run this one-shot backfill IMMEDIATELY after Task 5.1 ships, BEFORE enabling the trigger-based revocation in production:
+
+Create `cmd/backfill-jti-index/main.go`:
+
+```go
+// Scans all session:* keys in Redis and populates the user-indexed
+// sets (user:{userID}:sessions) so SessionStore.RevokeAllForUser works
+// for sessions issued before Phase 2.
+package main
+
+import (
+    "context"
+    "flag"
+    "log/slog"
+    "os"
+    "strings"
+
+    "github.com/redis/go-redis/v9"
+)
+
+func main() {
+    redisURL := flag.String("redis", os.Getenv("REDIS_URL"), "redis URL")
+    flag.Parse()
+
+    opt, err := redis.ParseURL(*redisURL)
+    if err != nil { slog.Error("parse", "err", err); os.Exit(1) }
+    c := redis.NewClient(opt)
+    ctx := context.Background()
+
+    var (
+        cursor  uint64
+        scanned int
+        indexed int
+    )
+    for {
+        keys, nextCursor, err := c.Scan(ctx, cursor, "session:*", 500).Result()
+        if err != nil { slog.Error("scan", "err", err); os.Exit(1) }
+        for _, key := range keys {
+            jti := strings.TrimPrefix(key, "session:")
+            userID, err := c.HGet(ctx, key, "user_id").Result()
+            if err != nil || userID == "" { continue }
+            _ = c.SAdd(ctx, "user:"+userID+":sessions", jti).Err()
+            // Match the set TTL to the max possible session life so
+            // stale entries GC themselves (matches CreateSession's EXPIRE).
+            _ = c.Expire(ctx, "user:"+userID+":sessions", 7*24*3600*1e9).Err()
+            indexed++
+        }
+        scanned += len(keys)
+        if nextCursor == 0 { break }
+        cursor = nextCursor
+    }
+    slog.Info("backfill complete", "scanned", scanned, "indexed", indexed)
+}
+```
+
+Run on production before enabling the trigger:
+
+```bash
+go run ./cmd/backfill-jti-index -redis $REDIS_URL
+# Expected: scanned=<N>, indexed=<N-stale>; verify with redis-cli SCARD user:<some-user>:sessions
+```
+
+**Sequencing matters:** if the trigger fires before this backfill runs, role-downgrade revocations silently miss pre-deploy sessions. Run order on deploy day:
+1. Deploy binary with `StartSessionRevokeListener` (still safe: no triggers exist yet).
+2. Apply migration 028 (trigger now exists and emits NOTIFY).
+3. Immediately run `backfill-jti-index` (takes seconds to minutes).
+4. Announce role-change capability to admins.
+
+If step 3 is skipped or fails, document it in the runbook and optionally force-logout all users (set `revoked=true` on all `session:*` hashes) rather than ship with an invisible gap.
+
+- [ ] **Step 6: Run + commit**
 
 ```bash
 go test ./pkg/auth/ -run RevokeAllForUser -v
-git add internal/apikeys/session_revoke_listener.go pkg/auth/session.go internal/controlplane/server.go
-git commit -m "feat(auth): LISTEN user_sessions_revoke → SREM user JTIs from Redis"
+git add internal/apikeys/session_revoke_listener.go \
+        pkg/auth/session.go \
+        internal/controlplane/server.go \
+        cmd/backfill-jti-index/main.go
+git commit -m "feat(auth): LISTEN user_sessions_revoke → SPOP user JTIs from Redis + JTI index backfill"
 ```
 
 ---
@@ -1507,6 +1760,22 @@ func runPreview(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer rows.Close()
 
+	// Cache role→perms across the entire run. There are only 5 roles, so
+	// this replaces N queries (one per key) with ≤5. Critical for tenants
+	// with thousands of keys.
+	roleCache := make(map[string]map[string]struct{})
+	getPerms := func(role string) (map[string]struct{}, error) {
+		if p, ok := roleCache[role]; ok {
+			return p, nil
+		}
+		p, err := loadRolePerms(ctx, pool, role)
+		if err != nil {
+			return nil, err
+		}
+		roleCache[role] = p
+		return p, nil
+	}
+
 	var updated int
 	for rows.Next() {
 		var keyID, orgID, createdBy, role string
@@ -1514,8 +1783,7 @@ func runPreview(ctx context.Context, pool *pgxpool.Pool) error {
 			return err
 		}
 
-		// Look up creator's permissions.
-		creatorPerms, err := loadRolePerms(ctx, pool, role)
+		creatorPerms, err := getPerms(role)
 		if err != nil {
 			return err
 		}
@@ -1580,23 +1848,49 @@ func executeForOrg(ctx context.Context, pool *pgxpool.Pool, orgID string) error 
 	}
 	defer tx.Rollback(ctx)
 
-	tag, err := tx.Exec(ctx, `
-		UPDATE core.api_keys
-		SET scopes = COALESCE(proposed_scopes, $1::text[])
-		WHERE org_id = $2
+	// Require preview to have run for every eligible key: refuse to execute
+	// if any key has empty scopes but no proposed_scopes set. Previously the
+	// UPDATE fell back to defaultSafeScopes via COALESCE, but that path
+	// bypassed the audit-event INSERT below (which filters on
+	// proposed_scopes IS NOT NULL). Refusing here keeps the invariant
+	// "every scope change is audited."
+	var missingPreview int
+	err = tx.QueryRow(ctx, `
+		SELECT COUNT(*) FROM core.api_keys
+		WHERE org_id = $1
 		  AND (scopes = '{}' OR array_length(scopes, 1) IS NULL)
+		  AND proposed_scopes IS NULL
 		  AND revoked = false
-	`, defaultSafeScopes, orgID)
+	`, orgID).Scan(&missingPreview)
 	if err != nil {
 		return err
 	}
+	if missingPreview > 0 {
+		return fmt.Errorf("org %s: %d keys have empty scopes but no proposed_scopes — run preview first", orgID, missingPreview)
+	}
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE core.api_keys
+		SET scopes = proposed_scopes
+		WHERE org_id = $1
+		  AND (scopes = '{}' OR array_length(scopes, 1) IS NULL)
+		  AND proposed_scopes IS NOT NULL
+		  AND revoked = false
+	`, orgID)
+	if err != nil {
+		return err
+	}
+	_ = defaultSafeScopes // retained for preview-mode use; execute requires explicit proposed_scopes per key
 
 	// Emit a backfill event per key. The trigger in Task 1.3 doesn't
 	// fire on UPDATE OF scopes (it's only on role change), so we
 	// record the backfill ourselves via the pending_audit_events table.
+	// org_id is written to the typed column (introduced in migration
+	// 028 with the trigger) so the drainer tenant-scopes NATS emits
+	// without JSONB parsing.
 	_, err = tx.Exec(ctx, `
-		INSERT INTO auth.pending_audit_events (event_type, resource_id, details, created_at)
-		SELECT 'api_key.backfill', id::text,
+		INSERT INTO auth.pending_audit_events (org_id, event_type, resource_id, details, created_at)
+		SELECT org_id, 'api_key.backfill', id::text,
 			   jsonb_build_object('org_id', org_id, 'scopes', scopes, 'reason', 'phase_2_backfill'),
 			   now()
 		FROM core.api_keys
@@ -1652,10 +1946,11 @@ is deployed and tenants have been notified.
 
 ## Timeline
 
-T-7 days: run preview in production. Dashboard banner to Owner/Admin shows affected keys.
+T-10 days: email + dashboard banner to all Owners announcing the scope migration. (Spec requires ≥10 working days notice.)
+T-7 days: run `migrate-api-keys preview --all` in production. Dashboard banner shows per-key proposed scopes to Owner/Admin.
 T-1 day: final reminder banner.
-T-0: run execute --all in a maintenance window.
-T+1 week: query for unused proposed_scopes column → drop via migration 029 (future).
+T-0: run `migrate-api-keys execute --all` in a maintenance window.
+T+30 days: drop the `proposed_scopes` column via migration 029 (future). (30 days matches the spec's retention window for rollback — not the 7-day value previously listed here.)
 
 ## Emergency bypass
 
@@ -2004,6 +2299,8 @@ git commit -m "feat(web/api-keys): table + page + sidebar + palette nav"
 - [ ] As `security_engineer`, attempt `is_service_account=true` → 403
 - [ ] As `admin`, create a service-account key → 201, row has `user_id IS NULL`, `is_service_account=true`
 - [ ] Use the service-account key → `Principal.UserID` is empty in middleware, scopes enforce normally
+- [ ] Hit `GET /api/v1/auth/me` with the service-account key → response has `user: null`, `role: ""`, `permissions: [<scopes>]` (validates the `userID == ""` code path through `auth.me`)
+- [ ] Attempt to create a service-account key using another API key → 403 FORBIDDEN with code indicating "API keys cannot create service accounts" (validates Chunk 2 `Kind == "api_key"` guard)
 
 ### Rotation
 
