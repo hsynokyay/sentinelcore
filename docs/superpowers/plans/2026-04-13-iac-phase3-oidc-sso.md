@@ -2558,27 +2558,20 @@ func (h *Handlers) resolveOrProvisionSSOUser(
 	// target. We pick (org_id, email) since that's the stable identity
 	// for a human; username is a derived display handle we control.
 	//
-	// Username derivation: use claims.Sub (globally unique per IdP by
-	// spec) as the base. If sub is very long or contains problematic
-	// characters, fall back to email local-part + first 8 chars of a
-	// hash of sub (ensures uniqueness + readability).
-	username := deriveUsername(claims.Sub, claims.Email)
-
-	// Pre-flight: check (org_id, username) uniqueness. If another row
-	// already owns that username (extremely unlikely — would be another
-	// SSO user from the same IdP with the same sub, which is impossible
-	// by contract, or a pre-existing local user with a colliding handle),
-	// append a short hash suffix to disambiguate.
-	var existingUsernameUID string
-	err = tx.QueryRow(ctx,
-		`SELECT id::text FROM core.users WHERE org_id = $1 AND username = $2`,
-		orgID, username).Scan(&existingUsernameUID)
-	if err == nil {
-		// Collision — append 6-char hex hash of sub.
-		username = username + "-" + hashHex6(claims.Sub)
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return "", false, err
-	}
+	// Username derivation: ALWAYS include the sub-hash suffix.
+	// Why: in the user-creation race (spec line 333), two concurrent
+	// callbacks with the SAME claims.Sub must derive the SAME username
+	// so they both collide on (org_id, email) — which the ON CONFLICT
+	// clause handles — rather than racing on (org_id, username) which
+	// has no ON CONFLICT target. By making the username deterministic
+	// from sub, both writers compute identical values and the email
+	// conflict fires first as intended.
+	//
+	// Trade-off: usernames have a short hash suffix (e.g. `alice-7c4f9a`)
+	// which is uglier in the UI than bare `alice`. Acceptable because
+	// (a) display_name is what the UI shows, username is internal,
+	// (b) collision resistance > aesthetics.
+	username := deriveUsername(claims.Sub, claims.Email) + "-" + hashHex6(claims.Sub)
 
 	err = tx.QueryRow(ctx, `
 		INSERT INTO core.users (
@@ -2811,10 +2804,15 @@ h.publicBaseURL = cfg.PublicBaseURL // from env var PUBLIC_BASE_URL
 In `routes.go`'s RegisterRoutes function, with correct permission gating:
 
 ```go
-// Public (no auth):
+// Public (no auth) — note the per-IP rate limiter wrapper on
+// EnabledSSOProviders. 30 req/min is enough for legitimate logins
+// (a user hits this once on /login and the response is cached client-side)
+// while making org-slug enumeration costly. The httplimits middleware is
+// imported from internal/controlplane/middleware/httplimits.
 mux.Handle("GET /api/v1/auth/sso/{org}/{provider}/start",    h.StartSSO)
 mux.Handle("GET /api/v1/auth/sso/{org}/{provider}/callback", h.SSOCallback)
-mux.Handle("GET /api/v1/auth/sso/enabled",                   h.EnabledSSOProviders)
+mux.Handle("GET /api/v1/auth/sso/enabled",
+    httplimits.PerIP(30, time.Minute)(h.EnabledSSOProviders))
 
 // Authenticated, no permission required:
 mux.Handle("POST /api/v1/auth/sso/logout",                   auth.RequireAuth(h.SSOLogout))
@@ -2890,7 +2888,7 @@ func (h *Handlers) SSOLogout(w http.ResponseWriter, r *http.Request) {
 	// To support Keycloak (and any IdP that requires id_token_hint per
 	// OIDC RP-Initiated Logout 1.0), retain the id_token alongside the
 	// session in Redis under key `sso:idtoken:{jti}` with the same TTL
-	// as the access token. CreateSession is extended (Task 5.3) to
+	// as the access token. IssueSession is extended (Task 5.3) to
 	// accept and store the id_token on SSO logins. Here we read it back.
 	idToken, _ := h.auth.IDTokenForSession(r.Context(), principal.JTI)
 
