@@ -38,3 +38,25 @@ func TestCache_ReloadMatchesDB(t *testing.T) {
 		t.Fatal("HasPermission should return false for unknown")
 	}
 }
+
+func TestCache_ConcurrentReadDuringReload(t *testing.T) {
+	pool := testPool(t)
+	c := NewCache()
+	if err := c.Reload(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 1000; i++ {
+			_ = c.Can("owner", "risks.read")
+		}
+		close(done)
+	}()
+	for i := 0; i < 20; i++ {
+		if err := c.Reload(context.Background(), pool); err != nil {
+			t.Fatal(err)
+		}
+	}
+	<-done
+}
