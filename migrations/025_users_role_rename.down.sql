@@ -29,8 +29,14 @@ BEGIN
     BEGIN
         SELECT applied_at INTO up_migration_at FROM schema_migrations WHERE version = '025';
     EXCEPTION WHEN OTHERS THEN
-        up_migration_at := now() - interval '1 year';
+        up_migration_at := NULL;
     END;
+    -- If the lookup returned NULL (table missing OR row missing), fall back
+    -- to a far-past timestamp so post_migration_count counts ALL existing
+    -- owner/admin users — preserving fail-closed semantics.
+    IF up_migration_at IS NULL THEN
+        up_migration_at := now() - interval '1 year';
+    END IF;
 
     SELECT count(*) INTO post_migration_count
     FROM core.users
