@@ -11,6 +11,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// compatRoleMap translates pre-migration role strings to the new vocabulary.
+// This is the SINGLE chokepoint for legacy role handling — no other code
+// in the codebase should see or handle old role names. Remove this map
+// and the translateLegacyRole call 14 days after the role-rename migration ships.
+var compatRoleMap = map[string]string{
+	"platform_admin": "owner",
+	"security_admin": "admin",
+	"appsec_analyst": "security_engineer",
+	// auditor is unchanged — no entry needed (identity translation).
+}
+
+// translateLegacyRole maps an old role string to the new vocabulary.
+// Returns the input unchanged if no mapping exists (new roles, auditor).
+func translateLegacyRole(role string) string {
+	if mapped, ok := compatRoleMap[role]; ok {
+		return mapped
+	}
+	return role
+}
+
 // Claims represents the JWT claims used by SentinelCore.
 type Claims struct {
 	jwt.RegisteredClaims
@@ -111,6 +131,8 @@ func (m *JWTManager) ValidateToken(tokenString string) (*Claims, error) {
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("auth: invalid token claims")
 	}
+
+	claims.Role = translateLegacyRole(claims.Role)
 
 	return claims, nil
 }
