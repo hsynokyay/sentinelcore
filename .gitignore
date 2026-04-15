@@ -49,3 +49,6 @@ coverage.html
 Thumbs.db
 web/.next/
 web/node_modules/
+
+# Git worktrees (used by superpowers subagent-driven-development)
+.worktrees/
