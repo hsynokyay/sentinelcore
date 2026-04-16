@@ -24,6 +24,11 @@ type UserContext struct {
 func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// NOTE: When Phase 2 (API key scopes) lands, this middleware will also
+			// route `Bearer sc_...` tokens through apikeys.Resolve and populate a
+			// Principal with Kind=="api_key", Scopes=[...], KeyID=... — that code
+			// path does not exist yet in Phase 1.
+
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				http.Error(w, `{"error":"missing authorization header"}`, http.StatusUnauthorized)
@@ -57,7 +62,19 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 				JTI:    claims.ID,
 			}
 
+			// Phase 1 Task 6.1: also store a Principal so RequirePermission middleware
+			// can read it. UserContext is kept for backward compatibility with legacy
+			// handlers; new code should prefer Principal via PrincipalFromContext.
+			principal := Principal{
+				Kind:   "user",
+				OrgID:  claims.OrgID,
+				UserID: claims.Subject,
+				Role:   claims.Role, // already translated to new vocabulary by JWT.ValidateToken (Task 4.1)
+				JTI:    claims.ID,
+			}
+
 			ctx := context.WithValue(r.Context(), UserContextKey, userCtx)
+			ctx = WithPrincipal(ctx, principal)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
