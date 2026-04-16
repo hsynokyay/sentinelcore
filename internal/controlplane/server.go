@@ -75,6 +75,12 @@ func NewServer(
 	}
 }
 
+// authz wraps an http.HandlerFunc with AuthMiddleware and RequirePermission.
+// Used for every business route that needs a permission check.
+func (s *Server) authz(perm string, next http.HandlerFunc) http.Handler {
+	return auth.RequirePermission(perm, s.rbacCache, s.denier)(http.HandlerFunc(next))
+}
+
 // requestIDMiddleware generates a UUID request ID and injects it into context and response header.
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -163,40 +169,40 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("GET /api/v1/auth/me", auth.AuthMiddleware(s.jwtMgr, s.sessions)(meHandler))
 
 	// Organizations
-	mux.HandleFunc("POST /api/v1/organizations", handlers.CreateOrganization)
-	mux.HandleFunc("GET /api/v1/organizations", handlers.ListOrganizations)
-	mux.HandleFunc("GET /api/v1/organizations/{id}", handlers.GetOrganization)
-	mux.HandleFunc("PATCH /api/v1/organizations/{id}", handlers.UpdateOrganization)
+	mux.Handle("POST /api/v1/organizations", s.authz("organizations.manage", handlers.CreateOrganization))
+	mux.Handle("GET /api/v1/organizations", s.authz("organizations.read", handlers.ListOrganizations))
+	mux.Handle("GET /api/v1/organizations/{id}", s.authz("organizations.read", handlers.GetOrganization))
+	mux.Handle("PATCH /api/v1/organizations/{id}", s.authz("organizations.manage", handlers.UpdateOrganization))
 
 	// Teams
-	mux.HandleFunc("POST /api/v1/organizations/{org_id}/teams", handlers.CreateTeam)
-	mux.HandleFunc("GET /api/v1/organizations/{org_id}/teams", handlers.ListTeams)
-	mux.HandleFunc("POST /api/v1/teams/{id}/members", handlers.AddTeamMember)
-	mux.HandleFunc("GET /api/v1/teams/{id}/members", handlers.ListTeamMembers)
+	mux.Handle("POST /api/v1/organizations/{org_id}/teams", s.authz("teams.manage", handlers.CreateTeam))
+	mux.Handle("GET /api/v1/organizations/{org_id}/teams", s.authz("teams.read", handlers.ListTeams))
+	mux.Handle("POST /api/v1/teams/{id}/members", s.authz("teams.manage", handlers.AddTeamMember))
+	mux.Handle("GET /api/v1/teams/{id}/members", s.authz("teams.read", handlers.ListTeamMembers))
 
 	// Users
-	mux.HandleFunc("POST /api/v1/users", handlers.CreateUser)
-	mux.HandleFunc("GET /api/v1/users", handlers.ListUsers)
+	mux.Handle("POST /api/v1/users", s.authz("users.manage", handlers.CreateUser))
+	mux.Handle("GET /api/v1/users", s.authz("users.read", handlers.ListUsers))
 	mux.HandleFunc("GET /api/v1/users/me", handlers.GetCurrentUser)
 
 	// Projects
-	mux.HandleFunc("POST /api/v1/projects", handlers.CreateProject)
-	mux.HandleFunc("GET /api/v1/projects", handlers.ListProjects)
-	mux.HandleFunc("GET /api/v1/projects/{id}", handlers.GetProject)
-	mux.HandleFunc("PATCH /api/v1/projects/{id}", handlers.UpdateProject)
+	mux.Handle("POST /api/v1/projects", s.authz("projects.manage", handlers.CreateProject))
+	mux.Handle("GET /api/v1/projects", s.authz("projects.read", handlers.ListProjects))
+	mux.Handle("GET /api/v1/projects/{id}", s.authz("projects.read", handlers.GetProject))
+	mux.Handle("PATCH /api/v1/projects/{id}", s.authz("projects.manage", handlers.UpdateProject))
 
 	// Scan targets
-	mux.HandleFunc("POST /api/v1/projects/{id}/scan-targets", handlers.CreateScanTarget)
-	mux.HandleFunc("GET /api/v1/projects/{id}/scan-targets", handlers.ListScanTargets)
+	mux.Handle("POST /api/v1/projects/{id}/scan-targets", s.authz("targets.manage", handlers.CreateScanTarget))
+	mux.Handle("GET /api/v1/projects/{id}/scan-targets", s.authz("targets.read", handlers.ListScanTargets))
 
 	// Scans
-	mux.HandleFunc("POST /api/v1/projects/{id}/scans", handlers.CreateScan)
-	mux.HandleFunc("GET /api/v1/scans/{id}", handlers.GetScan)
-	mux.HandleFunc("POST /api/v1/scans/{id}/cancel", handlers.CancelScan)
+	mux.Handle("POST /api/v1/projects/{id}/scans", s.authz("scans.run", handlers.CreateScan))
+	mux.Handle("GET /api/v1/scans/{id}", s.authz("scans.read", handlers.GetScan))
+	mux.Handle("POST /api/v1/scans/{id}/cancel", s.authz("scans.cancel", handlers.CancelScan))
 
 	// Findings
-	mux.HandleFunc("GET /api/v1/findings", handlers.ListFindings)
-	mux.HandleFunc("PATCH /api/v1/findings/{id}/status", handlers.UpdateFindingStatus)
+	mux.Handle("GET /api/v1/findings", s.authz("findings.read", handlers.ListFindings))
+	mux.Handle("PATCH /api/v1/findings/{id}/status", s.authz("findings.triage", handlers.UpdateFindingStatus))
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
