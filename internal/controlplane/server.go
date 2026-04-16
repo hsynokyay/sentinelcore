@@ -219,6 +219,10 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("GET /api/v1/findings", s.authz("findings.read", handlers.ListFindings))
 	mux.Handle("PATCH /api/v1/findings/{id}/status", s.authz("findings.triage", handlers.UpdateFindingStatus))
 
+	// API keys
+	mux.Handle("POST /api/v1/api-keys", s.authz("api_keys.manage", handlers.CreateAPIKey))
+	mux.Handle("POST /api/v1/api-keys/{id}/rotate", s.authz("api_keys.manage", handlers.RotateAPIKey))
+
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
 	handler = conditionalAuthMiddleware(s.jwtMgr, s.sessions)(handler)
