@@ -159,6 +159,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/auth/login", handlers.Login)
 	mux.HandleFunc("POST /api/v1/auth/refresh", handlers.Refresh)
 	mux.HandleFunc("POST /api/v1/auth/logout", handlers.Logout)
+	meHandler := &api.MeHandler{Cache: s.rbacCache}
+	mux.Handle("GET /api/v1/auth/me", auth.AuthMiddleware(s.jwtMgr, s.sessions)(meHandler))
 
 	// Organizations
 	mux.HandleFunc("POST /api/v1/organizations", handlers.CreateOrganization)

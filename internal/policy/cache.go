@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -108,4 +109,18 @@ func (c *Cache) Version() int64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.version
+}
+
+// PermissionsFor returns the sorted list of permission_ids assigned to
+// the role. Used by /api/v1/auth/me.
+func (c *Cache) PermissionsFor(role string) []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	perms := c.matrix[role]
+	out := make([]string, 0, len(perms))
+	for p := range perms {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return out
 }
