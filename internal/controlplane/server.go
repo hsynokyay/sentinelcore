@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
+	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
@@ -27,14 +28,16 @@ type ServerConfig struct {
 
 // Server is the control plane HTTP server.
 type Server struct {
-	cfg      ServerConfig
-	logger   zerolog.Logger
-	pool     *pgxpool.Pool
-	jwtMgr   *auth.JWTManager
-	sessions *auth.SessionStore
-	emitter  *audit.Emitter
-	limiter  *ratelimit.Limiter
-	js       jetstream.JetStream
+	cfg       ServerConfig
+	logger    zerolog.Logger
+	pool      *pgxpool.Pool
+	jwtMgr    *auth.JWTManager
+	sessions  *auth.SessionStore
+	emitter   *audit.Emitter
+	limiter   *ratelimit.Limiter
+	js        jetstream.JetStream
+	rbacCache *policy.Cache
+	denier    auth.AuditDenier
 }
 
 // NewServer creates a new control plane server.
@@ -48,15 +51,27 @@ func NewServer(
 	limiter *ratelimit.Limiter,
 	js jetstream.JetStream,
 ) *Server {
+	// Phase 1: initialize the RBAC cache from the DB. If the auth.* tables
+	// don't exist yet (pre-migration-024 state), Reload returns an error
+	// and we start with an empty cache — the compat shim in policy.Evaluate
+	// will fall back to the legacy hardcoded matrix.
+	cache := policy.NewCache()
+	if err := cache.Reload(context.Background(), pool); err != nil {
+		logger.Warn().Err(err).Msg("rbac cache initial reload failed; starting empty (compat shim will fall back to legacy matrix)")
+	}
+	denier := audit.NewAuthzDenier(emitter)
+
 	return &Server{
-		cfg:      cfg,
-		logger:   logger,
-		pool:     pool,
-		jwtMgr:   jwtMgr,
-		sessions: sessions,
-		emitter:  emitter,
-		limiter:  limiter,
-		js:       js,
+		cfg:       cfg,
+		logger:    logger,
+		pool:      pool,
+		jwtMgr:    jwtMgr,
+		sessions:  sessions,
+		emitter:   emitter,
+		limiter:   limiter,
+		js:        js,
+		rbacCache: cache,
+		denier:    denier,
 	}
 }
 
