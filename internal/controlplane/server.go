@@ -53,11 +53,16 @@ func NewServer(
 ) *Server {
 	// Phase 1: initialize the RBAC cache from the DB. If the auth.* tables
 	// don't exist yet (pre-migration-024 state), Reload returns an error
-	// and we start with an empty cache — the compat shim in policy.Evaluate
-	// will fall back to the legacy hardcoded matrix.
+	// and we start with an empty cache. With an empty cache, every
+	// Principal.Can(perm) call returns false, so every RequirePermission
+	// wrapper yields 403. During the planned deploy sequence the binary
+	// goes out FIRST on a pre-migration DB; clients can still log in
+	// (/auth/login doesn't require a permission), but protected routes
+	// 403 until migration 024 runs and the 60s safety poll populates
+	// the cache on next refresh.
 	cache := policy.NewCache()
 	if err := cache.Reload(context.Background(), pool); err != nil {
-		logger.Warn().Err(err).Msg("rbac cache initial reload failed; starting empty (compat shim will fall back to legacy matrix)")
+		logger.Warn().Err(err).Msg("rbac cache initial reload failed; starting empty (all RequirePermission checks will deny until migration 024 is applied)")
 	}
 	denier := audit.NewAuthzDenier(emitter)
 
@@ -75,8 +80,12 @@ func NewServer(
 	}
 }
 
-// authz wraps an http.HandlerFunc with AuthMiddleware and RequirePermission.
-// Used for every business route that needs a permission check.
+// authz wraps an http.HandlerFunc with RequirePermission enforcement.
+// The outer conditionalAuthMiddleware already populates the Principal
+// in context — authz only adds the permission check. Used for every
+// business route that needs a permission check; routes that should be
+// accessible to any authenticated caller (e.g. /users/me, /auth/me)
+// bypass this helper and register via mux.HandleFunc / mux.Handle directly.
 func (s *Server) authz(perm string, next http.HandlerFunc) http.Handler {
 	return auth.RequirePermission(perm, s.rbacCache, s.denier)(http.HandlerFunc(next))
 }

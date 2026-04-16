@@ -23,17 +23,23 @@ BEGIN
     -- How many users have the new 'developer' role?
     SELECT count(*) INTO dev_count FROM core.users WHERE role = 'developer';
 
-    -- Record the up-migration timestamp via the schema_migrations table that
-    -- golang-migrate writes, or fall back to the oldest timestamp we find.
-    -- Adjust table name if your migration tool uses a different one.
+    -- Try to read the up-migration timestamp from a migration tracking
+    -- table. If the operator's migration tool doesn't expose applied_at
+    -- (golang-migrate's schema_migrations only has version+dirty columns
+    -- and will raise "column applied_at does not exist"), we fall back
+    -- to a far-past timestamp. This is INTENTIONALLY conservative: a
+    -- NULL timestamp makes post_migration_count include ALL existing
+    -- owner/admin users, preserving fail-closed semantics.
+    --
+    -- Operators using a migration tool that does track applied_at
+    -- (e.g. a custom ledger, dbmate, flyway-style tables) can replace
+    -- the SELECT below with the correct column name; the fallback
+    -- handles every other case.
     BEGIN
         SELECT applied_at INTO up_migration_at FROM schema_migrations WHERE version = '025';
     EXCEPTION WHEN OTHERS THEN
         up_migration_at := NULL;
     END;
-    -- If the lookup returned NULL (table missing OR row missing), fall back
-    -- to a far-past timestamp so post_migration_count counts ALL existing
-    -- owner/admin users — preserving fail-closed semantics.
     IF up_migration_at IS NULL THEN
         up_migration_at := now() - interval '1 year';
     END IF;

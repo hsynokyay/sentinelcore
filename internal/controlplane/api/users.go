@@ -26,7 +26,7 @@ type userResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// CreateUser creates a new user (platform_admin only).
+// CreateUser creates a new user. Requires users.manage (owner only).
 func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	user := requireAuth(w, r)
 	if user == nil {
@@ -42,7 +42,7 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role == "" {
-		req.Role = "appsec_analyst"
+		req.Role = "security_engineer"
 	}
 	if req.OrgID == "" {
 		req.OrgID = user.OrgID
@@ -82,7 +82,7 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListUsers lists all users (platform_admin only).
+// ListUsers lists users. Requires users.read (owner, admin, auditor).
 func (h *Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	user := requireAuth(w, r)
 	if user == nil {
