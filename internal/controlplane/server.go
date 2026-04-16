@@ -167,7 +167,7 @@ func conditionalAuthMiddleware(jwtMgr *auth.JWTManager, sessions *auth.SessionSt
 
 // Start starts the control plane HTTP server and the metrics server.
 func (s *Server) Start(ctx context.Context) error {
-	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger)
+	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, s.rbacCache)
 
 	mux := http.NewServeMux()
 
