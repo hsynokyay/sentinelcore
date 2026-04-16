@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sentinelcore/sentinelcore/internal/policy"
 )
 
 type createScanRequest struct {
@@ -40,11 +39,6 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "scans.create") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	projectID := r.PathValue("id")
 
 	var req createScanRequest
@@ -112,11 +106,6 @@ func (h *Handlers) GetScan(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "scans.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	id := r.PathValue("id")
 
 	var s scanResponse
@@ -149,11 +138,6 @@ func (h *Handlers) CancelScan(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "scans.cancel") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	id := r.PathValue("id")
 
 	tag, err := h.pool.Exec(r.Context(),

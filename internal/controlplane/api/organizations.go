@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sentinelcore/sentinelcore/internal/policy"
 )
 
 type createOrgRequest struct {
@@ -27,11 +26,6 @@ func (h *Handlers) CreateOrganization(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "orgs.create") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	var req createOrgRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -76,11 +70,6 @@ func (h *Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "orgs.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT id, name, display_name, status, created_at FROM core.organizations ORDER BY created_at DESC`)
 	if err != nil {
@@ -116,11 +105,6 @@ func (h *Handlers) GetOrganization(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "orgs.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	id := r.PathValue("id")
 	var o orgResponse
 	var createdAt time.Time
@@ -142,11 +126,6 @@ func (h *Handlers) UpdateOrganization(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "orgs.update") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	id := r.PathValue("id")
 
 	var req struct {

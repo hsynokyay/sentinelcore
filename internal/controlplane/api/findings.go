@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
@@ -39,11 +38,6 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "findings.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	// Parse query params
 	projectID := r.URL.Query().Get("project_id")
 	severity := r.URL.Query().Get("severity")
@@ -139,11 +133,6 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "findings.triage") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	id := r.PathValue("id")
 
 	var req updateFindingStatusRequest

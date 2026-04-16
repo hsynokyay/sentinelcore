@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sentinelcore/sentinelcore/internal/policy"
 )
 
 type createTeamRequest struct {
@@ -39,11 +38,6 @@ func (h *Handlers) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.create") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	orgID := r.PathValue("org_id")
 
 	var req createTeamRequest
@@ -90,11 +84,6 @@ func (h *Handlers) ListTeams(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	orgID := r.PathValue("org_id")
 
 	rows, err := h.pool.Query(r.Context(),
@@ -132,11 +121,6 @@ func (h *Handlers) AddTeamMember(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.update") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	teamID := r.PathValue("id")
 
 	var req addMemberRequest
@@ -177,11 +161,6 @@ func (h *Handlers) ListTeamMembers(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	teamID := r.PathValue("id")
 
 	rows, err := h.pool.Query(r.Context(),
