@@ -4,8 +4,11 @@ import (
 	"context"
 	"sort"
 	"sync"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 )
 
 // Cache holds the role→permission matrix in memory. Loaded at startup,
@@ -123,4 +126,78 @@ func (c *Cache) PermissionsFor(role string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Listen starts two goroutines:
+//   (a) A LISTEN worker that reconnects with exponential backoff on error.
+//   (b) A 60-second safety poll that calls Reload regardless of notify,
+//       catching any missed NOTIFY (network blip, deploy race).
+//
+// Cancel ctx to stop both goroutines.
+//
+// Channel convention: "role_permissions_changed".
+func (c *Cache) Listen(ctx context.Context, pool *pgxpool.Pool, channel string, logger zerolog.Logger) {
+	go func() {
+		reconnectDelay := time.Second
+		for ctx.Err() == nil {
+			if err := c.listenOnce(ctx, pool, channel, logger); err != nil {
+				logger.Warn().
+					Err(err).
+					Dur("delay", reconnectDelay).
+					Msg("rbac cache listener lost, reconnecting")
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(reconnectDelay):
+				}
+				if reconnectDelay < 30*time.Second {
+					reconnectDelay *= 2
+				}
+				continue
+			}
+			reconnectDelay = time.Second
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := c.Reload(ctx, pool); err != nil {
+					logger.Warn().Err(err).Msg("rbac cache safety reload failed")
+				}
+			}
+		}
+	}()
+}
+
+func (c *Cache) listenOnce(ctx context.Context, pool *pgxpool.Pool, channel string, logger zerolog.Logger) error {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, "LISTEN "+pgx.Identifier{channel}.Sanitize()); err != nil {
+		return err
+	}
+	logger.Info().Str("channel", channel).Msg("rbac cache listener started")
+
+	for {
+		n, err := conn.Conn().WaitForNotification(ctx)
+		if err != nil {
+			return err
+		}
+		logger.Debug().
+			Str("channel", n.Channel).
+			Str("payload", n.Payload).
+			Msg("rbac cache notify received")
+		if err := c.Reload(ctx, pool); err != nil {
+			logger.Warn().Err(err).Msg("rbac cache reload on notify failed")
+		}
+	}
 }

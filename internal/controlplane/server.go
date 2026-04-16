@@ -128,6 +128,12 @@ func requestID(ctx context.Context) string {
 	return v
 }
 
+// RBACCache returns the server's RBAC cache so the startup code can
+// attach a pg_notify listener to it.
+func (s *Server) RBACCache() *policy.Cache {
+	return s.rbacCache
+}
+
 // skipAuthPaths defines paths that do not require authentication.
 var skipAuthPaths = map[string]bool{
 	"/healthz":            true,

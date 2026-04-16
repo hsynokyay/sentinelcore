@@ -89,6 +89,9 @@ func main() {
 
 	server := controlplane.NewServer(serverCfg, logger, pool, jwtMgr, sessions, emitter, limiter, js)
 
+	// Start pg_notify listener for RBAC cache updates
+	server.RBACCache().Listen(ctx, pool, "role_permissions_changed", logger)
+
 	logger.Info().Str("port", serverCfg.Port).Msg("starting control plane server")
 	if err := server.Start(ctx); err != nil {
 		logger.Fatal().Err(err).Msg("server failed")
