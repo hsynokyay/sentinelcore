@@ -134,6 +134,9 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Emit audit event (best-effort; nil emitter is safe to skip).
+	// Details capture the operational metadata forensic reviewers need
+	// (scopes granted, service-account flag, expiry). Plaintext is NEVER
+	// included — it was only in result.PlainText, which isn't referenced here.
 	if h.audit != nil {
 		_ = h.audit.Emit(r.Context(), audit.AuditEvent{
 			ActorType:    p.Kind,
@@ -143,6 +146,11 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 			ResourceID:   result.ID,
 			OrgID:        p.OrgID,
 			Result:       "success",
+			Details: map[string]any{
+				"scopes":             result.Scopes,
+				"is_service_account": result.IsServiceAccount,
+				"expires_at":         result.ExpiresAt,
+			},
 		})
 	}
 
