@@ -11,6 +11,11 @@ import (
 	"github.com/google/uuid"
 )
 
+// TODO(iac-phase1-cleanup): remove this map + translateLegacyRole call
+// +14 days after Phase 1 production deploy. Tracked by the author;
+// see docs/superpowers/plans/2026-04-13-iac-phase1-rbac-refactor.md
+// Task 10.3.
+
 // compatRoleMap translates pre-migration role strings to the new vocabulary.
 // This is the SINGLE chokepoint for legacy role handling — no other code
 // in the codebase should see or handle old role names. Remove this map
