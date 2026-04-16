@@ -91,7 +91,16 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 					OrgID:  rk.OrgID,
 					Role:   rk.Role,
 				}
+				principal := Principal{
+					Kind:   "api_key",
+					OrgID:  rk.OrgID,
+					UserID: rk.UserID,
+					Role:   rk.Role,
+					Scopes: rk.Scopes,
+					KeyID:  rk.KeyID,
+				}
 				ctx := context.WithValue(r.Context(), UserContextKey, userCtx)
+				ctx = WithPrincipal(ctx, principal)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -130,7 +139,19 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 				JTI:    claims.ID,
 			}
 
+			// Phase 1 Task 6.1: also store a Principal so RequirePermission middleware
+			// can read it. UserContext is kept for backward compatibility with legacy
+			// handlers; new code should prefer Principal via PrincipalFromContext.
+			principal := Principal{
+				Kind:   "user",
+				OrgID:  claims.OrgID,
+				UserID: claims.Subject,
+				Role:   claims.Role, // already translated to new vocabulary by JWT.ValidateToken (Task 4.1)
+				JTI:    claims.ID,
+			}
+
 			ctx := context.WithValue(r.Context(), UserContextKey, userCtx)
+			ctx = WithPrincipal(ctx, principal)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -156,3 +156,37 @@ func TestJWT_WrongKey(t *testing.T) {
 		t.Fatal("expected error for wrong key")
 	}
 }
+
+func TestValidateToken_CompatModeTranslatesOldRoles(t *testing.T) {
+	privPEM, pubPEM := generateTestKeys(t)
+	mgr, err := NewJWTManager(privPEM, pubPEM)
+	if err != nil {
+		t.Fatalf("NewJWTManager: %v", err)
+	}
+
+	cases := []struct {
+		oldRole string
+		wantNew string
+	}{
+		{"platform_admin", "owner"},
+		{"security_admin", "admin"},
+		{"appsec_analyst", "security_engineer"},
+		{"auditor", "auditor"},     // unchanged
+		{"developer", "developer"}, // already new
+	}
+	for _, tc := range cases {
+		t.Run(tc.oldRole, func(t *testing.T) {
+			tok, _, err := mgr.IssueAccessToken("user-1", "org-1", tc.oldRole)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claims, err := mgr.ValidateToken(tok)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if claims.Role != tc.wantNew {
+				t.Fatalf("role=%q, want %q", claims.Role, tc.wantNew)
+			}
+		})
+	}
+}

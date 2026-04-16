@@ -9,6 +9,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
+	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/internal/remediation"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
@@ -38,6 +39,8 @@ type Handlers struct {
 	logger      zerolog.Logger
 	remediation *remediation.Registry
 	riskWorker  *risk.Worker
+	rbacCache   *policy.Cache
+	audit       *audit.Emitter // alias for emitter; used by CreateAPIKey
 }
 
 // NewHandlers creates a new Handlers instance.
@@ -49,6 +52,7 @@ func NewHandlers(
 	js jetstream.JetStream,
 	logger zerolog.Logger,
 	riskWorker *risk.Worker,
+	rbacCache *policy.Cache,
 ) *Handlers {
 	remReg, _ := remediation.LoadBuiltinRegistry()
 	return &Handlers{
@@ -60,6 +64,8 @@ func NewHandlers(
 		logger:      logger,
 		remediation: remReg,
 		riskWorker:  riskWorker,
+		rbacCache:   rbacCache,
+		audit:       emitter,
 	}
 }
 

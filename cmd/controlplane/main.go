@@ -12,6 +12,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	sessrevoke "github.com/sentinelcore/sentinelcore/internal/apikeys"
 	"github.com/sentinelcore/sentinelcore/internal/controlplane"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
@@ -93,6 +94,13 @@ func main() {
 	}
 
 	server := controlplane.NewServer(serverCfg, logger, pool, jwtMgr, sessions, emitter, limiter, js, nc, redisClient)
+
+	// Start pg_notify listener for RBAC cache updates.
+	server.RBACCache().Listen(ctx, pool, "role_permissions_changed", logger)
+
+	// Start the session-revoke listener (Phase 2: user_sessions_revoke
+	// pg_notify drives Redis JTI cleanup on role downgrade).
+	sessrevoke.StartSessionRevokeListener(ctx, pool, sessions, logger)
 
 	logger.Info().Str("port", serverCfg.Port).Msg("starting control plane server")
 	if err := server.Start(ctx); err != nil {

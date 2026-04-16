@@ -79,3 +79,14 @@ func Evaluate(role, permission string) bool {
 	}
 	return perms[permission]
 }
+
+func init() {
+	// Alias new role names to their legacy-permission equivalents.
+	// See spec: docs/superpowers/specs/2026-04-13-identity-access-control-design.md
+	PermissionMatrix["owner"] = PermissionMatrix["platform_admin"]
+	PermissionMatrix["admin"] = PermissionMatrix["security_admin"]
+	PermissionMatrix["security_engineer"] = PermissionMatrix["appsec_analyst"]
+	// auditor already present with its legacy entry.
+	// developer intentionally absent — returns false from Evaluate,
+	// safe default for a new least-privilege role.
+}

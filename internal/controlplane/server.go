@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
+	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
@@ -35,16 +36,18 @@ type ServerConfig struct {
 
 // Server is the control plane HTTP server.
 type Server struct {
-	cfg      ServerConfig
-	logger   zerolog.Logger
-	pool     *pgxpool.Pool
-	jwtMgr   *auth.JWTManager
-	sessions *auth.SessionStore
-	emitter  *audit.Emitter
-	limiter  *ratelimit.Limiter
-	js       jetstream.JetStream
-	nc       *nats.Conn      // for health checks
-	redis    *redis.Client   // for health checks
+	cfg       ServerConfig
+	logger    zerolog.Logger
+	pool      *pgxpool.Pool
+	jwtMgr    *auth.JWTManager
+	sessions  *auth.SessionStore
+	emitter   *audit.Emitter
+	limiter   *ratelimit.Limiter
+	js        jetstream.JetStream
+	nc        *nats.Conn    // for health checks
+	redis     *redis.Client // for health checks
+	rbacCache *policy.Cache
+	denier    auth.AuditDenier
 }
 
 // NewServer creates a new control plane server.
@@ -81,18 +84,51 @@ func NewServer(
 		}, nil
 	})
 
-	return &Server{
-		cfg:      cfg,
-		logger:   logger,
-		pool:     pool,
-		jwtMgr:   jwtMgr,
-		sessions: sessions,
-		emitter:  emitter,
-		limiter:  limiter,
-		js:       js,
-		nc:       nc,
-		redis:    redisClient,
+	// Phase 1: initialize the RBAC cache from the DB. If the auth.* tables
+	// don't exist yet (pre-migration-024 state), Reload returns an error
+	// and we start with an empty cache. With an empty cache, every
+	// Principal.Can(perm) call returns false, so every RequirePermission
+	// wrapper yields 403. During the planned deploy sequence the binary
+	// goes out FIRST on a pre-migration DB; clients can still log in
+	// (/auth/login doesn't require a permission), but protected routes
+	// 403 until migration 024 runs and the 60s safety poll populates
+	// the cache on next refresh.
+	cache := policy.NewCache()
+	if err := cache.Reload(context.Background(), pool); err != nil {
+		logger.Warn().Err(err).Msg("rbac cache initial reload failed; starting empty (all RequirePermission checks will deny until migration 024 is applied)")
 	}
+	denier := audit.NewAuthzDenier(emitter)
+
+	return &Server{
+		cfg:       cfg,
+		logger:    logger,
+		pool:      pool,
+		jwtMgr:    jwtMgr,
+		sessions:  sessions,
+		emitter:   emitter,
+		limiter:   limiter,
+		js:        js,
+		nc:        nc,
+		redis:     redisClient,
+		rbacCache: cache,
+		denier:    denier,
+	}
+}
+
+// RBACCache returns the server's RBAC cache so the startup code can
+// attach a pg_notify listener to it.
+func (s *Server) RBACCache() *policy.Cache {
+	return s.rbacCache
+}
+
+// authz wraps an http.HandlerFunc with RequirePermission enforcement.
+// The outer conditionalAuthMiddleware already populates the Principal
+// in context — authz only adds the permission check. Used for every
+// business route that needs a permission check; routes that should be
+// accessible to any authenticated caller (e.g. /users/me, /auth/me)
+// bypass this helper and register via mux.HandleFunc / mux.Handle directly.
+func (s *Server) authz(perm string, next http.HandlerFunc) http.Handler {
+	return auth.RequirePermission(perm, s.rbacCache, s.denier)(http.HandlerFunc(next))
 }
 
 // requestIDMiddleware generates a UUID request ID and injects it into context and response header.
@@ -174,7 +210,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// can be invoked by the rebuild endpoint.
 	riskWorker := risk.NewWorker(s.js, s.pool, s.logger)
 
-	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker)
+	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker, s.rbacCache)
 
 	mux := http.NewServeMux()
 
@@ -187,6 +223,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/auth/login", handlers.Login)
 	mux.HandleFunc("POST /api/v1/auth/refresh", handlers.Refresh)
 	mux.HandleFunc("POST /api/v1/auth/logout", handlers.Logout)
+	meHandler := &api.MeHandler{Cache: s.rbacCache}
+	mux.Handle("GET /api/v1/auth/me", auth.AuthMiddleware(s.jwtMgr, s.sessions)(meHandler))
 
 	// Organizations
 	mux.HandleFunc("POST /api/v1/organizations", handlers.CreateOrganization)
@@ -225,9 +263,10 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/v1/auth-profiles/{id}", handlers.DeleteAuthProfile)
 
 	// API keys
-	mux.HandleFunc("POST /api/v1/api-keys", handlers.CreateAPIKey)
+	mux.Handle("POST /api/v1/api-keys", s.authz("api_keys.manage", handlers.CreateAPIKey))
 	mux.HandleFunc("GET /api/v1/api-keys", handlers.ListAPIKeys)
 	mux.HandleFunc("DELETE /api/v1/api-keys/{id}", handlers.RevokeAPIKey)
+	mux.Handle("POST /api/v1/api-keys/{id}/rotate", s.authz("api_keys.manage", handlers.RotateAPIKey))
 
 	// Scan targets
 	mux.HandleFunc("POST /api/v1/projects/{id}/scan-targets", handlers.CreateScanTarget)
