@@ -123,7 +123,9 @@ func (s *ProviderStore) GetByOrgSlug(ctx context.Context, orgSlug, providerSlug 
 
 	var orgID string
 	err = tx.QueryRow(ctx,
-		`SELECT id::text FROM core.organizations WHERE slug = $1`, orgSlug).
+		// `name` doubles as a URL slug — it's kebab-case, unique, and
+		// the schema has no separate slug column.
+		`SELECT id::text FROM core.organizations WHERE name = $1`, orgSlug).
 		Scan(&orgID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Provider{}, ErrProviderNotFound
@@ -258,7 +260,7 @@ func (s *ProviderStore) ListEnabledPublicByOrgSlug(ctx context.Context, orgSlug 
 		SELECT op.provider_slug, op.display_name
 		FROM auth.oidc_providers op
 		JOIN core.organizations o ON o.id = op.org_id
-		WHERE o.slug = $1 AND op.enabled = true
+		WHERE o.name = $1 AND op.enabled = true
 		ORDER BY op.display_name ASC
 	`, orgSlug)
 	if err != nil {

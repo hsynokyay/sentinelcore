@@ -135,7 +135,7 @@ func (h *Handlers) SSOCallback(w http.ResponseWriter, r *http.Request) {
 	// --- Cross-tenant replay guard ---
 	var urlOrgID string
 	err = h.pool.QueryRow(r.Context(),
-		`SELECT id::text FROM core.organizations WHERE slug = $1`, orgSlug).
+		`SELECT id::text FROM core.organizations WHERE name = $1`, orgSlug).
 		Scan(&urlOrgID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		h.logSSOEvent(r, "", "callback_error", "org_not_found", nil, nil, nil)
