@@ -262,8 +262,9 @@ func (s *Server) Start(ctx context.Context) error {
 			mappings := sso.NewMappingStore(s.pool)
 			state := ssostate.New(s.redis)
 			clients := sso.NewClientCache()
+			events := sso.NewEventStore(s.pool)
 			handlers.
-				WithSSO(providers, mappings, state, clients).
+				WithSSO(providers, mappings, state, clients, events).
 				WithPublicBaseURL(s.publicBaseURL)
 			s.logger.Info().Msg("sso enabled")
 		}
@@ -429,6 +430,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("GET /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.ListSSOMappings))
 	mux.Handle("POST /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.CreateSSOMapping))
 	mux.Handle("DELETE /api/v1/sso/providers/{id}/mappings/{mapping_id}", s.authz("sso.manage", handlers.DeleteSSOMapping))
+
+	mux.Handle("GET /api/v1/sso/providers/{id}/history", s.authz("sso.manage", handlers.SSOLoginHistory))
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux

@@ -12,6 +12,7 @@ import {
   type ProviderFormValues,
 } from "@/features/sso/provider-form";
 import { MappingsEditor } from "@/features/sso/mappings-editor";
+import { HistoryPanel } from "@/features/sso/history-panel";
 import { useSSOProvider, useUpdateSSOProvider } from "@/features/sso/hooks";
 
 export default function EditSSOProviderPage() {
@@ -88,6 +89,7 @@ export default function EditSSOProviderPage() {
       />
 
       {id && <MappingsEditor providerId={id} />}
+      {id && <HistoryPanel providerId={id} />}
     </div>
   );
 }

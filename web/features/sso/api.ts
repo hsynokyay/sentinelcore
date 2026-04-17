@@ -3,6 +3,7 @@ import type {
   SSOEnabledProvider,
   SSOGroupMapping,
   SSOGroupMappingPayload,
+  SSOLoginEvent,
   SSOProvider,
   SSOProviderCreatePayload,
   SSOProviderUpdatePayload,
@@ -82,4 +83,14 @@ export async function ssoLogout(providerId?: string): Promise<{ redirect?: strin
   return api.post<{ redirect?: string }>("/api/v1/auth/sso/logout", {
     provider_id: providerId ?? "",
   });
+}
+
+export async function listSSOLoginHistory(
+  providerId: string,
+  limit = 50,
+): Promise<SSOLoginEvent[]> {
+  const res = await api.get<{ events: SSOLoginEvent[] }>(
+    `/api/v1/sso/providers/${providerId}/history?limit=${limit}`,
+  );
+  return res.events ?? [];
 }

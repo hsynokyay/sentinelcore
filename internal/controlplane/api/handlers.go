@@ -49,6 +49,7 @@ type Handlers struct {
 	ssoMappings   *sso.MappingStore
 	ssoState      *ssostate.Store
 	ssoClients    *sso.ClientCache
+	ssoEvents     *sso.EventStore
 	publicBaseURL string
 }
 
@@ -56,11 +57,12 @@ type Handlers struct {
 // Called from server bootstrap after all stores are constructed.
 // Passing nil arguments is allowed and disables the SSO surface until
 // it is populated (useful for tests that don't exercise SSO).
-func (h *Handlers) WithSSO(providers *sso.ProviderStore, mappings *sso.MappingStore, state *ssostate.Store, clients *sso.ClientCache) *Handlers {
+func (h *Handlers) WithSSO(providers *sso.ProviderStore, mappings *sso.MappingStore, state *ssostate.Store, clients *sso.ClientCache, events *sso.EventStore) *Handlers {
 	h.ssoProviders = providers
 	h.ssoMappings = mappings
 	h.ssoState = state
 	h.ssoClients = clients
+	h.ssoEvents = events
 	return h
 }
 

@@ -60,3 +60,22 @@ export interface SSOEnabledProvider {
   display_name: string;
   start_url: string;
 }
+
+export type SSOLoginOutcome =
+  | "success"
+  | "callback_error"
+  | "claim_error"
+  | "user_error";
+
+export interface SSOLoginEvent {
+  id: number;
+  occurred_at: string; // ISO8601
+  outcome: SSOLoginOutcome;
+  error_code?: string;
+  external_id?: string;
+  email?: string;
+  role_granted?: string;
+  claims_redacted?: Record<string, unknown>;
+  ip_address?: string;
+  user_agent?: string;
+}
