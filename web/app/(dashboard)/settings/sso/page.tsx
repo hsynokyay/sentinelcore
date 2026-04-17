@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/components/data/page-header";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -37,12 +37,10 @@ export default function SSOSettingsPage() {
         title="SSO Providers"
         description="Configure OpenID Connect providers so your team can sign in with Azure AD, Okta, Keycloak, or any OIDC-compliant IdP."
         actions={
-          <Button asChild>
-            <Link href="/settings/sso/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Add provider
-            </Link>
-          </Button>
+          <Link href="/settings/sso/new" className={buttonVariants()}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add provider
+          </Link>
         }
       />
 
@@ -62,12 +60,10 @@ export default function SSOSettingsPage() {
           <p className="text-sm text-muted-foreground mb-4">
             No SSO providers configured.
           </p>
-          <Button asChild>
-            <Link href="/settings/sso/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Add your first provider
-            </Link>
-          </Button>
+          <Link href="/settings/sso/new" className={buttonVariants()}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add your first provider
+          </Link>
         </div>
       )}
       {!isLoading && data && data.length > 0 && (
@@ -100,9 +96,12 @@ export default function SSOSettingsPage() {
                     {p.default_role_id}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="outline" asChild>
-                      <Link href={`/settings/sso/${p.id}`}>Edit</Link>
-                    </Button>
+                    <Link
+                      href={`/settings/sso/${p.id}`}
+                      className={buttonVariants({ size: "sm", variant: "outline" })}
+                    >
+                      Edit
+                    </Link>
                     <Button
                       size="sm"
                       variant="ghost"

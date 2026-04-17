@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { KeyRound } from "lucide-react";
 import { useEnabledSSOProviders } from "./hooks";
 
@@ -50,17 +50,14 @@ export function SSOLoginButtons({ orgSlug, returnTo }: SSOLoginButtonsProps) {
         const url =
           p.start_url + (rt ? `?return_to=${encodeURIComponent(rt)}` : "");
         return (
-          <Button
+          <a
             key={p.provider_slug}
-            asChild
-            variant="outline"
-            className="w-full"
+            href={url}
+            className={buttonVariants({ variant: "outline" }) + " w-full"}
           >
-            <a href={url}>
-              <KeyRound className="mr-2 h-4 w-4" />
-              Sign in with {p.display_name}
-            </a>
-          </Button>
+            <KeyRound className="mr-2 h-4 w-4" />
+            Sign in with {p.display_name}
+          </a>
         );
       })}
     </div>
