@@ -14,6 +14,8 @@ import (
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	"github.com/sentinelcore/sentinelcore/pkg/sso"
+	"github.com/sentinelcore/sentinelcore/pkg/ssostate"
 )
 
 // errNotVisible is a sentinel error returned by RLS-scoped lookups when the
@@ -41,6 +43,34 @@ type Handlers struct {
 	riskWorker  *risk.Worker
 	rbacCache   *policy.Cache
 	audit       *audit.Emitter // alias for emitter; used by CreateAPIKey
+
+	// Optional SSO wiring — populated by WithSSO / WithPublicBaseURL after NewHandlers.
+	ssoProviders  *sso.ProviderStore
+	ssoMappings   *sso.MappingStore
+	ssoState      *ssostate.Store
+	ssoClients    *sso.ClientCache
+	publicBaseURL string
+}
+
+// WithSSO wires the SSO stores onto an existing Handlers.
+// Called from server bootstrap after all stores are constructed.
+// Passing nil arguments is allowed and disables the SSO surface until
+// it is populated (useful for tests that don't exercise SSO).
+func (h *Handlers) WithSSO(providers *sso.ProviderStore, mappings *sso.MappingStore, state *ssostate.Store, clients *sso.ClientCache) *Handlers {
+	h.ssoProviders = providers
+	h.ssoMappings = mappings
+	h.ssoState = state
+	h.ssoClients = clients
+	return h
+}
+
+// WithPublicBaseURL sets the external base URL (no trailing slash) used
+// to construct SSO redirect URIs. If empty, the callback derives a URL
+// from the incoming request which works for single-origin deploys but
+// breaks when the IdP has a pinned redirect_uri.
+func (h *Handlers) WithPublicBaseURL(url string) *Handlers {
+	h.publicBaseURL = url
+	return h
 }
 
 // NewHandlers creates a new Handlers instance.

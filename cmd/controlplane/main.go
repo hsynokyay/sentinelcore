@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"os"
 	"os/signal"
@@ -101,6 +102,22 @@ func main() {
 	// Start the session-revoke listener (Phase 2: user_sessions_revoke
 	// pg_notify drives Redis JTI cleanup on role downgrade).
 	sessrevoke.StartSessionRevokeListener(ctx, pool, sessions, logger)
+
+	// Optional SSO wiring. SSO_ENC_KEY_B64 must be 32 decoded bytes —
+	// rotate quarterly (plan §7.5) and synchronise with the DB row's
+	// enc:v1: ciphertext by running `controlplane rekey` (roadmap).
+	// If absent the SSO endpoints return SSO_DISABLED; the rest of the
+	// control plane still boots.
+	if encB64 := os.Getenv("SSO_ENC_KEY_B64"); encB64 != "" {
+		encKey, err := base64.StdEncoding.DecodeString(encB64)
+		if err != nil || len(encKey) != 32 {
+			logger.Warn().Int("bytes", len(encKey)).Err(err).Msg("SSO_ENC_KEY_B64 must decode to 32 bytes; sso disabled")
+		} else {
+			publicBaseURL := envOrDefault("PUBLIC_BASE_URL", "")
+			server.WithSSO(redisClient, encKey, publicBaseURL)
+			logger.Info().Str("public_base_url", publicBaseURL).Msg("sso configured")
+		}
+	}
 
 	logger.Info().Str("port", serverCfg.Port).Msg("starting control plane server")
 	if err := server.Start(ctx); err != nil {

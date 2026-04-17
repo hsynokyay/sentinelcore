@@ -41,11 +41,32 @@ func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	// Query user by email
 	var userID, orgID, role, passwordHash string
 	err := h.pool.QueryRow(r.Context(),
-		`SELECT id, org_id, role, password_hash FROM core.users WHERE email = $1 AND status = 'active'`,
+		`SELECT id, org_id, role, COALESCE(password_hash, '') FROM core.users WHERE email = $1 AND status = 'active'`,
 		req.Email,
 	).Scan(&userID, &orgID, &role, &passwordHash)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid credentials", "INVALID_CREDENTIALS")
+		return
+	}
+
+	// SSO-only users (NULL password_hash) cannot use the password path.
+	// Return USE_SSO with the org's enabled provider slugs so the UI can
+	// route them to /api/v1/auth/sso/{org}/{provider}/start.
+	if passwordHash == "" {
+		var providerSlugs []string
+		if h.ssoProviders != nil {
+			if providers, err := h.ssoProviders.ListEnabledForOrg(r.Context(), orgID); err == nil {
+				providerSlugs = make([]string, 0, len(providers))
+				for _, p := range providers {
+					providerSlugs = append(providerSlugs, p.ProviderSlug)
+				}
+			}
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]any{
+			"error":     "use SSO to sign in",
+			"code":      "USE_SSO",
+			"providers": providerSlugs,
+		})
 		return
 	}
 

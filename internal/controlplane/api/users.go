@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 )
 
@@ -27,17 +26,12 @@ type userResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// CreateUser creates a new user (platform_admin only).
+// CreateUser creates a new user. Requires users.manage (owner only).
 func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	user := requireAuth(w, r)
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "users.create") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	var req createUserRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -48,7 +42,7 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role == "" {
-		req.Role = "appsec_analyst"
+		req.Role = "security_engineer"
 	}
 	if req.OrgID == "" {
 		req.OrgID = user.OrgID
@@ -88,17 +82,12 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListUsers lists all users (platform_admin only).
+// ListUsers lists users. Requires users.read (owner, admin, auditor).
 func (h *Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	user := requireAuth(w, r)
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "users.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	rows, err := h.pool.Query(r.Context(),
 		`SELECT id, email, full_name, role, org_id, status, created_at FROM core.users ORDER BY created_at DESC`)
 	if err != nil {

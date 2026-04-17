@@ -23,9 +23,12 @@ import (
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	sc_cors "github.com/sentinelcore/sentinelcore/pkg/cors"
+	"github.com/sentinelcore/sentinelcore/pkg/crypto/aesgcm"
 	sc_csrf "github.com/sentinelcore/sentinelcore/pkg/csrf"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 	"github.com/sentinelcore/sentinelcore/pkg/ratelimit"
+	"github.com/sentinelcore/sentinelcore/pkg/sso"
+	"github.com/sentinelcore/sentinelcore/pkg/ssostate"
 )
 
 // ServerConfig holds configuration for the control plane server.
@@ -45,9 +48,23 @@ type Server struct {
 	limiter   *ratelimit.Limiter
 	js        jetstream.JetStream
 	nc        *nats.Conn    // for health checks
-	redis     *redis.Client // for health checks
+	redis     *redis.Client // for health checks + SSO state store
 	rbacCache *policy.Cache
 	denier    auth.AuditDenier
+
+	// Optional SSO wiring (populated by WithSSO).
+	ssoEncKey     []byte
+	publicBaseURL string
+}
+
+// WithSSO enables the OIDC SSO surface. Must be called before Start.
+// If encKey is not exactly 32 bytes or redis is nil, SSO endpoints remain
+// disabled and return 503 SSO_DISABLED. The redis client is reused from
+// the one already passed to NewServer (no separate connection pool).
+func (s *Server) WithSSO(_redisClient *redis.Client, encKey []byte, publicBaseURL string) *Server {
+	s.ssoEncKey = encKey
+	s.publicBaseURL = publicBaseURL
+	return s
 }
 
 // NewServer creates a new control plane server.
@@ -115,12 +132,6 @@ func NewServer(
 	}
 }
 
-// RBACCache returns the server's RBAC cache so the startup code can
-// attach a pg_notify listener to it.
-func (s *Server) RBACCache() *policy.Cache {
-	return s.rbacCache
-}
-
 // authz wraps an http.HandlerFunc with RequirePermission enforcement.
 // The outer conditionalAuthMiddleware already populates the Principal
 // in context — authz only adds the permission check. Used for every
@@ -178,12 +189,27 @@ func requestID(ctx context.Context) string {
 	return v
 }
 
-// skipAuthPaths defines paths that do not require authentication.
+// RBACCache returns the server's RBAC cache so the startup code can
+// attach a pg_notify listener to it.
+func (s *Server) RBACCache() *policy.Cache {
+	return s.rbacCache
+}
+
+// skipAuthPaths defines exact paths that do not require authentication.
 var skipAuthPaths = map[string]bool{
-	"/healthz":              true,
-	"/readyz":               true,
-	"/api/v1/auth/login":    true,
-	"/api/v1/system/health": true,
+	"/healthz":                 true,
+	"/readyz":                  true,
+	"/api/v1/auth/login":       true,
+	"/api/v1/auth/refresh":     true,
+	"/api/v1/system/health":    true,
+	"/api/v1/auth/sso/enabled": true,
+}
+
+// skipAuthPrefixes matches prefixes that bypass auth. Used for the OIDC
+// /start and /callback endpoints where the URL carries dynamic org +
+// provider segments.
+var skipAuthPrefixes = []string{
+	"/api/v1/auth/sso/", // matches /auth/sso/{org}/{provider}/(start|callback)
 }
 
 // conditionalAuthMiddleware applies auth middleware except for skip paths.
@@ -192,9 +218,21 @@ func conditionalAuthMiddleware(jwtMgr *auth.JWTManager, sessions *auth.SessionSt
 	return func(next http.Handler) http.Handler {
 		authed := authMw(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// /api/v1/auth/sso/logout is the ONE path under /auth/sso/
+			// that DOES require auth — exclude it from the prefix bypass.
+			if r.URL.Path == "/api/v1/auth/sso/logout" {
+				authed.ServeHTTP(w, r)
+				return
+			}
 			if skipAuthPaths[r.URL.Path] {
 				next.ServeHTTP(w, r)
 				return
+			}
+			for _, p := range skipAuthPrefixes {
+				if len(r.URL.Path) >= len(p) && r.URL.Path[:len(p)] == p {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 			authed.ServeHTTP(w, r)
 		})
@@ -212,6 +250,27 @@ func (s *Server) Start(ctx context.Context) error {
 
 	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker, s.rbacCache)
 
+	// Optional SSO wiring: skip cleanly if prerequisites absent so the
+	// rest of the control plane still boots on clusters that haven't
+	// rotated in an encryption key yet. Endpoints return SSO_DISABLED.
+	if s.redis != nil && len(s.ssoEncKey) == 32 {
+		enc, err := aesgcm.NewEncryptor(s.ssoEncKey)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("sso encryptor init failed; sso disabled")
+		} else {
+			providers := sso.NewProviderStore(s.pool, enc)
+			mappings := sso.NewMappingStore(s.pool)
+			state := ssostate.New(s.redis)
+			clients := sso.NewClientCache()
+			handlers.
+				WithSSO(providers, mappings, state, clients).
+				WithPublicBaseURL(s.publicBaseURL)
+			s.logger.Info().Msg("sso enabled")
+		}
+	} else {
+		s.logger.Info().Msg("sso disabled (no redis or encryption key)")
+	}
+
 	mux := http.NewServeMux()
 
 	// Health
@@ -227,27 +286,27 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("GET /api/v1/auth/me", auth.AuthMiddleware(s.jwtMgr, s.sessions)(meHandler))
 
 	// Organizations
-	mux.HandleFunc("POST /api/v1/organizations", handlers.CreateOrganization)
-	mux.HandleFunc("GET /api/v1/organizations", handlers.ListOrganizations)
-	mux.HandleFunc("GET /api/v1/organizations/{id}", handlers.GetOrganization)
-	mux.HandleFunc("PATCH /api/v1/organizations/{id}", handlers.UpdateOrganization)
+	mux.Handle("POST /api/v1/organizations", s.authz("organizations.manage", handlers.CreateOrganization))
+	mux.Handle("GET /api/v1/organizations", s.authz("organizations.read", handlers.ListOrganizations))
+	mux.Handle("GET /api/v1/organizations/{id}", s.authz("organizations.read", handlers.GetOrganization))
+	mux.Handle("PATCH /api/v1/organizations/{id}", s.authz("organizations.manage", handlers.UpdateOrganization))
 
 	// Teams
-	mux.HandleFunc("POST /api/v1/organizations/{org_id}/teams", handlers.CreateTeam)
-	mux.HandleFunc("GET /api/v1/organizations/{org_id}/teams", handlers.ListTeams)
-	mux.HandleFunc("POST /api/v1/teams/{id}/members", handlers.AddTeamMember)
-	mux.HandleFunc("GET /api/v1/teams/{id}/members", handlers.ListTeamMembers)
+	mux.Handle("POST /api/v1/organizations/{org_id}/teams", s.authz("teams.manage", handlers.CreateTeam))
+	mux.Handle("GET /api/v1/organizations/{org_id}/teams", s.authz("teams.read", handlers.ListTeams))
+	mux.Handle("POST /api/v1/teams/{id}/members", s.authz("teams.manage", handlers.AddTeamMember))
+	mux.Handle("GET /api/v1/teams/{id}/members", s.authz("teams.read", handlers.ListTeamMembers))
 
 	// Users
-	mux.HandleFunc("POST /api/v1/users", handlers.CreateUser)
-	mux.HandleFunc("GET /api/v1/users", handlers.ListUsers)
+	mux.Handle("POST /api/v1/users", s.authz("users.manage", handlers.CreateUser))
+	mux.Handle("GET /api/v1/users", s.authz("users.read", handlers.ListUsers))
 	mux.HandleFunc("GET /api/v1/users/me", handlers.GetCurrentUser)
 
 	// Projects
-	mux.HandleFunc("POST /api/v1/projects", handlers.CreateProject)
-	mux.HandleFunc("GET /api/v1/projects", handlers.ListProjects)
-	mux.HandleFunc("GET /api/v1/projects/{id}", handlers.GetProject)
-	mux.HandleFunc("PATCH /api/v1/projects/{id}", handlers.UpdateProject)
+	mux.Handle("POST /api/v1/projects", s.authz("projects.manage", handlers.CreateProject))
+	mux.Handle("GET /api/v1/projects", s.authz("projects.read", handlers.ListProjects))
+	mux.Handle("GET /api/v1/projects/{id}", s.authz("projects.read", handlers.GetProject))
+	mux.Handle("PATCH /api/v1/projects/{id}", s.authz("projects.manage", handlers.UpdateProject))
 
 	// Source artifacts (SAST intake)
 	mux.HandleFunc("POST /api/v1/projects/{id}/artifacts", handlers.CreateSourceArtifact)
@@ -276,9 +335,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("DELETE /api/v1/scan-targets/{id}", handlers.DeleteScanTarget)
 
 	// Scans
-	mux.HandleFunc("POST /api/v1/projects/{id}/scans", handlers.CreateScan)
-	mux.HandleFunc("GET /api/v1/scans/{id}", handlers.GetScan)
-	mux.HandleFunc("POST /api/v1/scans/{id}/cancel", handlers.CancelScan)
+	mux.Handle("POST /api/v1/projects/{id}/scans", s.authz("scans.run", handlers.CreateScan))
+	mux.Handle("GET /api/v1/scans/{id}", s.authz("scans.read", handlers.GetScan))
+	mux.Handle("POST /api/v1/scans/{id}/cancel", s.authz("scans.cancel", handlers.CancelScan))
 
 	// Findings
 	mux.HandleFunc("GET /api/v1/findings", handlers.ListFindings)
@@ -349,6 +408,27 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Audit log
 	mux.HandleFunc("GET /api/v1/audit", handlers.ListAuditEvents)
+
+	// SSO — public (no auth). Anti-enumeration (unknown org → empty list)
+	// enforced in the handler itself.
+	mux.HandleFunc("GET /api/v1/auth/sso/{org}/{provider}/start", handlers.StartSSO)
+	mux.HandleFunc("GET /api/v1/auth/sso/{org}/{provider}/callback", handlers.SSOCallback)
+	mux.HandleFunc("GET /api/v1/auth/sso/enabled", handlers.EnabledSSOProviders)
+
+	// SSO logout — authenticated via outer conditionalAuthMiddleware
+	// (exempted from the /auth/sso/ public-prefix bypass).
+	mux.HandleFunc("POST /api/v1/auth/sso/logout", handlers.SSOLogout)
+
+	// SSO admin (sso.manage).
+	mux.Handle("GET /api/v1/sso/providers", s.authz("sso.manage", handlers.ListSSOProviders))
+	mux.Handle("POST /api/v1/sso/providers", s.authz("sso.manage", handlers.CreateSSOProvider))
+	mux.Handle("GET /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.GetSSOProvider))
+	mux.Handle("PATCH /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.UpdateSSOProvider))
+	mux.Handle("DELETE /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.DeleteSSOProvider))
+
+	mux.Handle("GET /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.ListSSOMappings))
+	mux.Handle("POST /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.CreateSSOMapping))
+	mux.Handle("DELETE /api/v1/sso/providers/{id}/mappings/{mapping_id}", s.authz("sso.manage", handlers.DeleteSSOMapping))
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
