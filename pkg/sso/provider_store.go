@@ -133,7 +133,10 @@ func (s *ProviderStore) GetByOrgSlug(ctx context.Context, orgSlug, providerSlug 
 	if err != nil {
 		return Provider{}, err
 	}
-	if _, err := tx.Exec(ctx, `SET LOCAL app.current_org_id = $1`, orgID); err != nil {
+	// SET does not accept parameter placeholders in PostgreSQL; use
+	// set_config(name, value, is_local=true) which has the same semantics
+	// as SET LOCAL but can take parametrised args.
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.current_org_id', $1, true)`, orgID); err != nil {
 		return Provider{}, err
 	}
 
