@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
+	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	"github.com/sentinelcore/sentinelcore/pkg/sso"
 	"github.com/sentinelcore/sentinelcore/pkg/ssostate"
 )
@@ -420,6 +421,97 @@ func (h *Handlers) EnabledSSOProviders(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": out})
+}
+
+// ============================================================================
+// /sso/logout
+// ============================================================================
+
+// SSOLogout handles POST /api/v1/auth/sso/logout — authenticated.
+// Revokes the local session, clears cookies, and if the user is logged
+// in via an SSO provider with SSOLogoutEnabled+EndSessionURL set, returns
+// a redirect target for RP-Initiated Logout so the caller can 302 the
+// browser to the IdP.
+//
+// Body: {"provider_id": "..."} — optional; omit to local-logout only.
+func (h *Handlers) SSOLogout(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	var req struct {
+		ProviderID string `json:"provider_id"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		defer r.Body.Close()
+	}
+
+	// Local logout (best-effort — don't block IdP redirect on failure).
+	if h.sessions != nil && principal.JTI != "" {
+		if err := h.sessions.RevokeSession(r.Context(), principal.JTI); err != nil {
+			h.logger.Warn().Err(err).Msg("sso logout: revoke session")
+		}
+	}
+	h.clearSSOAuthCookies(w, r)
+
+	if h.emitter != nil {
+		_ = h.emitter.Emit(r.Context(), audit.AuditEvent{
+			ActorType:    "user",
+			ActorID:      principal.UserID,
+			ActorIP:      clientIP(r),
+			Action:       "auth.sso.logout",
+			ResourceType: "user",
+			ResourceID:   principal.UserID,
+			OrgID:        principal.OrgID,
+			Result:       "success",
+			Details: map[string]any{
+				"provider_id": req.ProviderID,
+			},
+		})
+	}
+
+	// If no provider hint, we're done.
+	if req.ProviderID == "" || h.ssoProviders == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+
+	p, err := h.ssoProviders.Get(r.Context(), req.ProviderID)
+	if err != nil || !p.SSOLogoutEnabled || p.EndSessionURL == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+
+	// Build end_session URL. id_token_hint is required by some IdPs
+	// (Keycloak, Azure AD). We don't currently stash the id_token on
+	// session mint — adding that is a follow-up — so we emit a hintless
+	// URL which works for Okta and any IdP that tolerates its absence.
+	sep := "?"
+	if strings.Contains(p.EndSessionURL, "?") {
+		sep = "&"
+	}
+	redirect := p.EndSessionURL + sep + "post_logout_redirect_uri=" +
+		strings.TrimRight(h.publicBaseURL, "/") + "/login"
+	writeJSON(w, http.StatusOK, map[string]any{"redirect": redirect})
+}
+
+// clearSSOAuthCookies expires the cookies set by setSSOAuthCookies.
+func (h *Handlers) clearSSOAuthCookies(w http.ResponseWriter, r *http.Request) {
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	for _, name := range []string{"sc_access_token", "sc_refresh_token"} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   secure,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+	}
 }
 
 // ============================================================================

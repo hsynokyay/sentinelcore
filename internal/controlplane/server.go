@@ -10,14 +10,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	"github.com/sentinelcore/sentinelcore/pkg/crypto/aesgcm"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 	"github.com/sentinelcore/sentinelcore/pkg/ratelimit"
+	"github.com/sentinelcore/sentinelcore/pkg/sso"
+	"github.com/sentinelcore/sentinelcore/pkg/ssostate"
 )
 
 // ServerConfig holds configuration for the control plane server.
@@ -38,6 +42,21 @@ type Server struct {
 	js        jetstream.JetStream
 	rbacCache *policy.Cache
 	denier    auth.AuditDenier
+
+	// Optional SSO wiring (populated by WithSSO).
+	redis         *redis.Client
+	ssoEncKey     []byte
+	publicBaseURL string
+}
+
+// WithSSO enables the OIDC SSO surface. Must be called before Start.
+// If encKey is not exactly 32 bytes or redisClient is nil, SSO endpoints
+// remain disabled and return 503 SSO_DISABLED.
+func (s *Server) WithSSO(redisClient *redis.Client, encKey []byte, publicBaseURL string) *Server {
+	s.redis = redisClient
+	s.ssoEncKey = encKey
+	s.publicBaseURL = publicBaseURL
+	return s
 }
 
 // NewServer creates a new control plane server.
@@ -143,11 +162,20 @@ func (s *Server) RBACCache() *policy.Cache {
 	return s.rbacCache
 }
 
-// skipAuthPaths defines paths that do not require authentication.
+// skipAuthPaths defines exact paths that do not require authentication.
 var skipAuthPaths = map[string]bool{
-	"/healthz":            true,
-	"/api/v1/auth/login":  true,
+	"/healthz":              true,
+	"/api/v1/auth/login":    true,
+	"/api/v1/auth/refresh":  true,
 	"/api/v1/system/health": true,
+	"/api/v1/auth/sso/enabled": true,
+}
+
+// skipAuthPrefixes matches prefixes that bypass auth. Used for the OIDC
+// /start and /callback endpoints where the URL carries dynamic org +
+// provider segments.
+var skipAuthPrefixes = []string{
+	"/api/v1/auth/sso/", // matches /auth/sso/{org}/{provider}/(start|callback)
 }
 
 // conditionalAuthMiddleware applies auth middleware except for skip paths.
@@ -156,9 +184,21 @@ func conditionalAuthMiddleware(jwtMgr *auth.JWTManager, sessions *auth.SessionSt
 	return func(next http.Handler) http.Handler {
 		authed := authMw(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// /api/v1/auth/sso/logout is the ONE path under /auth/sso/
+			// that DOES require auth — exclude it from the prefix bypass.
+			if r.URL.Path == "/api/v1/auth/sso/logout" {
+				authed.ServeHTTP(w, r)
+				return
+			}
 			if skipAuthPaths[r.URL.Path] {
 				next.ServeHTTP(w, r)
 				return
+			}
+			for _, p := range skipAuthPrefixes {
+				if len(r.URL.Path) >= len(p) && r.URL.Path[:len(p)] == p {
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 			authed.ServeHTTP(w, r)
 		})
@@ -168,6 +208,27 @@ func conditionalAuthMiddleware(jwtMgr *auth.JWTManager, sessions *auth.SessionSt
 // Start starts the control plane HTTP server and the metrics server.
 func (s *Server) Start(ctx context.Context) error {
 	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, s.rbacCache)
+
+	// Optional SSO wiring: skip cleanly if prerequisites absent so the
+	// rest of the control plane still boots on clusters that haven't
+	// rotated in an encryption key yet. Endpoints return SSO_DISABLED.
+	if s.redis != nil && len(s.ssoEncKey) == 32 {
+		enc, err := aesgcm.NewEncryptor(s.ssoEncKey)
+		if err != nil {
+			s.logger.Error().Err(err).Msg("sso encryptor init failed; sso disabled")
+		} else {
+			providers := sso.NewProviderStore(s.pool, enc)
+			mappings := sso.NewMappingStore(s.pool)
+			state := ssostate.New(s.redis)
+			clients := sso.NewClientCache()
+			handlers.
+				WithSSO(providers, mappings, state, clients).
+				WithPublicBaseURL(s.publicBaseURL)
+			s.logger.Info().Msg("sso enabled")
+		}
+	} else {
+		s.logger.Info().Msg("sso disabled (no redis or encryption key)")
+	}
 
 	mux := http.NewServeMux()
 
@@ -222,6 +283,29 @@ func (s *Server) Start(ctx context.Context) error {
 	// API keys
 	mux.Handle("POST /api/v1/api-keys", s.authz("api_keys.manage", handlers.CreateAPIKey))
 	mux.Handle("POST /api/v1/api-keys/{id}/rotate", s.authz("api_keys.manage", handlers.RotateAPIKey))
+
+	// SSO — public (no auth). Rate limiting handled by the outer HTTP
+	// limiter middleware; the anti-enumeration property of
+	// EnabledSSOProviders (unknown orgs → empty list) is enforced in the
+	// handler itself.
+	mux.HandleFunc("GET /api/v1/auth/sso/{org}/{provider}/start", handlers.StartSSO)
+	mux.HandleFunc("GET /api/v1/auth/sso/{org}/{provider}/callback", handlers.SSOCallback)
+	mux.HandleFunc("GET /api/v1/auth/sso/enabled", handlers.EnabledSSOProviders)
+
+	// SSO logout — authenticated via outer conditionalAuthMiddleware
+	// (exempted from the /auth/sso/ public-prefix bypass).
+	mux.HandleFunc("POST /api/v1/auth/sso/logout", handlers.SSOLogout)
+
+	// SSO admin (sso.manage).
+	mux.Handle("GET /api/v1/sso/providers", s.authz("sso.manage", handlers.ListSSOProviders))
+	mux.Handle("POST /api/v1/sso/providers", s.authz("sso.manage", handlers.CreateSSOProvider))
+	mux.Handle("GET /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.GetSSOProvider))
+	mux.Handle("PATCH /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.UpdateSSOProvider))
+	mux.Handle("DELETE /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.DeleteSSOProvider))
+
+	mux.Handle("GET /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.ListSSOMappings))
+	mux.Handle("POST /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.CreateSSOMapping))
+	mux.Handle("DELETE /api/v1/sso/providers/{id}/mappings/{mapping_id}", s.authz("sso.manage", handlers.DeleteSSOMapping))
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux

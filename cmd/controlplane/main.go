@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"os"
 
@@ -89,6 +90,22 @@ func main() {
 	}
 
 	server := controlplane.NewServer(serverCfg, logger, pool, jwtMgr, sessions, emitter, limiter, js)
+
+	// Optional SSO wiring. SSO_ENC_KEY_B64 must be 32 decoded bytes —
+	// rotate quarterly (plan §7.5) and synchronise with the DB row's
+	// enc:v1: ciphertext by running `controlplane rekey` (roadmap).
+	// If absent the SSO endpoints return SSO_DISABLED; the rest of the
+	// control plane still boots.
+	if encB64 := os.Getenv("SSO_ENC_KEY_B64"); encB64 != "" {
+		encKey, err := base64.StdEncoding.DecodeString(encB64)
+		if err != nil || len(encKey) != 32 {
+			logger.Warn().Int("bytes", len(encKey)).Err(err).Msg("SSO_ENC_KEY_B64 must decode to 32 bytes; sso disabled")
+		} else {
+			publicBaseURL := envOrDefault("PUBLIC_BASE_URL", "")
+			server.WithSSO(redisClient, encKey, publicBaseURL)
+			logger.Info().Str("public_base_url", publicBaseURL).Msg("sso configured")
+		}
+	}
 
 	// Start pg_notify listener for RBAC cache updates
 	server.RBACCache().Listen(ctx, pool, "role_permissions_changed", logger)
