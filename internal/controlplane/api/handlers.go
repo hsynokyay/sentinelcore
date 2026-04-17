@@ -11,18 +11,36 @@ import (
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	"github.com/sentinelcore/sentinelcore/pkg/sso"
+	"github.com/sentinelcore/sentinelcore/pkg/ssostate"
 )
 
 // Handlers contains all API handler methods.
 type Handlers struct {
-	pool      *pgxpool.Pool
-	jwtMgr    *auth.JWTManager
-	sessions  *auth.SessionStore
-	emitter   *audit.Emitter
-	js        jetstream.JetStream
-	logger    zerolog.Logger
-	rbacCache *policy.Cache
-	audit     *audit.Emitter // alias for emitter; used by CreateAPIKey
+	pool         *pgxpool.Pool
+	jwtMgr       *auth.JWTManager
+	sessions     *auth.SessionStore
+	emitter      *audit.Emitter
+	js           jetstream.JetStream
+	logger       zerolog.Logger
+	rbacCache    *policy.Cache
+	audit        *audit.Emitter // alias for emitter; used by CreateAPIKey
+	ssoProviders *sso.ProviderStore
+	ssoMappings  *sso.MappingStore
+	ssoState     *ssostate.Store
+	ssoClients   *sso.ClientCache
+}
+
+// WithSSO wires the SSO stores onto an existing Handlers.
+// Called from server bootstrap after all stores are constructed.
+// Passing nil arguments is allowed and disables the SSO surface until
+// it is populated (useful for tests that don't exercise SSO).
+func (h *Handlers) WithSSO(providers *sso.ProviderStore, mappings *sso.MappingStore, state *ssostate.Store, clients *sso.ClientCache) *Handlers {
+	h.ssoProviders = providers
+	h.ssoMappings = mappings
+	h.ssoState = state
+	h.ssoClients = clients
+	return h
 }
 
 // NewHandlers creates a new Handlers instance.
