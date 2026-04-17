@@ -25,10 +25,11 @@ type Handlers struct {
 	logger       zerolog.Logger
 	rbacCache    *policy.Cache
 	audit        *audit.Emitter // alias for emitter; used by CreateAPIKey
-	ssoProviders *sso.ProviderStore
-	ssoMappings  *sso.MappingStore
-	ssoState     *ssostate.Store
-	ssoClients   *sso.ClientCache
+	ssoProviders  *sso.ProviderStore
+	ssoMappings   *sso.MappingStore
+	ssoState      *ssostate.Store
+	ssoClients    *sso.ClientCache
+	publicBaseURL string // e.g. "https://sentinelcore.example.com" — no trailing slash
 }
 
 // WithSSO wires the SSO stores onto an existing Handlers.
@@ -40,6 +41,15 @@ func (h *Handlers) WithSSO(providers *sso.ProviderStore, mappings *sso.MappingSt
 	h.ssoMappings = mappings
 	h.ssoState = state
 	h.ssoClients = clients
+	return h
+}
+
+// WithPublicBaseURL sets the external base URL (no trailing slash) used
+// to construct SSO redirect URIs. If empty, the callback derives a URL
+// from the incoming request which works for single-origin deploys but
+// breaks when the IdP has a pinned redirect_uri.
+func (h *Handlers) WithPublicBaseURL(url string) *Handlers {
+	h.publicBaseURL = url
 	return h
 }
 
