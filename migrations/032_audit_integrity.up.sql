@@ -32,8 +32,14 @@ CREATE TRIGGER audit_log_no_delete
 -- Idempotency guarantee on the write path. The consumer may see a
 -- NATS redelivery with the same event_id; the UNIQUE constraint makes
 -- the second INSERT fail cheaply (caught and ack'd by consumer).
+--
+-- PostgreSQL requires partitioned-table UNIQUE indexes to include the
+-- partition key, so we pair event_id with timestamp. In practice this
+-- is still a point uniqueness because event.Timestamp is stamped at
+-- emit time and never changes across redeliveries — two NATS copies
+-- of the same event always land in the same partition.
 CREATE UNIQUE INDEX IF NOT EXISTS audit_log_event_id_uniq
-    ON audit.audit_log (event_id);
+    ON audit.audit_log (event_id, timestamp);
 
 -- HMAC key catalogue. Key MATERIAL lives in Vault (or the transitional
 -- AUDIT_HMAC_KEY_B64 env var); this table tracks what versions exist
