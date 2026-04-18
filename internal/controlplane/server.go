@@ -410,6 +410,8 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Audit log
 	mux.HandleFunc("GET /api/v1/audit", handlers.ListAuditEvents)
+	mux.Handle("GET /api/v1/audit/exports", s.authz("audit.export", handlers.ListAuditExports))
+	mux.Handle("POST /api/v1/audit/exports", s.authz("audit.export", handlers.CreateAuditExport))
 
 	// SSO — public (no auth). Anti-enumeration (unknown org → empty list)
 	// enforced in the handler itself.
