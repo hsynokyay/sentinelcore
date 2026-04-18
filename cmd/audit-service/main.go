@@ -12,6 +12,7 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/internal/audit"
 	"github.com/sentinelcore/sentinelcore/internal/audit/partition"
+	pkgaudit "github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 	sc_nats "github.com/sentinelcore/sentinelcore/pkg/nats"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
@@ -78,9 +79,33 @@ func main() {
 	}
 	go pm.RunDaily(ctx, monthsAhead, partInterval)
 
-	// Start consumer
+	// Start consumer. Mode is chosen by env:
+	//   AUDIT_CONSUMER_MODE=legacy (default) → pre-chain write path; rows
+	//       land with previous_hash='' / entry_hash=''. Verifier reports
+	//       'partial' outcome — expected during transition.
+	//   AUDIT_CONSUMER_MODE=hmac → chained, tamper-evident write path.
+	//       Requires AUDIT_HMAC_KEY_B64 to be set to a 32-byte base64 key.
 	writer := audit.NewWriter(pool)
 	consumer := audit.NewConsumer(js, writer, logger)
+
+	mode := getEnv("AUDIT_CONSUMER_MODE", "legacy")
+	switch mode {
+	case "legacy":
+		logger.Info().Msg("audit consumer: legacy write path (no chain)")
+	case "hmac":
+		keys, err := pkgaudit.NewEnvKeyResolver()
+		if err != nil {
+			logger.Fatal().Err(err).Msg("AUDIT_CONSUMER_MODE=hmac but key resolver failed")
+		}
+		hw := audit.NewHMACWriter(pool, keys)
+		consumer.WithHMACWriter(hw)
+		logger.Info().
+			Int("key_version", keys.CurrentVersion()).
+			Str("fingerprint_prefix", keys.Fingerprint()[:16]).
+			Msg("audit consumer: HMAC chained write path")
+	default:
+		logger.Fatal().Str("mode", mode).Msg("AUDIT_CONSUMER_MODE must be 'legacy' or 'hmac'")
+	}
 
 	logger.Info().Msg("Audit Log Service starting")
 	if err := consumer.Start(ctx); err != nil && err != context.Canceled {
