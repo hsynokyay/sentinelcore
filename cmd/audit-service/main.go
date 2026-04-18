@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sentinelcore/sentinelcore/internal/audit"
+	"github.com/sentinelcore/sentinelcore/internal/audit/integrity"
 	"github.com/sentinelcore/sentinelcore/internal/audit/partition"
 	pkgaudit "github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
@@ -112,6 +113,21 @@ func main() {
 			Int("key_version", keys.CurrentVersion()).
 			Str("fingerprint_prefix", keys.Fingerprint()[:16]).
 			Msg("audit consumer: HMAC chained write path")
+
+		// Hourly chain verification — warm partitions only for now.
+		// Writes a row per partition into audit.integrity_checks each run.
+		verifier := integrity.NewVerifier(pool, keys)
+		scheduler := integrity.NewScheduler(pool, verifier, logger)
+		verifyInterval, err := time.ParseDuration(getEnv("AUDIT_VERIFY_INTERVAL", "1h"))
+		if err != nil {
+			verifyInterval = time.Hour
+		}
+		warmMonths, _ := strconv.Atoi(getEnv("AUDIT_VERIFY_WARM_MONTHS", "4"))
+		go scheduler.RunHourly(ctx, verifyInterval, warmMonths)
+		logger.Info().
+			Dur("interval", verifyInterval).
+			Int("warm_months", warmMonths).
+			Msg("integrity verifier scheduler started")
 	default:
 		logger.Fatal().Str("mode", mode).Msg("AUDIT_CONSUMER_MODE must be 'legacy' or 'hmac'")
 	}
