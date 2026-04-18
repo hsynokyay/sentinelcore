@@ -58,9 +58,12 @@ CREATE TABLE audit.hmac_keys (
 -- Seed the transitional version 1 row. The actual key material is sourced
 -- at runtime from AUDIT_HMAC_KEY_B64; the vault_path below is a marker
 -- for operators: "replace this row when the real Vault is wired".
+-- fingerprint is a 64-char hex string (SHA-256). Seed with all-zero as a
+-- sentinel; the audit-worker overwrites it on first startup after
+-- computing sha256(AUDIT_HMAC_KEY_B64 decoded bytes).
 INSERT INTO audit.hmac_keys (version, vault_path, fingerprint)
 VALUES (1, 'env:AUDIT_HMAC_KEY_B64',
-        'pending-first-key-fetch-will-update-at-startup')
+        '0000000000000000000000000000000000000000000000000000000000000000')
 ON CONFLICT (version) DO NOTHING;
 
 -- Verification run log. Separate table so the verifier's own state is
