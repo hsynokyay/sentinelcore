@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/sentinelcore/sentinelcore/internal/audit"
+	"github.com/sentinelcore/sentinelcore/internal/audit/partition"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 	sc_nats "github.com/sentinelcore/sentinelcore/pkg/nats"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
@@ -57,6 +60,23 @@ func main() {
 			logger.Error().Err(err).Msg("metrics server failed")
 		}
 	}()
+
+	// Partition manager: keeps a rolling window of monthly partitions so
+	// a boundary-crossing audit row never lands in audit_log_default.
+	// Runs once at startup, then daily. Tuneable via env for ops testing.
+	monthsAhead, _ := strconv.Atoi(getEnv("AUDIT_PARTITION_MONTHS_AHEAD", "2"))
+	partInterval, err := time.ParseDuration(getEnv("AUDIT_PARTITION_INTERVAL", "24h"))
+	if err != nil {
+		partInterval = 24 * time.Hour
+	}
+	pm := partition.New(pool, logger)
+	if _, err := pm.EnsureRollingWindow(ctx, monthsAhead); err != nil {
+		// Non-fatal: migration 033 already seeded the window, cron will retry.
+		logger.Error().Err(err).Msg("initial partition ensure failed; cron will retry")
+	} else {
+		logger.Info().Int("months_ahead", monthsAhead).Msg("audit partitions: initial window ok")
+	}
+	go pm.RunDaily(ctx, monthsAhead, partInterval)
 
 	// Start consumer
 	writer := audit.NewWriter(pool)
