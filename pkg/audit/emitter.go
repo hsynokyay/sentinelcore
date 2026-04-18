@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +38,11 @@ func (e *Emitter) Emit(ctx context.Context, event AuditEvent) error {
 	if event.Timestamp == "" {
 		event.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
 	}
+	// Normalise ActorIP: callers often pass r.RemoteAddr ("ip:port") which
+	// cannot be stored in the INET column and would otherwise diverge
+	// between writer canonical (has value) and verifier canonical (empty
+	// after INET NULL round-trip), breaking the HMAC chain.
+	event.ActorIP = normaliseIP(event.ActorIP)
 
 	// Redact Details in-place so handlers can't accidentally leak a secret
 	// value they placed inline. Redact() returns a fresh map, never
@@ -58,4 +65,30 @@ func (e *Emitter) Emit(ctx context.Context, event AuditEvent) error {
 		return fmt.Errorf("audit.Emit: publish: %w", err)
 	}
 	return nil
+}
+
+// normaliseIP strips a trailing port (":58242"), validates the remainder
+// via netip.ParseAddr, and returns the canonical string representation.
+// Empty input, unparseable input, or an attached port that cannot be
+// split returns "" — the writer then stores NULL in the INET column and
+// both writer and verifier produce identical canonical forms.
+func normaliseIP(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	// IPv6 with port: "[::1]:1234". IPv4 with port: "10.0.0.1:1234".
+	// Bare addresses: "10.0.0.1", "::1", "fe80::1%en0".
+	candidates := []string{raw}
+	if i := strings.LastIndex(raw, ":"); i > 0 && !strings.Contains(raw[i+1:], ":") {
+		// Trailing :port style; strip + try.
+		stripped := raw[:i]
+		stripped = strings.TrimPrefix(strings.TrimSuffix(stripped, "]"), "[")
+		candidates = append(candidates, stripped)
+	}
+	for _, c := range candidates {
+		if addr, err := netip.ParseAddr(c); err == nil {
+			return addr.String()
+		}
+	}
+	return ""
 }
