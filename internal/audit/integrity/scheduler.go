@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
+
+	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
 
 // Scheduler runs periodic chain verification over the monthly partitions.
@@ -59,9 +61,17 @@ func (s *Scheduler) RunHourly(ctx context.Context, interval time.Duration, warmM
 				continue
 			}
 			res, _ := s.verifier.VerifyPartition(ctx, p)
+
+			// Prometheus surface: operators alert on
+			// rate(sentinelcore_audit_integrity_check_total{outcome="fail"}[1h])>0.
+			observability.AuditIntegrityChecks.WithLabelValues(p, string(res.Outcome)).Inc()
+
+			// Fail + error are pager events. The `alert` tag is a marker
+			// the log-shipper picks up and routes to pagerduty via Loki
+			// regex (see docs/audit-operator-runbook.md §integrity_failed).
 			ev := s.logger.Info()
 			if res.Outcome == OutcomeError || res.Outcome == OutcomeFail {
-				ev = s.logger.Error()
+				ev = s.logger.Error().Str("alert", "audit_integrity_failed")
 			}
 			ev.
 				Str("partition", p).

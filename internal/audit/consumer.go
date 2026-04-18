@@ -3,12 +3,14 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
 	pkgaudit "github.com/sentinelcore/sentinelcore/pkg/audit"
+	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
 
 // Consumer subscribes to audit events from NATS JetStream and persists them.
@@ -106,13 +108,14 @@ func (c *Consumer) Start(ctx context.Context) error {
 				dup, err := c.hmacWriter.WriteOne(ctx, e)
 				if err != nil {
 					c.logger.Error().Err(err).Str("event_id", e.EventID).Msg("hmac write failed")
-					// Nak remaining via timeout; ack only what we've written.
 					break
 				}
 				if dup {
 					dups++
 				} else {
 					wrote++
+					observability.AuditEventsIngested.
+						WithLabelValues(actionDomain(e.Action)).Inc()
 				}
 				acks[i].Ack()
 			}
@@ -131,4 +134,15 @@ func (c *Consumer) Start(ctx context.Context) error {
 		}
 		c.logger.Info().Int("count", len(events)).Msg("wrote audit events (legacy)")
 	}
+}
+
+// actionDomain returns the leading segment of the action code — "auth"
+// for "auth.login.succeeded", "risk" for "risk.resolved", etc. Used as
+// a Prometheus label so cardinality is bounded (~12 domains) rather
+// than exploding per action.
+func actionDomain(action string) string {
+	if i := strings.Index(action, "."); i > 0 {
+		return action[:i]
+	}
+	return action
 }
