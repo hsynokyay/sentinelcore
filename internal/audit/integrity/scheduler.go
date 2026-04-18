@@ -76,22 +76,22 @@ func (s *Scheduler) RunHourly(ctx context.Context, interval time.Duration, warmM
 	}
 }
 
-// warmPartitions returns the N most recent monthly partition names.
-// Newest-first, so the current month is verified before the older ones.
-func (s *Scheduler) warmPartitions(ctx context.Context, limit int) ([]string, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT partition_name FROM audit.list_partitions() LIMIT $1`, limit)
-	if err != nil {
-		return nil, fmt.Errorf("warmPartitions: %w", err)
+// warmPartitions returns the partition names for [now-warmMonths+1, now],
+// newest (current) first. This is write-location-aware: list_partitions()
+// orders lexicographically, so the 13-month rolling seed puts future
+// partitions first — NOT what "warm" means for our purposes. A warm
+// partition is one that receives (or recently received) writes.
+//
+// Resolution is based on UTC time, matching the partition seeder.
+func (s *Scheduler) warmPartitions(_ context.Context, warmMonths int) ([]string, error) {
+	if warmMonths <= 0 {
+		warmMonths = 4
 	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		out = append(out, name)
+	out := make([]string, 0, warmMonths)
+	now := time.Now().UTC()
+	for i := 0; i < warmMonths; i++ {
+		t := time.Date(now.Year(), now.Month()-time.Month(i), 1, 0, 0, 0, 0, time.UTC)
+		out = append(out, fmt.Sprintf("audit_log_%04d%02d", t.Year(), int(t.Month())))
 	}
-	return out, rows.Err()
+	return out, nil
 }
