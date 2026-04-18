@@ -28,14 +28,23 @@ import (
 //   - All DB operations happen in one transaction; a Commit failure
 //     leaves the chain untouched.
 type HMACWriter struct {
-	pool *pgxpool.Pool
-	keys pkgaudit.KeyResolver
+	pool      *pgxpool.Pool
+	keys      pkgaudit.KeyResolver
+	projector *RiskProjector // optional; if nil, risk.* events land only in audit_log
 }
 
 // NewHMACWriter constructs a writer. The key resolver is responsible for
 // surfacing ErrKeyMissing so the consumer can emit audit.hmac_key.missing.
 func NewHMACWriter(pool *pgxpool.Pool, keys pkgaudit.KeyResolver) *HMACWriter {
 	return &HMACWriter{pool: pool, keys: keys}
+}
+
+// WithProjector wires a RiskProjector. When set, every risk.* audit event
+// also lands in audit.risk_events inside the same transaction — a rolled
+// back projection rolls back the audit_log INSERT, NATS redelivers.
+func (w *HMACWriter) WithProjector(p *RiskProjector) *HMACWriter {
+	w.projector = p
+	return w
 }
 
 // WriteOne inserts a single event. The HMAC chain makes batch writes
@@ -106,7 +115,8 @@ func (w *HMACWriter) WriteOne(ctx context.Context, e pkgaudit.AuditEvent) (dupli
 		}
 	}
 
-	_, err = tx.Exec(ctx, `
+	var auditLogID int64
+	err = tx.QueryRow(ctx, `
 		INSERT INTO audit.audit_log (
 		    event_id, timestamp, actor_type, actor_id, actor_ip,
 		    action, resource_type, resource_id,
@@ -118,17 +128,26 @@ func (w *HMACWriter) WriteOne(ctx context.Context, e pkgaudit.AuditEvent) (dupli
 		    $9, $10, $11, $12, $13,
 		    $14, $15, $16
 		)
+		RETURNING id
 	`, e.EventID, ts, e.ActorType, e.ActorID, actorIP,
 		e.Action, e.ResourceType, e.ResourceID,
 		parseNullableUUID(e.OrgID), parseNullableUUID(e.TeamID), parseNullableUUID(e.ProjectID),
 		e.Details, e.Result,
-		prevHash, entryHash, keyVer)
+		prevHash, entryHash, keyVer).Scan(&auditLogID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			// Duplicate delivery — commit the empty tx (releases lock) and ack.
 			return true, nil
 		}
 		return false, fmt.Errorf("hmac_writer: insert: %w", err)
+	}
+
+	// Risk lifecycle projection (optional). Same-tx so a projection
+	// failure rolls back the audit row; NATS redelivers the event.
+	if w.projector != nil {
+		if err := w.projector.Project(ctx, tx, auditLogID, e); err != nil {
+			return false, fmt.Errorf("hmac_writer: project risk_event: %w", err)
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -126,7 +126,8 @@ func main() {
 		if err != nil {
 			logger.Fatal().Err(err).Msg("AUDIT_CONSUMER_MODE=hmac but key resolver failed")
 		}
-		hw := audit.NewHMACWriter(pool, keys)
+		hw := audit.NewHMACWriter(pool, keys).
+			WithProjector(audit.NewRiskProjector())
 		consumer.WithHMACWriter(hw)
 		logger.Info().
 			Int("key_version", keys.CurrentVersion()).

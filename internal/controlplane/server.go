@@ -350,6 +350,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Risk correlation
 	mux.HandleFunc("GET /api/v1/risks", handlers.ListRisks)
 	mux.HandleFunc("GET /api/v1/risks/{id}", handlers.GetRisk)
+	mux.HandleFunc("GET /api/v1/risks/{id}/history", handlers.RiskHistory)
 	mux.HandleFunc("POST /api/v1/risks/{id}/resolve", handlers.ResolveRisk)
 	mux.HandleFunc("POST /api/v1/risks/{id}/reopen", handlers.ReopenRisk)
 	mux.HandleFunc("POST /api/v1/risks/{id}/mute", handlers.MuteRisk)
