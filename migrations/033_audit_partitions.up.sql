@@ -39,8 +39,31 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- The pre-existing audit_log_default partition may already hold rows
+-- whose timestamps overlap months we are about to create. PostgreSQL
+-- rejects a new partition that would capture rows already in default,
+-- so we rename the legacy default out of the way BEFORE seeding.
+--
+-- audit_log_default → audit_log_legacy (detached, becomes a standalone
+-- table — retains its rows, still readable by the verifier if pointed at
+-- it directly, but no longer part of the partition tree). A fresh empty
+-- default is attached afterwards so stray timestamps (pre-2026 or
+-- far-future clock skew) still land somewhere instead of erroring out.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_inherits i ON i.inhrelid = c.oid
+        JOIN pg_class p ON p.oid = i.inhparent
+        WHERE p.relname = 'audit_log' AND c.relname = 'audit_log_default'
+    ) THEN
+        EXECUTE 'ALTER TABLE audit.audit_log DETACH PARTITION audit.audit_log_default';
+        EXECUTE 'ALTER TABLE audit.audit_log_default RENAME TO audit_log_legacy';
+    END IF;
+END $$;
+
 -- Seed current month + 12 future months so the first audit-worker write
--- on month boundary never hits the default partition.
+-- on a month boundary never hits the new default partition.
 DO $$
 DECLARE m DATE;
 BEGIN
@@ -49,6 +72,12 @@ BEGIN
         PERFORM audit.ensure_partition(m);
     END LOOP;
 END $$;
+
+-- Fresh empty default catches any row whose timestamp falls outside the
+-- 13-month rolling window. Operators see the overflow via Prometheus
+-- (sentinelcore_audit_default_rows_total should stay at 0 in steady state).
+CREATE TABLE IF NOT EXISTS audit.audit_log_default
+    PARTITION OF audit.audit_log DEFAULT;
 
 -- audit.list_partitions returns the active (non-default) monthly child
 -- partitions of audit.audit_log, newest first. Used by the verifier
