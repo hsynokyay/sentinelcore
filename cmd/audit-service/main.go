@@ -24,12 +24,21 @@ func main() {
 	defer cancel()
 
 	// Connect to PostgreSQL
+	maxConns, _ := strconv.Atoi(getEnv("DB_MAX_CONNS", "10"))
+	if maxConns < 1 {
+		maxConns = 10
+	}
+	dbPort, _ := strconv.Atoi(getEnv("DB_PORT", "5432"))
+	if dbPort == 0 {
+		dbPort = 5432
+	}
 	pool, err := db.NewPool(ctx, db.Config{
 		Host:     getEnv("DB_HOST", "localhost"),
-		Port:     5432,
+		Port:     dbPort,
 		Database: getEnv("DB_NAME", "sentinelcore"),
 		User:     getEnv("DB_USER", "sentinelcore"),
 		Password: getEnv("DB_PASSWORD", "dev-password"),
+		MaxConns: maxConns,
 	})
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to connect to database")
