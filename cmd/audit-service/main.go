@@ -10,11 +10,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/sentinelcore/sentinelcore/internal/audit"
 	"github.com/sentinelcore/sentinelcore/internal/audit/integrity"
 	"github.com/sentinelcore/sentinelcore/internal/audit/partition"
 	pkgaudit "github.com/sentinelcore/sentinelcore/pkg/audit"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
 	sc_nats "github.com/sentinelcore/sentinelcore/pkg/nats"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
@@ -24,7 +26,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Connect to PostgreSQL
+	// Connect to PostgreSQL via a custom pgxpool so we can install an
+	// AfterConnect hook that stamps the session with app.writer_role.
+	// When ops splits auth.audit_log to a non-owner DB role (plan §1.5),
+	// that session var is what the INSERT RLS policy enforces. Setting
+	// it today is a no-op for the owner role but ensures the next
+	// operator-level role change lands safely.
 	maxConns, _ := strconv.Atoi(getEnv("DB_MAX_CONNS", "10"))
 	if maxConns < 1 {
 		maxConns = 10
@@ -33,14 +40,26 @@ func main() {
 	if dbPort == 0 {
 		dbPort = 5432
 	}
-	pool, err := db.NewPool(ctx, db.Config{
-		Host:     getEnv("DB_HOST", "localhost"),
-		Port:     dbPort,
-		Database: getEnv("DB_NAME", "sentinelcore"),
-		User:     getEnv("DB_USER", "sentinelcore"),
-		Password: getEnv("DB_PASSWORD", "dev-password"),
-		MaxConns: maxConns,
-	})
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		getEnv("DB_USER", "sentinelcore"),
+		getEnv("DB_PASSWORD", "dev-password"),
+		getEnv("DB_HOST", "localhost"),
+		dbPort,
+		getEnv("DB_NAME", "sentinelcore"),
+	)
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("pgxpool parse config")
+	}
+	poolCfg.MaxConns = int32(maxConns)
+	poolCfg.MaxConnLifetime = 30 * time.Minute
+	poolCfg.MaxConnIdleTime = 5 * time.Minute
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		// Session variable read by audit.audit_log's INSERT RLS policy.
+		_, err := conn.Exec(ctx, `SET app.writer_role = 'audit_worker'`)
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to connect to database")
 	}
