@@ -12,6 +12,7 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/internal/governance"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
+	auditpkg "github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
@@ -375,8 +376,24 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if resultStatus == http.StatusOK {
-		h.emitAuditEvent(r.Context(), "finding.status_update", "user", user.UserID, "finding", id, r.RemoteAddr, "success")
+	if resultStatus == http.StatusOK && h.emitter != nil {
+		// Canonical taxonomy: finding.status.changed. Details carry
+		// the before/after so the audit consumer can render a diff.
+		_ = h.emitter.Emit(r.Context(), auditpkg.AuditEvent{
+			ActorType:    "user",
+			ActorID:      user.UserID,
+			ActorIP:      r.RemoteAddr,
+			Action:       string(auditpkg.FindingStatusChanged),
+			ResourceType: "finding",
+			ResourceID:   id,
+			OrgID:        user.OrgID,
+			Result:       auditpkg.ResultSuccess,
+			Details: map[string]any{
+				"before": map[string]any{"status": oldStatus},
+				"after":  map[string]any{"status": req.Status},
+				"reason": req.Reason,
+			},
+		})
 	}
 
 	writeJSON(w, resultStatus, resultBody)

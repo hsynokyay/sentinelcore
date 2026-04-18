@@ -15,6 +15,7 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/internal/governance"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
+	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
@@ -426,7 +427,27 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.emitAuditEvent(r.Context(), "scan.create", "user", user.UserID, "scan", id, r.RemoteAddr, "success")
+	// Use canonical taxonomy (scan.triggered, not scan.create) so the
+	// generic audit surface matches pkg/audit/actions.go.
+	if h.emitter != nil {
+		_ = h.emitter.Emit(r.Context(), audit.AuditEvent{
+			ActorType:    "user",
+			ActorID:      user.UserID,
+			ActorIP:      r.RemoteAddr,
+			Action:       string(audit.ScanTriggered),
+			ResourceType: "scan",
+			ResourceID:   id,
+			OrgID:        user.OrgID,
+			ProjectID:    projectID,
+			Result:       audit.ResultSuccess,
+			Details: map[string]any{
+				"scan_type":    req.ScanType,
+				"scan_profile": scanProfile,
+				"trigger_type": triggerType,
+				"target_id":    req.TargetID,
+			},
+		})
+	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"scan": scanResponse{
@@ -496,6 +517,19 @@ func (h *Handlers) CancelScan(w http.ResponseWriter, r *http.Request) {
 	if tag.RowsAffected() == 0 {
 		writeError(w, http.StatusBadRequest, "scan cannot be cancelled (not queued or running)", "BAD_REQUEST")
 		return
+	}
+
+	if h.emitter != nil {
+		_ = h.emitter.Emit(r.Context(), audit.AuditEvent{
+			ActorType:    "user",
+			ActorID:      user.UserID,
+			ActorIP:      r.RemoteAddr,
+			Action:       string(audit.ScanCancelled),
+			ResourceType: "scan",
+			ResourceID:   id,
+			OrgID:        user.OrgID,
+			Result:       audit.ResultSuccess,
+		})
 	}
 
 	h.emitAuditEvent(r.Context(), "scan.cancel", "user", user.UserID, "scan", id, r.RemoteAddr, "success")

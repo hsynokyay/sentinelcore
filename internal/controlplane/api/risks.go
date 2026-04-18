@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/sentinelcore/sentinelcore/pkg/audit"
+	"github.com/sentinelcore/sentinelcore/pkg/auth"
 )
 
 // ListRisks handles GET /api/v1/risks?project_id=...&status=active&severity=...&vuln_class=...&limit=50&offset=0
@@ -377,6 +380,15 @@ func (h *Handlers) ResolveRisk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
 		return
 	}
+
+	// Audit: risk.resolved feeds audit.risk_events via the projector.
+	// Note: project-level resolution uses resource_type=risk so the
+	// read endpoint shows the cluster id as the targeted resource.
+	h.emitRisk(ctx, user, audit.RiskResolved, id, map[string]any{
+		"risk_id": id,
+		"note":    body.Reason,
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{"status": "user_resolved"})
 }
 
@@ -412,6 +424,11 @@ func (h *Handlers) ReopenRisk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
 		return
 	}
+
+	h.emitRisk(r.Context(), user, audit.RiskReopened, id, map[string]any{
+		"risk_id": id,
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{"status": "active"})
 }
 
@@ -458,6 +475,12 @@ func (h *Handlers) MuteRisk(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
 		return
 	}
+
+	h.emitRisk(r.Context(), user, audit.RiskMuted, id, map[string]any{
+		"risk_id":     id,
+		"muted_until": t.UTC().Format(time.RFC3339Nano),
+	})
+
 	writeJSON(w, http.StatusOK, map[string]any{"status": "muted", "muted_until": t})
 }
 
@@ -487,7 +510,54 @@ func (h *Handlers) RebuildRisks(w http.ResponseWriter, r *http.Request) {
 			h.logger.Error().Err(err).Str("project_id", projectID).Msg("manual risk rebuild failed")
 		}
 	}()
+
+	// correlation.rebuild.triggered is project-scoped, not per-risk — the
+	// projector ignores it and it goes to audit_log only.
+	h.emitProjectScope(r.Context(), user, audit.CorrelationRebuildTrigg,
+		"project", projectID, nil)
+
 	writeJSON(w, http.StatusAccepted, map[string]any{"status": "accepted"})
+}
+
+// emitRisk is the common shape for a risk.* audit event. The resource_id
+// matches risk_id; the projector (internal/audit/projector.go) pulls
+// risk_id from details regardless — kept consistent so GET /risks/{id}/history
+// can use resource_id as a secondary index.
+func (h *Handlers) emitRisk(ctx context.Context, user *auth.UserContext,
+	action audit.Action, riskID string, details map[string]any) {
+	if h.emitter == nil {
+		return
+	}
+	_ = h.emitter.Emit(ctx, audit.AuditEvent{
+		ActorType:    "user",
+		ActorID:      user.UserID,
+		Action:       string(action),
+		ResourceType: "risk",
+		ResourceID:   riskID,
+		OrgID:        user.OrgID,
+		Result:       audit.ResultSuccess,
+		Details:      details,
+	})
+}
+
+// emitProjectScope emits a project-level action (e.g. correlation rebuild).
+// No risk_events projection — projector ignores non-risk.* actions.
+func (h *Handlers) emitProjectScope(ctx context.Context, user *auth.UserContext,
+	action audit.Action, resourceType, resourceID string, details map[string]any) {
+	if h.emitter == nil {
+		return
+	}
+	_ = h.emitter.Emit(ctx, audit.AuditEvent{
+		ActorType:    "user",
+		ActorID:      user.UserID,
+		Action:       string(action),
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		OrgID:        user.OrgID,
+		ProjectID:    resourceID,
+		Result:       audit.ResultSuccess,
+		Details:      details,
+	})
 }
 
 // derefString safely dereferences a nullable string.
