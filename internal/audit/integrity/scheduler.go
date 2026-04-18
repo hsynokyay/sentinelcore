@@ -48,9 +48,19 @@ func (s *Scheduler) RunHourly(ctx context.Context, interval time.Duration, warmM
 			return
 		}
 		for _, p := range partitions {
-			res, err := s.verifier.VerifyPartition(ctx, p)
+			// Skip partitions that don't exist yet (warmMonths window may
+			// reach back past migration 033's seed start). 42P01 from the
+			// verifier is not an integrity failure, just "no data".
+			if exists, err := s.partitionExists(ctx, p); err != nil {
+				s.logger.Error().Err(err).Str("partition", p).Msg("integrity check: exists probe")
+				continue
+			} else if !exists {
+				s.logger.Debug().Str("partition", p).Msg("integrity check: partition absent, skipped")
+				continue
+			}
+			res, _ := s.verifier.VerifyPartition(ctx, p)
 			ev := s.logger.Info()
-			if err != nil || res.Outcome == OutcomeError || res.Outcome == OutcomeFail {
+			if res.Outcome == OutcomeError || res.Outcome == OutcomeFail {
 				ev = s.logger.Error()
 			}
 			ev.
@@ -74,6 +84,20 @@ func (s *Scheduler) RunHourly(ctx context.Context, interval time.Duration, warmM
 			runOnce()
 		}
 	}
+}
+
+// partitionExists returns true if audit.<name> is a tracked partition.
+// Uses pg_class, which is cheap and local to the catalog.
+func (s *Scheduler) partitionExists(ctx context.Context, name string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+		    SELECT 1
+		    FROM pg_class c
+		    JOIN pg_namespace n ON n.oid = c.relnamespace
+		    WHERE n.nspname = 'audit' AND c.relname = $1
+		)`, name).Scan(&exists)
+	return exists, err
 }
 
 // warmPartitions returns the partition names for [now-warmMonths+1, now],

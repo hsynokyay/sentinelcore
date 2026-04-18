@@ -50,6 +50,14 @@ func (w *HMACWriter) WriteOne(ctx context.Context, e pkgaudit.AuditEvent) (dupli
 	if err != nil {
 		return false, fmt.Errorf("hmac_writer: parse timestamp: %w", err)
 	}
+	// PostgreSQL TIMESTAMPTZ is microsecond-precision. Force the canonical
+	// form to match what the verifier will reconstruct from the DB row, so
+	// the chain survives the round-trip. Emitter publishes RFC3339Nano; if
+	// that string has nanoseconds they are silently truncated on INSERT
+	// and the verifier sees a different string than the writer hashed,
+	// producing a false HMAC mismatch.
+	ts = ts.Truncate(time.Microsecond)
+	e.Timestamp = ts.UTC().Format(time.RFC3339Nano)
 
 	keyVer := w.keys.CurrentVersion()
 	key, err := w.keys.Key(keyVer)

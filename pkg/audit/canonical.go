@@ -76,14 +76,15 @@ func Canonical(e AuditEvent, previousHash string) string {
 }
 
 // toMap coerces Details (which is `any`) into a map[string]any so the canonical
-// walker can sort its keys. Returns (nil, false) for non-map shapes; callers
-// drop them to keep the canonical form tight.
+// walker can sort its keys. Returns (nil, false) for non-map shapes.
+//
+// ALWAYS goes through JSON marshal+unmarshal so that nested typed slices
+// (e.g. []string, []int) become []any — exactly the form the verifier will
+// see after reading the JSONB column back. Without this round-trip the
+// writer's canonical output and the verifier's diverge on event payloads
+// that contain typed slices (the redactor's _redacted field is the common
+// case), producing false HMAC-mismatch alerts.
 func toMap(v any) (map[string]any, bool) {
-	if m, ok := v.(map[string]any); ok {
-		return m, true
-	}
-	// Last resort: round-trip through JSON. Used only by tests and by the
-	// back-compat path where some callers still pass typed structs.
 	b, err := json.Marshal(v)
 	if err != nil {
 		return nil, false
