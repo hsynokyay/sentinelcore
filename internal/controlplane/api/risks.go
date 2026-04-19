@@ -11,6 +11,7 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // ListRisks handles GET /api/v1/risks?project_id=...&status=active&severity=...&vuln_class=...&limit=50&offset=0
@@ -69,14 +70,6 @@ func (h *Handlers) ListRisks(w http.ResponseWriter, r *http.Request) {
 		ORDER BY risk_score DESC, last_seen_at DESC
 		LIMIT $` + limitPos + ` OFFSET $` + offsetPos
 
-	rows, err := h.pool.Query(ctx, query, args...)
-	if err != nil {
-		h.logger.Error().Err(err).Msg("list risks query failed")
-		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-		return
-	}
-	defer rows.Close()
-
 	type risksRow struct {
 		ID           string           `json:"id"`
 		Title        string           `json:"title"`
@@ -92,26 +85,40 @@ func (h *Handlers) ListRisks(w http.ResponseWriter, r *http.Request) {
 		LastSeenAt   time.Time        `json:"last_seen_at"`
 		TopReasons   []map[string]any `json:"top_reasons"`
 	}
-	items := []risksRow{}
-	for rows.Next() {
-		var item risksRow
-		if err := rows.Scan(
-			&item.ID, &item.Title, &item.VulnClass, &item.CWEID, &item.Severity,
-			&item.RiskScore, &item.Exposure, &item.Status,
-			&item.FindingCount, &item.SurfaceCount, &item.FirstSeenAt, &item.LastSeenAt,
-		); err != nil {
-			h.logger.Error().Err(err).Msg("list risks scan failed")
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		item.TopReasons = h.loadTopReasons(ctx, item.ID, 2)
-		items = append(items, item)
-	}
 
-	// Count total for pagination (same filters, no limit/offset).
-	countQuery := `SELECT count(*) FROM risk.clusters WHERE ` + where
+	items := []risksRow{}
 	var total int
-	_ = h.pool.QueryRow(ctx, countQuery, args[:len(args)-2]...).Scan(&total)
+	err := tenant.TxUser(ctx, h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := tx.Query(ctx, query, args...)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var item risksRow
+				if err := rows.Scan(
+					&item.ID, &item.Title, &item.VulnClass, &item.CWEID, &item.Severity,
+					&item.RiskScore, &item.Exposure, &item.Status,
+					&item.FindingCount, &item.SurfaceCount, &item.FirstSeenAt, &item.LastSeenAt,
+				); err != nil {
+					return err
+				}
+				item.TopReasons = h.loadTopReasons(ctx, tx, item.ID, 2)
+				items = append(items, item)
+			}
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			// Count total for pagination (same filters, no limit/offset).
+			countQuery := `SELECT count(*) FROM risk.clusters WHERE ` + where
+			return tx.QueryRow(ctx, countQuery, args[:len(args)-2]...).Scan(&total)
+		})
+	if err != nil {
+		h.logger.Error().Err(err).Msg("list risks failed")
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"risks":  items,
@@ -122,8 +129,9 @@ func (h *Handlers) ListRisks(w http.ResponseWriter, r *http.Request) {
 }
 
 // loadTopReasons returns up to n score evidence rows by sort_order.
-func (h *Handlers) loadTopReasons(ctx context.Context, clusterID string, n int) []map[string]any {
-	rows, err := h.pool.Query(ctx, `
+// Runs inside the parent transaction so RLS context is preserved.
+func (h *Handlers) loadTopReasons(ctx context.Context, tx pgx.Tx, clusterID string, n int) []map[string]any {
+	rows, err := tx.Query(ctx, `
 		SELECT code, label, weight
 		FROM risk.cluster_evidence
 		WHERE cluster_id = $1
@@ -164,7 +172,6 @@ func (h *Handlers) GetRisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cluster row
 	type clusterDetail struct {
 		ID               string           `json:"id"`
 		ProjectID        string           `json:"project_id"`
@@ -197,25 +204,35 @@ func (h *Handlers) GetRisk(w http.ResponseWriter, r *http.Request) {
 	}
 	var cl clusterDetail
 	var owasp, lang, route, httpMethod, param, filePath, encMethod, resolutionReason *string
-	err := h.pool.QueryRow(ctx, `
-		SELECT id, project_id, title, vuln_class, COALESCE(cwe_id, 0),
-		       owasp_category, fingerprint_kind, language,
-		       canonical_route, http_method, canonical_param,
-		       file_path, enclosing_method,
-		       severity, risk_score, exposure, status,
-		       finding_count, surface_count, first_seen_at, last_seen_at,
-		       last_run_id::text, resolved_at, resolution_reason, muted_until
-		FROM risk.clusters
-		WHERE id = $1
-	`, id).Scan(
-		&cl.ID, &cl.ProjectID, &cl.Title, &cl.VulnClass, &cl.CWEID,
-		&owasp, &cl.FingerprintKind, &lang,
-		&route, &httpMethod, &param,
-		&filePath, &encMethod,
-		&cl.Severity, &cl.RiskScore, &cl.Exposure, &cl.Status,
-		&cl.FindingCount, &cl.SurfaceCount, &cl.FirstSeenAt, &cl.LastSeenAt,
-		&cl.LastRunID, &cl.ResolvedAt, &resolutionReason, &cl.MutedUntil,
-	)
+
+	err := tenant.TxUser(ctx, h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			if err := tx.QueryRow(ctx, `
+				SELECT id, project_id, title, vuln_class, COALESCE(cwe_id, 0),
+				       owasp_category, fingerprint_kind, language,
+				       canonical_route, http_method, canonical_param,
+				       file_path, enclosing_method,
+				       severity, risk_score, exposure, status,
+				       finding_count, surface_count, first_seen_at, last_seen_at,
+				       last_run_id::text, resolved_at, resolution_reason, muted_until
+				FROM risk.clusters
+				WHERE id = $1
+			`, id).Scan(
+				&cl.ID, &cl.ProjectID, &cl.Title, &cl.VulnClass, &cl.CWEID,
+				&owasp, &cl.FingerprintKind, &lang,
+				&route, &httpMethod, &param,
+				&filePath, &encMethod,
+				&cl.Severity, &cl.RiskScore, &cl.Exposure, &cl.Status,
+				&cl.FindingCount, &cl.SurfaceCount, &cl.FirstSeenAt, &cl.LastSeenAt,
+				&cl.LastRunID, &cl.ResolvedAt, &resolutionReason, &cl.MutedUntil,
+			); err != nil {
+				return err
+			}
+			cl.Evidence = h.loadEvidence(ctx, tx, id)
+			cl.Findings = h.loadClusterFindings(ctx, tx, id)
+			cl.Relations = h.loadClusterRelations(ctx, tx, id)
+			return nil
+		})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
@@ -234,18 +251,11 @@ func (h *Handlers) GetRisk(w http.ResponseWriter, r *http.Request) {
 	cl.EnclosingMethod = derefString(encMethod)
 	cl.ResolutionReason = derefString(resolutionReason)
 
-	// Evidence
-	cl.Evidence = h.loadEvidence(ctx, id)
-	// Member findings
-	cl.Findings = h.loadClusterFindings(ctx, id)
-	// Relations
-	cl.Relations = h.loadClusterRelations(ctx, id)
-
 	writeJSON(w, http.StatusOK, map[string]any{"risk": cl})
 }
 
-func (h *Handlers) loadEvidence(ctx context.Context, clusterID string) []map[string]any {
-	rows, err := h.pool.Query(ctx, `
+func (h *Handlers) loadEvidence(ctx context.Context, tx pgx.Tx, clusterID string) []map[string]any {
+	rows, err := tx.Query(ctx, `
 		SELECT category, code, label, weight, ref_type, ref_id, sort_order
 		FROM risk.cluster_evidence
 		WHERE cluster_id = $1
@@ -277,8 +287,8 @@ func (h *Handlers) loadEvidence(ctx context.Context, clusterID string) []map[str
 	return out
 }
 
-func (h *Handlers) loadClusterFindings(ctx context.Context, clusterID string) []map[string]any {
-	rows, err := h.pool.Query(ctx, `
+func (h *Handlers) loadClusterFindings(ctx context.Context, tx pgx.Tx, clusterID string) []map[string]any {
+	rows, err := tx.Query(ctx, `
 		SELECT f.id::text, cf.role, f.title, f.severity,
 		       f.file_path, f.url, f.line_start
 		FROM risk.cluster_findings cf
@@ -311,8 +321,8 @@ func (h *Handlers) loadClusterFindings(ctx context.Context, clusterID string) []
 	return out
 }
 
-func (h *Handlers) loadClusterRelations(ctx context.Context, clusterID string) []map[string]any {
-	rows, err := h.pool.Query(ctx, `
+func (h *Handlers) loadClusterRelations(ctx context.Context, tx pgx.Tx, clusterID string) []map[string]any {
+	rows, err := tx.Query(ctx, `
 		SELECT rel.id::text,
 		       CASE WHEN rel.source_cluster_id = $1 THEN rel.target_cluster_id ELSE rel.source_cluster_id END AS other_id,
 		       rel.relation_type, rel.confidence, rel.rationale,
@@ -363,20 +373,29 @@ func (h *Handlers) ResolveRisk(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = decodeJSON(r, &body)
 
-	tag, err := h.pool.Exec(ctx, `
-		UPDATE risk.clusters
-		SET status = 'user_resolved',
-		    resolved_at = now(),
-		    resolved_by = $2,
-		    resolution_reason = NULLIF($3, '')
-		WHERE id = $1
-	`, id, user.UserID, body.Reason)
+	var rowsAffected int64
+	err := tenant.TxUser(ctx, h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			tag, err := tx.Exec(ctx, `
+				UPDATE risk.clusters
+				SET status = 'user_resolved',
+				    resolved_at = now(),
+				    resolved_by = $2,
+				    resolution_reason = NULLIF($3, '')
+				WHERE id = $1
+			`, id, user.UserID, body.Reason)
+			if err != nil {
+				return err
+			}
+			rowsAffected = tag.RowsAffected()
+			return nil
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("resolve risk failed")
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
 		return
 	}
@@ -405,22 +424,31 @@ func (h *Handlers) ReopenRisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tag, err := h.pool.Exec(ctx, `
-		UPDATE risk.clusters
-		SET status = 'active',
-		    resolved_at = NULL,
-		    resolved_by = NULL,
-		    resolution_reason = NULL,
-		    muted_until = NULL,
-		    missing_run_count = 0
-		WHERE id = $1
-	`, id)
+	var rowsAffected int64
+	err := tenant.TxUser(ctx, h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			tag, err := tx.Exec(ctx, `
+				UPDATE risk.clusters
+				SET status = 'active',
+				    resolved_at = NULL,
+				    resolved_by = NULL,
+				    resolution_reason = NULL,
+				    muted_until = NULL,
+				    missing_run_count = 0
+				WHERE id = $1
+			`, id)
+			if err != nil {
+				return err
+			}
+			rowsAffected = tag.RowsAffected()
+			return nil
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("reopen risk failed")
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
 		return
 	}
@@ -461,17 +489,26 @@ func (h *Handlers) MuteRisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tag, err := h.pool.Exec(ctx, `
-		UPDATE risk.clusters
-		SET status = 'muted', muted_until = $2
-		WHERE id = $1
-	`, id, t)
+	var rowsAffected int64
+	err = tenant.TxUser(ctx, h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			tag, err := tx.Exec(ctx, `
+				UPDATE risk.clusters
+				SET status = 'muted', muted_until = $2
+				WHERE id = $1
+			`, id, t)
+			if err != nil {
+				return err
+			}
+			rowsAffected = tag.RowsAffected()
+			return nil
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("mute risk failed")
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		writeError(w, http.StatusNotFound, "risk not found", "NOT_FOUND")
 		return
 	}

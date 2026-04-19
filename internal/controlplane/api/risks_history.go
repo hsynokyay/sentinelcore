@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // riskEventJSON is the wire format for audit.risk_events. Fields mirror
@@ -66,43 +70,47 @@ func (h *Handlers) RiskHistory(w http.ResponseWriter, r *http.Request) {
 		materialClause = "AND is_material = true"
 	}
 
-	rows, err := h.pool.Query(r.Context(), fmt.Sprintf(`
-		SELECT id, event_type, occurred_at, actor_type, actor_id,
-		       audit_log_id,
-		       COALESCE(before_value, 'null'::jsonb),
-		       COALESCE(after_value, 'null'::jsonb),
-		       COALESCE(note, ''),
-		       is_material
-		FROM audit.risk_events
-		WHERE risk_id = $1 AND org_id = $2 %s
-		ORDER BY occurred_at DESC, id DESC
-		LIMIT $3
-	`, materialClause), riskID, p.OrgID, limit)
+	out := make([]riskEventJSON, 0, limit)
+	err := tenant.TxUser(r.Context(), h.pool, p.OrgID, p.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := tx.Query(ctx, fmt.Sprintf(`
+				SELECT id, event_type, occurred_at, actor_type, actor_id,
+				       audit_log_id,
+				       COALESCE(before_value, 'null'::jsonb),
+				       COALESCE(after_value, 'null'::jsonb),
+				       COALESCE(note, ''),
+				       is_material
+				FROM audit.risk_events
+				WHERE risk_id = $1 AND org_id = $2 %s
+				ORDER BY occurred_at DESC, id DESC
+				LIMIT $3
+			`, materialClause), riskID, p.OrgID, limit)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var e riskEventJSON
+				var before, after []byte
+				if err := rows.Scan(&e.ID, &e.EventType, &e.OccurredAt,
+					&e.ActorType, &e.ActorID, &e.AuditLogID,
+					&before, &after, &e.Note, &e.IsMaterial); err != nil {
+					return err
+				}
+				if string(before) != "null" {
+					e.Before = before
+				}
+				if string(after) != "null" {
+					e.After = after
+				}
+				out = append(out, e)
+			}
+			return rows.Err()
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Str("risk_id", riskID).Msg("risk history query")
 		writeError(w, http.StatusInternalServerError, "internal", "INTERNAL")
 		return
-	}
-	defer rows.Close()
-
-	out := make([]riskEventJSON, 0, limit)
-	for rows.Next() {
-		var e riskEventJSON
-		var before, after []byte
-		if err := rows.Scan(&e.ID, &e.EventType, &e.OccurredAt,
-			&e.ActorType, &e.ActorID, &e.AuditLogID,
-			&before, &after, &e.Note, &e.IsMaterial); err != nil {
-			h.logger.Error().Err(err).Msg("risk history scan")
-			writeError(w, http.StatusInternalServerError, "scan", "INTERNAL")
-			return
-		}
-		if string(before) != "null" {
-			e.Before = before
-		}
-		if string(after) != "null" {
-			e.After = after
-		}
-		out = append(out, e)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"events": out})

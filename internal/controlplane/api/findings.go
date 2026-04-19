@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/sentinelcore/sentinelcore/internal/governance"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	auditpkg "github.com/sentinelcore/sentinelcore/pkg/audit"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 type findingResponse struct {
@@ -114,7 +114,7 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 
 	var findings []findingResponse
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		query := `SELECT id, project_id, scan_job_id, finding_type, severity, status, title, COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at
 				  FROM findings.findings WHERE 1=1`
 		args := []any{}
@@ -144,7 +144,7 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 		args = append(args, limit, offset)
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -194,7 +194,7 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var f findingResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		var createdAt time.Time
 		var lineNumber *int
 		var slaDeadline *time.Time
@@ -204,7 +204,7 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		var correlatedFindingIDs []string
 
 		var ruleID *string
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`SELECT id, project_id, scan_job_id, finding_type, severity, status, title,
 			        COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at,
 			        sla_deadline, assigned_to, legal_hold, correlation_confidence, correlated_finding_ids,
@@ -235,7 +235,7 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query state transitions
-		rows, tErr := conn.Query(ctx,
+		rows, tErr := tx.Query(ctx,
 			`SELECT from_status, to_status, changed_by, COALESCE(reason, ''), created_at
 			 FROM findings.finding_state_transitions
 			 WHERE finding_id = $1
@@ -259,7 +259,7 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query taint paths (SAST evidence chain).
-		tpRows, tpErr := conn.Query(ctx,
+		tpRows, tpErr := tx.Query(ctx,
 			`SELECT step_index, file_path, line_start, COALESCE(line_end, 0),
 			        step_kind, detail, COALESCE(function_fqn, '')
 			   FROM findings.taint_paths
@@ -334,9 +334,9 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 	var resultStatus int
 	var resultBody any
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Get current status under RLS
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`SELECT status FROM findings.findings WHERE id = $1`, id,
 		).Scan(&oldStatus)
 		if qErr != nil {
@@ -353,7 +353,7 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Update status
-		_, uErr := conn.Exec(ctx,
+		_, uErr := tx.Exec(ctx,
 			`UPDATE findings.findings SET status = $1, updated_at = now() WHERE id = $2`,
 			req.Status, id)
 		if uErr != nil {
@@ -361,7 +361,7 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Insert state transition record
-		_, _ = conn.Exec(ctx,
+		_, _ = tx.Exec(ctx,
 			`INSERT INTO findings.finding_state_transitions (id, finding_id, from_status, to_status, changed_by, reason, created_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, now())`,
 			uuid.New().String(), id, oldStatus, req.Status, user.UserID, req.Reason)

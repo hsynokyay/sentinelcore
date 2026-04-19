@@ -43,7 +43,20 @@ var ErrNotVisible = errors.New("tenant: resource not visible to caller")
 //
 // orgID must be a non-empty UUID string. Tx does NOT validate UUID
 // format (that's the handler's auth layer); it DOES refuse empty.
+//
+// app.current_user_id is NOT set — use TxUser when the query touches
+// a table whose RLS policy checks user_id (governance.*, team_memberships).
 func Tx(ctx context.Context, pool *pgxpool.Pool, orgID string,
+	fn func(ctx context.Context, tx pgx.Tx) error) error {
+	return TxUser(ctx, pool, orgID, "", fn)
+}
+
+// TxUser is Tx plus app.current_user_id. userID may be empty for
+// org-only contexts (audit writer, platform admin); policies that
+// reference app.current_user_id will then see '' and typically deny.
+// Passing the user_id is the correct default when a logged-in user is
+// driving the call.
+func TxUser(ctx context.Context, pool *pgxpool.Pool, orgID, userID string,
 	fn func(ctx context.Context, tx pgx.Tx) error) error {
 
 	if orgID == "" {
@@ -56,7 +69,14 @@ func Tx(ctx context.Context, pool *pgxpool.Pool, orgID string,
 		if _, err := tx.Exec(ctx,
 			`SELECT set_config('app.current_org_id', $1, true)`,
 			orgID); err != nil {
-			return fmt.Errorf("tenant: set context: %w", err)
+			return fmt.Errorf("tenant: set org: %w", err)
+		}
+		if userID != "" {
+			if _, err := tx.Exec(ctx,
+				`SELECT set_config('app.current_user_id', $1, true)`,
+				userID); err != nil {
+				return fmt.Errorf("tenant: set user: %w", err)
+			}
 		}
 		return fn(ctx, tx)
 	})
