@@ -3,6 +3,7 @@ module github.com/sentinelcore/sentinelcore
 go 1.26.1
 
 require (
+	filippo.io/age v1.3.1
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/chromedp/cdproto v0.0.0-20260328224638-b7b298a31867
 	github.com/chromedp/chromedp v0.15.1
@@ -21,7 +22,6 @@ require (
 )
 
 require (
-	filippo.io/age v1.3.1 // indirect
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/antithesishq/antithesis-sdk-go v0.6.0-default-no-op // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
