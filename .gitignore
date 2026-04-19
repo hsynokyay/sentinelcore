@@ -18,6 +18,10 @@ bin/
 /updater
 /np-gc
 /correlation-engine
+/backup
+/cli
+/migrate
+/sentinelcore-cli
 
 # Environment and secrets
 .env
