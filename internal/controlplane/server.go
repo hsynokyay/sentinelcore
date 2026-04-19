@@ -397,6 +397,11 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/governance/approvals", handlers.ListApprovals)
 	mux.HandleFunc("GET /api/v1/governance/approvals/{id}", handlers.GetApproval)
 	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decide", handlers.DecideApproval)
+	// Phase 9 §4.1 multi-approver vote endpoints. Go through the FSM
+	// so requester-cannot-vote, duplicate-vote, terminal-state refusal
+	// are all enforced server-side regardless of UI behaviour.
+	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/approve", handlers.ApproveRequest)
+	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/reject", handlers.RejectRequest)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop", handlers.ActivateEmergencyStop)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop/lift", handlers.LiftEmergencyStop)
 	mux.HandleFunc("GET /api/v1/governance/emergency-stop/active", handlers.ListActiveEmergencyStops)

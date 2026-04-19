@@ -1,0 +1,16 @@
+[Unit]
+Description=Every 15 minutes, reconcile SentinelCore SLA deadlines
+Documentation=https://github.com/hsynokyay/sentinelcore/blob/main/docs/superpowers/plans/2026-04-19-phase9-governance-compliance.md
+
+[Timer]
+# 15-minute cadence. A finding's deadline ticks in one of three
+# buckets (on_track / due_soon / overdue) so sub-minute precision is
+# overkill; 15 min keeps Prometheus alert latency reasonable.
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=30s
+
+Unit=sc-sla-sweep.service
+
+[Install]
+WantedBy=timers.target
