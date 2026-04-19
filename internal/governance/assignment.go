@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // AssignFinding creates a new finding assignment and updates the finding's
@@ -30,8 +31,8 @@ func AssignFinding(ctx context.Context, pool *pgxpool.Pool, userID, orgID string
 	assignment.CreatedAt = time.Now()
 	assignment.UpdatedAt = assignment.CreatedAt
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, err := conn.Exec(ctx, `
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			INSERT INTO governance.finding_assignments (
 				id, finding_id, org_id, team_id, assigned_to, assigned_by,
 				due_at, status, note, created_at, updated_at
@@ -44,7 +45,7 @@ func AssignFinding(ctx context.Context, pool *pgxpool.Pool, userID, orgID string
 			return err
 		}
 
-		_, err = conn.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			UPDATE findings.findings
 			   SET assigned_to = $1, updated_at = now()
 			 WHERE id = $2`,
@@ -62,10 +63,10 @@ func ReassignFinding(ctx context.Context, pool *pgxpool.Pool, userID, orgID, ass
 	}
 
 	var newAssignment FindingAssignment
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
 		// Mark old assignment as reassigned.
 		now := time.Now()
-		_, err := conn.Exec(ctx, `
+		_, err := tx.Exec(ctx, `
 			UPDATE governance.finding_assignments
 			   SET status = 'reassigned', updated_at = $1
 			 WHERE id = $2`,
@@ -78,7 +79,7 @@ func ReassignFinding(ctx context.Context, pool *pgxpool.Pool, userID, orgID, ass
 		// Fetch old assignment details to copy finding_id and team_id.
 		var findingID, teamID string
 		var dueAt *time.Time
-		row := conn.QueryRow(ctx, `
+		row := tx.QueryRow(ctx, `
 			SELECT finding_id, team_id, due_at
 			  FROM governance.finding_assignments
 			 WHERE id = $1`, assignmentID)
@@ -99,7 +100,7 @@ func ReassignFinding(ctx context.Context, pool *pgxpool.Pool, userID, orgID, ass
 			CreatedAt:  now,
 			UpdatedAt:  now,
 		}
-		_, err = conn.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			INSERT INTO governance.finding_assignments (
 				id, finding_id, org_id, team_id, assigned_to, assigned_by,
 				due_at, status, note, created_at, updated_at
@@ -114,7 +115,7 @@ func ReassignFinding(ctx context.Context, pool *pgxpool.Pool, userID, orgID, ass
 		}
 
 		// Update finding's assigned_to.
-		_, err = conn.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			UPDATE findings.findings
 			   SET assigned_to = $1, updated_at = now()
 			 WHERE id = $2`,
@@ -134,9 +135,9 @@ func CompleteFindingAssignment(ctx context.Context, pool *pgxpool.Pool, userID, 
 		return errors.New("governance: pool is nil")
 	}
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
 		now := time.Now()
-		_, err := conn.Exec(ctx, `
+		_, err := tx.Exec(ctx, `
 			UPDATE governance.finding_assignments
 			   SET status = 'completed', completed_at = $1, updated_at = $1
 			 WHERE id = $2`,
@@ -157,7 +158,7 @@ func ListAssignments(ctx context.Context, pool *pgxpool.Pool, userID, orgID stri
 	}
 
 	var results []FindingAssignment
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
 		query := `
 			SELECT id, finding_id, org_id, team_id, assigned_to, assigned_by,
 			       due_at, status, note, created_at, updated_at, completed_at
@@ -180,7 +181,7 @@ func ListAssignments(ctx context.Context, pool *pgxpool.Pool, userID, orgID stri
 		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 		args = append(args, limit, offset)
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}

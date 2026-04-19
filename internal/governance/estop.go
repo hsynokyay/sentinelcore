@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // ActivateEmergencyStop inserts a new active emergency stop record.
@@ -29,8 +29,8 @@ func ActivateEmergencyStop(ctx context.Context, pool *pgxpool.Pool, userID, orgI
 	stop.ActivatedAt = time.Now()
 	stop.Active = true
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, err := conn.Exec(ctx, `
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			INSERT INTO governance.emergency_stops (
 				id, org_id, scope, scope_id, reason,
 				activated_by, activated_at, active
@@ -49,9 +49,9 @@ func LiftEmergencyStop(ctx context.Context, pool *pgxpool.Pool, userID, orgID, s
 		return errors.New("governance: pool is nil")
 	}
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
 		var activatedBy string
-		row := conn.QueryRow(ctx, `
+		row := tx.QueryRow(ctx, `
 			SELECT activated_by
 			  FROM governance.emergency_stops
 			 WHERE id = $1`, stopID)
@@ -67,7 +67,7 @@ func LiftEmergencyStop(ctx context.Context, pool *pgxpool.Pool, userID, orgID, s
 		}
 
 		now := time.Now()
-		_, err := conn.Exec(ctx, `
+		_, err := tx.Exec(ctx, `
 			UPDATE governance.emergency_stops
 			   SET active = false,
 			       deactivated_by = $1,
@@ -114,8 +114,8 @@ func ListActiveStops(ctx context.Context, pool *pgxpool.Pool, userID, orgID stri
 	}
 
 	var results []EmergencyStop
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		rows, err := conn.Query(ctx, `
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
 			SELECT id, org_id, scope, COALESCE(scope_id::text, ''), reason,
 			       activated_by, activated_at, COALESCE(deactivated_by::text, ''), deactivated_at, active
 			  FROM governance.emergency_stops

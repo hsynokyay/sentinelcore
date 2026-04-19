@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // GetOrgSettings retrieves the governance settings for an organisation.
@@ -22,8 +22,8 @@ func GetOrgSettings(ctx context.Context, pool *pgxpool.Pool, userID, orgID strin
 	var settings OrgSettings
 	var slaJSON, retJSON []byte
 
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		row := conn.QueryRow(ctx, `
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, `
 			SELECT org_id,
 			       require_approval_for_risk_acceptance,
 			       require_approval_for_false_positive,
@@ -87,8 +87,8 @@ func UpsertOrgSettings(ctx context.Context, pool *pgxpool.Pool, userID, orgID st
 	settings.UpdatedBy = userID
 	settings.OrgID = orgID
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, execErr := conn.Exec(ctx, `
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, execErr := tx.Exec(ctx, `
 			INSERT INTO governance.org_settings (
 				org_id,
 				require_approval_for_risk_acceptance,
