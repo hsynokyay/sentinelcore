@@ -63,6 +63,16 @@ var allowedDirectPoolCallers = map[string]bool{
 	// Worker-dispatched scan webhook delivery: cross-tenant resolve by
 	// scan id, needs BYPASSRLS until Wave 3 role split.
 	"internal/controlplane/api/scan_webhooks.go":    true,
+	// Login path: resolves user+org from email alone; core.users has
+	// no RLS, and the query IS the authenticator.
+	"internal/controlplane/api/auth.go":             true,
+	// Platform-admin queue/ops dashboard; cross-tenant by design.
+	// Gated at the route by system.config capability.
+	"internal/controlplane/api/ops.go":              true,
+	// OIDC callback + SSO event log: both run before (or independent
+	// of) a tenant-scoped session. org-resolve-by-slug and login-error
+	// event inserts happen before RLS context is available.
+	"internal/controlplane/api/sso.go":              true,
 }
 
 // poolRecvTypes are variable names conventionally used for the pool

@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/sentinelcore/sentinelcore/internal/policy"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 type auditEventResponse struct {
@@ -58,7 +58,7 @@ func (h *Handlers) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
 
 	var events []auditEventResponse
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		query := `SELECT event_id, timestamp, actor_type, actor_id, action, resource_type, resource_id, result
 				  FROM audit.audit_log WHERE 1=1`
 		args := []any{}
@@ -93,7 +93,7 @@ func (h *Handlers) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
 		query += fmt.Sprintf(" ORDER BY timestamp DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 		args = append(args, limit, offset)
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
