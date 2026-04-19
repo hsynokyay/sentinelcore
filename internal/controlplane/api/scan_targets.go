@@ -11,10 +11,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sentinelcore/sentinelcore/internal/policy"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // validTargetTypes mirrors the CHECK constraint on core.scan_targets.target_type.
@@ -198,10 +197,10 @@ func (h *Handlers) CreateScanTarget(w http.ResponseWriter, r *http.Request) {
 
 	// Enforce project ownership / org isolation via RLS.
 	var created scanTargetResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Confirm the project exists and is visible under RLS before inserting.
 		var exists bool
-		if qErr := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM core.projects WHERE id = $1)`, projectID).Scan(&exists); qErr != nil {
+		if qErr := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM core.projects WHERE id = $1)`, projectID).Scan(&exists); qErr != nil {
 			return qErr
 		}
 		if !exists {
@@ -211,7 +210,7 @@ func (h *Handlers) CreateScanTarget(w http.ResponseWriter, r *http.Request) {
 		// Validate auth_config_id (if any) belongs to the same project.
 		if normalized.AuthConfigID != "" {
 			var apPid string
-			if apErr := conn.QueryRow(ctx,
+			if apErr := tx.QueryRow(ctx,
 				`SELECT project_id::text FROM auth.auth_configs WHERE id = $1`, normalized.AuthConfigID,
 			).Scan(&apPid); apErr != nil || apPid != projectID {
 				return userError{code: http.StatusBadRequest, msg: "auth_config_id does not belong to this project"}
@@ -219,7 +218,7 @@ func (h *Handlers) CreateScanTarget(w http.ResponseWriter, r *http.Request) {
 		}
 
 		id := uuid.New().String()
-		row := conn.QueryRow(ctx,
+		row := tx.QueryRow(ctx,
 			`INSERT INTO core.scan_targets (
 				id, project_id, target_type, base_url,
 				allowed_domains, allowed_paths, excluded_paths, allowed_ports,
@@ -262,8 +261,8 @@ func (h *Handlers) ListScanTargets(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 
 	var targets []scanTargetResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		rows, qErr := conn.Query(ctx,
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, qErr := tx.Query(ctx,
 			`SELECT `+scanTargetColumns+`
 			 FROM core.scan_targets
 			 WHERE project_id = $1
@@ -311,8 +310,8 @@ func (h *Handlers) GetScanTarget(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var t scanTargetResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		row := conn.QueryRow(ctx,
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+		row := tx.QueryRow(ctx,
 			`SELECT `+scanTargetColumns+` FROM core.scan_targets WHERE id = $1`, id)
 		return scanRowInto(row, &t)
 	})
@@ -344,12 +343,12 @@ func (h *Handlers) UpdateScanTarget(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var updated scanTargetResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Load current row under RLS — ensures org/project visibility.
 		var current scanTargetRequest
 		var curMaxRPS int
 		var curProjectID string
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`SELECT project_id::text, target_type, base_url, allowed_domains, allowed_paths, excluded_paths, allowed_ports,
 			        max_rps, COALESCE(label,''), COALESCE(environment,''), COALESCE(notes,''), COALESCE(auth_config_id::text,'')
 			   FROM core.scan_targets WHERE id = $1`, id,
@@ -411,14 +410,14 @@ func (h *Handlers) UpdateScanTarget(w http.ResponseWriter, r *http.Request) {
 		// same project. Detaching ("") is always allowed.
 		if authConfigChanged && normalized.AuthConfigID != "" {
 			var apPid string
-			if apErr := conn.QueryRow(ctx,
+			if apErr := tx.QueryRow(ctx,
 				`SELECT project_id::text FROM auth.auth_configs WHERE id = $1`, normalized.AuthConfigID,
 			).Scan(&apPid); apErr != nil || apPid != curProjectID {
 				return userError{code: http.StatusBadRequest, msg: "auth_config_id does not belong to this project"}
 			}
 		}
 
-		row := conn.QueryRow(ctx,
+		row := tx.QueryRow(ctx,
 			`UPDATE core.scan_targets SET
 				base_url        = $2,
 				allowed_domains = $3,
@@ -468,8 +467,8 @@ func (h *Handlers) DeleteScanTarget(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		tag, dErr := conn.Exec(ctx, `DELETE FROM core.scan_targets WHERE id = $1`, id)
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+		tag, dErr := tx.Exec(ctx, `DELETE FROM core.scan_targets WHERE id = $1`, id)
 		if dErr != nil {
 			return dErr
 		}

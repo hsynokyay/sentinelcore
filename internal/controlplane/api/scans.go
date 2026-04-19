@@ -11,12 +11,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sentinelcore/sentinelcore/internal/governance"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 type createScanRequest struct {
@@ -172,7 +171,7 @@ func (h *Handlers) ListScans(w http.ResponseWriter, r *http.Request) {
 
 	var scans []scanResponse
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		query := "SELECT " + scanSelectColumns + scanJoinClause + " WHERE 1=1"
 		args := []any{}
 		argIdx := 1
@@ -196,7 +195,7 @@ func (h *Handlers) ListScans(w http.ResponseWriter, r *http.Request) {
 		query += fmt.Sprintf(" ORDER BY sj.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 		args = append(args, limit, offset)
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -331,10 +330,10 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 		scanTargetID = req.TargetID
 	}
 
-	rlsErr := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	rlsErr := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// 1. Project must be visible under RLS.
 		var projectVisible bool
-		if qErr := conn.QueryRow(ctx,
+		if qErr := tx.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM core.projects WHERE id = $1)`, projectID,
 		).Scan(&projectVisible); qErr != nil {
 			return qErr
@@ -346,7 +345,7 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 		// 2. Target (if supplied) must belong to the same project.
 		if req.TargetID != "" {
 			var targetProjectID string
-			if qErr := conn.QueryRow(ctx,
+			if qErr := tx.QueryRow(ctx,
 				`SELECT project_id::text, auth_config_id::text FROM core.scan_targets WHERE id = $1`, req.TargetID,
 			).Scan(&targetProjectID, &targetAuthConfigID); qErr != nil {
 				if errors.Is(qErr, pgx.ErrNoRows) {
@@ -362,7 +361,7 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 		// 3. Source artifact (if supplied) must belong to the same project.
 		if req.SourceArtifactID != "" {
 			var artifactProjectID string
-			if qErr := conn.QueryRow(ctx,
+			if qErr := tx.QueryRow(ctx,
 				`SELECT project_id::text FROM scans.source_artifacts WHERE id = $1`, req.SourceArtifactID,
 			).Scan(&artifactProjectID); qErr != nil {
 				if errors.Is(qErr, pgx.ErrNoRows) {
@@ -377,7 +376,7 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 
 		// 4. Insert. scan_target_id is nullable (SAST artifact-only); trigger_type
 		// is NOT NULL; progress is jsonb.
-		_, iErr := conn.Exec(ctx,
+		_, iErr := tx.Exec(ctx,
 			`INSERT INTO scans.scan_jobs (id, project_id, scan_type, scan_profile, status, trigger_type, progress, scan_target_id, source_ref, config_override, created_by, created_at, updated_at)
 			 VALUES ($1, $2, $3, $4, 'pending', $5, '{"phase":"pending","percent":0}'::jsonb, $6, $7, $8, $9, $10, $10)`,
 			id, projectID, req.ScanType, scanProfile, triggerType, scanTargetID, sourceRefJSON, configJSON, user.UserID, now,
@@ -481,8 +480,8 @@ func (h *Handlers) GetScan(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var s scanResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		row := conn.QueryRow(ctx, "SELECT "+scanSelectColumns+scanJoinClause+" WHERE sj.id = $1", id)
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, "SELECT "+scanSelectColumns+scanJoinClause+" WHERE sj.id = $1", id)
 		return scanRowScan(row, &s)
 	})
 	if err != nil {
@@ -506,15 +505,24 @@ func (h *Handlers) CancelScan(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 
-	tag, err := h.pool.Exec(r.Context(),
-		`UPDATE scans.scan_jobs SET status = 'cancelled', updated_at = now()
-		 WHERE id = $1 AND status IN ('queued', 'running')`, id)
+	var rowsAffected int64
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			tag, err := tx.Exec(ctx,
+				`UPDATE scans.scan_jobs SET status = 'cancelled', updated_at = now()
+				 WHERE id = $1 AND status IN ('queued', 'running')`, id)
+			if err != nil {
+				return err
+			}
+			rowsAffected = tag.RowsAffected()
+			return nil
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to cancel scan")
 		writeError(w, http.StatusInternalServerError, "failed to cancel scan", "INTERNAL_ERROR")
 		return
 	}
-	if tag.RowsAffected() == 0 {
+	if rowsAffected == 0 {
 		writeError(w, http.StatusBadRequest, "scan cannot be cancelled (not queued or running)", "BAD_REQUEST")
 		return
 	}

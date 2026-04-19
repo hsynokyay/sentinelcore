@@ -60,6 +60,9 @@ var allowedDirectPoolCallers = map[string]bool{
 	"internal/controlplane/bootstrap":               true,
 	"internal/controlplane/migrate":                 true,
 	"internal/controlplane/api/audit_integrity.go":  true,
+	// Worker-dispatched scan webhook delivery: cross-tenant resolve by
+	// scan id, needs BYPASSRLS until Wave 3 role split.
+	"internal/controlplane/api/scan_webhooks.go":    true,
 }
 
 // poolRecvTypes are variable names conventionally used for the pool

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/sentinelcore/sentinelcore/internal/policy"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // reportFilters holds common optional query parameters for report endpoints.
@@ -50,7 +50,7 @@ func (h *Handlers) FindingsSummary(w http.ResponseWriter, r *http.Request) {
 
 	var results []summaryRow
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		query := `SELECT severity, status, finding_type, COUNT(*) AS count
 				  FROM findings.findings WHERE 1=1`
 		args := []any{}
@@ -74,7 +74,7 @@ func (h *Handlers) FindingsSummary(w http.ResponseWriter, r *http.Request) {
 
 		query += " GROUP BY severity, status, finding_type ORDER BY count DESC"
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -125,7 +125,7 @@ func (h *Handlers) TriageMetrics(w http.ResponseWriter, r *http.Request) {
 
 	var result triageResult
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Open findings
 		openQuery := `SELECT COUNT(*) FROM findings.findings WHERE status NOT IN ('resolved','closed','false_positive')`
 		openArgs := []any{}
@@ -144,7 +144,7 @@ func (h *Handlers) TriageMetrics(w http.ResponseWriter, r *http.Request) {
 			openQuery += fmt.Sprintf(" AND created_at <= $%d", openArgIdx)
 			openArgs = append(openArgs, filters.DateTo)
 		}
-		if err := conn.QueryRow(ctx, openQuery, openArgs...).Scan(&result.OpenFindings); err != nil {
+		if err := tx.QueryRow(ctx, openQuery, openArgs...).Scan(&result.OpenFindings); err != nil {
 			return err
 		}
 
@@ -166,7 +166,7 @@ func (h *Handlers) TriageMetrics(w http.ResponseWriter, r *http.Request) {
 			closedQuery += fmt.Sprintf(" AND created_at <= $%d", closedArgIdx)
 			closedArgs = append(closedArgs, filters.DateTo)
 		}
-		if err := conn.QueryRow(ctx, closedQuery, closedArgs...).Scan(&result.ClosedFindings); err != nil {
+		if err := tx.QueryRow(ctx, closedQuery, closedArgs...).Scan(&result.ClosedFindings); err != nil {
 			return err
 		}
 
@@ -179,16 +179,16 @@ func (h *Handlers) TriageMetrics(w http.ResponseWriter, r *http.Request) {
 			assignedArgs = append(assignedArgs, filters.ProjectID)
 			assignedArgIdx++
 		}
-		if err := conn.QueryRow(ctx, assignedQuery, assignedArgs...).Scan(&result.AssignedFindings); err != nil {
+		if err := tx.QueryRow(ctx, assignedQuery, assignedArgs...).Scan(&result.AssignedFindings); err != nil {
 			return err
 		}
 
 		// SLA compliance from governance schema
-		if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations WHERE resolved_at IS NOT NULL`).Scan(&result.SLACompliant); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations WHERE resolved_at IS NOT NULL`).Scan(&result.SLACompliant); err != nil {
 			// Table might not exist yet; treat as zero
 			result.SLACompliant = 0
 		}
-		if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations WHERE resolved_at IS NULL`).Scan(&result.SLAViolated); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations WHERE resolved_at IS NULL`).Scan(&result.SLAViolated); err != nil {
 			result.SLAViolated = 0
 		}
 
@@ -226,14 +226,14 @@ func (h *Handlers) ComplianceStatus(w http.ResponseWriter, r *http.Request) {
 
 	var result complianceResult
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Audit log count
-		if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM audit.audit_log`).Scan(&result.AuditLogCount); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM audit.audit_log`).Scan(&result.AuditLogCount); err != nil {
 			result.AuditLogCount = 0
 		}
 
 		// Retention record counts by lifecycle
-		rows, err := conn.Query(ctx, `SELECT lifecycle, COUNT(*) FROM governance.retention_records GROUP BY lifecycle`)
+		rows, err := tx.Query(ctx, `SELECT lifecycle, COUNT(*) FROM governance.retention_records GROUP BY lifecycle`)
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -255,10 +255,10 @@ func (h *Handlers) ComplianceStatus(w http.ResponseWriter, r *http.Request) {
 
 		// SLA compliance
 		var totalSLA, resolvedSLA int
-		if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations`).Scan(&totalSLA); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations`).Scan(&totalSLA); err != nil {
 			totalSLA = 0
 		}
-		if err := conn.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations WHERE resolved_at IS NOT NULL`).Scan(&resolvedSLA); err != nil {
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM governance.sla_violations WHERE resolved_at IS NOT NULL`).Scan(&resolvedSLA); err != nil {
 			resolvedSLA = 0
 		}
 		result.FindingsWithinSLA = resolvedSLA
@@ -301,7 +301,7 @@ func (h *Handlers) ScanActivity(w http.ResponseWriter, r *http.Request) {
 
 	var results []scanStat
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		query := `SELECT scan_type, COUNT(*) AS count,
 				  COALESCE(AVG(EXTRACT(EPOCH FROM (completed_at - started_at))), 0) AS avg_dur
 				  FROM scans.scan_jobs WHERE 1=1`
@@ -326,7 +326,7 @@ func (h *Handlers) ScanActivity(w http.ResponseWriter, r *http.Request) {
 
 		query += " GROUP BY scan_type ORDER BY count DESC"
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
