@@ -25,6 +25,7 @@ import (
 	sc_cors "github.com/sentinelcore/sentinelcore/pkg/cors"
 	"github.com/sentinelcore/sentinelcore/pkg/crypto/aesgcm"
 	sc_csrf "github.com/sentinelcore/sentinelcore/pkg/csrf"
+	"github.com/sentinelcore/sentinelcore/pkg/httpsec"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 	"github.com/sentinelcore/sentinelcore/pkg/ratelimit"
 	"github.com/sentinelcore/sentinelcore/pkg/sso"
@@ -457,7 +458,8 @@ func (s *Server) Start(ctx context.Context) error {
 	handler = loggingMiddleware(s.logger)(handler)
 	handler = requestIDMiddleware(handler)
 
-	// CORS: must be outermost to handle preflight before auth
+	// CORS: must be outermost application-layer middleware so
+	// preflight is handled before auth.
 	corsOrigin := os.Getenv("CORS_ORIGIN")
 	if corsOrigin == "" {
 		corsOrigin = "http://localhost:3000"
@@ -465,6 +467,21 @@ func (s *Server) Start(ctx context.Context) error {
 	handler = sc_cors.Middleware(sc_cors.Config{
 		AllowedOrigins: strings.Split(corsOrigin, ","),
 	})(handler)
+
+	// httpsec: outermost security layer — request-size cap + HSTS +
+	// nosniff + frame-deny + referrer + permissions-policy. Sits
+	// OUTSIDE CORS so security headers land on every response,
+	// including preflight; sits INSIDE nothing so the body cap
+	// triggers before the handler reads anything.
+	handler = httpsec.Chain(handler,
+		append(httpsec.Defaults(),
+			httpsec.WithUploadException(
+				10<<20, // 10 MiB
+				"/api/v1/source-artifacts/",
+				"/api/v1/projects/", // includes source artifact upload sub-paths
+			),
+		)...,
+	)
 
 	// Register readiness endpoint (checks DB, Redis, NATS).
 	mux.HandleFunc("GET /readyz", observability.ReadinessHandler(observability.ReadinessDeps{

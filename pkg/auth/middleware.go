@@ -128,6 +128,19 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 					}
 				}
 
+				// Phase 8 §5.2: absolute session lifetime. Unlike idle,
+				// this timestamp NEVER advances on activity, so a user
+				// kept-warm session still hits the ceiling. Default 12h;
+				// override via SC_ABSOLUTE_SESSION_LIFETIME env (duration).
+				absoluteLifetime := parseAbsoluteLifetime()
+				if absoluteLifetime > 0 {
+					expired, err := sessions.IsAbsoluteExpired(r.Context(), claims.ID, absoluteLifetime)
+					if err == nil && expired {
+						http.Error(w, `{"error":"session expired","code":"SESSION_EXPIRED"}`, http.StatusUnauthorized)
+						return
+					}
+				}
+
 				// Touch session to track activity for idle timeout.
 				_ = sessions.TouchSession(r.Context(), claims.ID, 15*time.Minute)
 			}
@@ -172,6 +185,21 @@ func parseIdleTimeout() time.Duration {
 	d, err := time.ParseDuration(v)
 	if err != nil {
 		return 30 * time.Minute
+	}
+	return d
+}
+
+// parseAbsoluteLifetime reads SC_ABSOLUTE_SESSION_LIFETIME (default: 12h).
+// Phase 8 §5.2 — ceiling on how long a single login can persist,
+// independent of activity. 0 disables the check.
+func parseAbsoluteLifetime() time.Duration {
+	v := os.Getenv("SC_ABSOLUTE_SESSION_LIFETIME")
+	if v == "" {
+		return 12 * time.Hour
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 12 * time.Hour
 	}
 	return d
 }
