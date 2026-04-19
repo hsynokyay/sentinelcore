@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sentinelcore-ui",
+      "runtimeExecutable": "/opt/homebrew/Cellar/node/25.6.0/bin/node",
+      "runtimeArgs": ["web/node_modules/.bin/next", "dev", "--webpack", "web"],
+      "port": 3000
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-EVAL-001",
+  "version": "1.0.0",
+  "title": "Unsafe eval() or new Function() with user-controlled input",
+  "summary": "User-controlled input flows into eval(), new Function(), setTimeout(string), or setInterval(string), allowing an attacker to execute arbitrary JavaScript code on the server or in the browser. This enables full remote code execution in server-side contexts and cross-site scripting in client-side contexts.",
+
+  "why_it_matters": "eval() and new Function() compile and execute arbitrary strings as JavaScript code. When user input reaches these sinks, the attacker gains the full capabilities of the JavaScript runtime — on the server, this means reading files, accessing databases, exfiltrating environment variables, and executing system commands. On the client, it is equivalent to a stored XSS vulnerability with full DOM and cookie access. Unlike injection into structured languages (SQL, shell), code injection through eval() is unrestricted — the attacker can execute any valid JavaScript. This makes it one of the most dangerous vulnerability classes in the JavaScript ecosystem.",
+
+  "how_to_fix": "Remove eval() and equivalent constructs entirely. In virtually all cases, a safer alternative exists.\n\n1. For parsing data, use JSON.parse() instead of eval(). JSON.parse() only processes data — it cannot execute code.\n2. For dynamic property access, use bracket notation (obj[key]) with validation instead of eval('obj.' + key).\n3. For mathematical expressions, use a safe expression evaluator library like math.js or expr-eval that parses expressions into an AST without code execution.\n4. For template rendering, use a proper template engine (Handlebars, EJS) instead of eval-based string interpolation.\n5. If you absolutely need sandboxed code execution (e.g., a plugin system), use vm2, isolated-vm, or a Web Worker with strict CSP — never raw eval().\n6. Remove any use of setTimeout(string) and setInterval(string) — always pass a function reference instead.",
+
+  "unsafe_example": "// UNSAFE: eval executes arbitrary user-supplied code\napp.post('/calculate', (req, res) => {\n  const expression = req.body.expression;\n  const result = eval(expression);\n  res.json({ result });\n});",
+
+  "safe_example": "// SAFE: use a dedicated expression parser that cannot execute code\nconst { evaluate } = require('mathjs');\n\napp.post('/calculate', (req, res) => {\n  try {\n    const expression = req.body.expression;\n    const result = evaluate(expression);\n    res.json({ result });\n  } catch (err) {\n    res.status(400).json({ error: 'Invalid expression' });\n  }\n});\n\n// SAFE: for data parsing, use JSON.parse\nconst data = JSON.parse(req.body.data);",
+
+  "developer_notes": "The following are all equivalent to eval() and equally dangerous with user input: new Function('return ' + input)(), setTimeout(input, 0), setInterval(input, 0), and vm.runInThisContext(input). In Node.js, the vm module does NOT provide a security sandbox — vm.runInNewContext() can be escaped. For actual sandboxing, use isolated-vm or a separate process with restricted permissions. ESLint's no-eval rule can catch direct eval() usage but misses indirect variants — configure no-new-func and no-implied-eval as well. In TypeScript, the compiler will not flag eval() as unsafe since it is a valid JavaScript API.",
+
+  "verification_checklist": [
+    "No calls to eval() exist with user-controlled input",
+    "new Function() is not used with user-controlled strings",
+    "setTimeout and setInterval are called with function references, not strings",
+    "JSON data is parsed with JSON.parse(), not eval()",
+    "ESLint rules no-eval, no-new-func, and no-implied-eval are enabled"
+  ],
+
+  "references": [
+    {"title": "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code", "url": "https://cwe.mitre.org/data/definitions/95.html"},
+    {"title": "MDN Web Docs: eval() Security Risks", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval#never_use_direct_eval!"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"},
+    {"title": "OWASP Code Injection", "url": "https://owasp.org/www-community/attacks/Code_Injection"}
+  ]
+}

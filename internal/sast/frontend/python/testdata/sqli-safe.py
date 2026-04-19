@@ -1,0 +1,11 @@
+import sqlite3
+from flask import request
+
+
+def get_user():
+    user_id = request.args.get("id")
+    conn = sqlite3.connect("app.db")
+    cursor = conn.cursor()
+    # SAFE: parameterized query with two arguments
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    return cursor.fetchone()

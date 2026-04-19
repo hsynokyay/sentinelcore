@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-SQL-001",
+  "title": "SQL Injection in Node.js (mysql/mysql2/pg)",
+  "summary": "User-controlled input is concatenated into a SQL query string and passed to a database query function without parameterization, enabling SQL injection.",
+  "why_it_matters": "SQL injection is one of the most critical web application vulnerabilities. An attacker can manipulate queries to bypass authentication, extract sensitive data from the database, modify or delete records, and in some configurations execute operating system commands. When query() is called with a single string argument containing user input, the database driver executes whatever SQL the attacker injects.",
+  "how_to_fix": "Use parameterized queries by passing the SQL string with placeholders (?) as the first argument and the values array as the second argument: db.query('SELECT * FROM users WHERE id = ?', [id]).\nNever concatenate or template user input directly into SQL strings.\nUse an ORM or query builder (e.g., Knex.js, Sequelize, Prisma) that handles parameterization automatically.\nApply input validation as a defense-in-depth measure, but never rely on it as the sole protection.\nUse least-privilege database accounts that only have the permissions necessary for the application.",
+  "unsafe_example": "const id = req.query.id;\nconst sql = \"SELECT * FROM users WHERE id = \" + id;\ndb.query(sql);",
+  "safe_example": "const id = req.query.id;\ndb.query(\"SELECT * FROM users WHERE id = ?\", [id]);",
+  "developer_notes": "The key distinction is the number of arguments passed to query(). A single-argument call with concatenated SQL is vulnerable. A two-argument call with placeholders and a values array uses parameterized queries, which safely escapes all user input. This pattern applies to mysql, mysql2, and pg drivers alike (pg uses $1, $2 instead of ?).",
+  "verification_checklist": [
+    "Confirm that all database query calls use parameterized queries with placeholder syntax and a separate values array.",
+    "Verify that no SQL strings are built using string concatenation or template literals with user input.",
+    "Check that query() is always called with at least two arguments (SQL string + params array) when user input is involved.",
+    "Review any ORM or query builder usage to ensure raw query methods also use parameterization.",
+    "Test with SQL injection payloads (e.g., ' OR 1=1 --, ' UNION SELECT) to confirm they are properly escaped."
+  ],
+  "references": [
+    {
+      "title": "CWE-89: Improper Neutralization of Special Elements used in an SQL Command",
+      "url": "https://cwe.mitre.org/data/definitions/89.html"
+    },
+    {
+      "title": "OWASP SQL Injection Prevention Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+    },
+    {
+      "title": "mysql2 Documentation - Prepared Statements",
+      "url": "https://github.com/sidorares/node-mysql2#using-prepared-statements"
+    }
+  ]
+}

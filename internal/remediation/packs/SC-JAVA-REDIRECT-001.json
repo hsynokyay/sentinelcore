@@ -1,0 +1,26 @@
+{
+  "rule_id": "SC-JAVA-REDIRECT-001",
+  "title": "Open Redirect in Java Servlet",
+  "summary": "User-controlled input is passed directly to an HTTP redirect method, enabling open redirect attacks.",
+  "why_it_matters": "Open redirects allow attackers to craft URLs on your trusted domain that redirect users to malicious sites. This is commonly exploited in phishing campaigns where the attacker sends a link that appears to point to your legitimate application but actually redirects to a credential-harvesting page. Victims are more likely to trust and enter credentials because the initial URL belongs to a known domain.",
+  "how_to_fix": "Validate redirect targets against an allowlist of permitted domains or paths.\nUse relative paths only for redirects (e.g., /dashboard instead of full URLs).\nIf absolute URLs are required, verify that the URL starts with your application's expected scheme and domain.\nStrip or reject URLs containing embedded credentials or unusual schemes (javascript:, data:, etc.).",
+  "unsafe_example": "String next = request.getParameter(\"next\");\nresponse.sendRedirect(next);",
+  "safe_example": "private static final Set<String> ALLOWED_REDIRECT_PATHS = Set.of(\"/dashboard\", \"/profile\", \"/settings\");\n\nString next = request.getParameter(\"next\");\nif (next != null && ALLOWED_REDIRECT_PATHS.contains(next)) {\n    response.sendRedirect(next);\n} else {\n    response.sendRedirect(\"/dashboard\");\n}",
+  "developer_notes": "Be careful with URL parsing edge cases. Inputs like //evil.com, /\\evil.com, or URLs with embedded newlines can bypass naive validation. Always normalize the URL before checking it against an allowlist. When using relative paths, ensure the path does not start with // which browsers interpret as a protocol-relative URL.",
+  "verification_checklist": [
+    "Confirm that all redirect targets are validated against an allowlist of permitted paths or domains.",
+    "Verify that protocol-relative URLs (//evil.com) are rejected.",
+    "Test with payloads containing embedded credentials (http://user@evil.com) and unusual schemes (javascript:, data:).",
+    "Ensure the default fallback redirect points to a safe internal path."
+  ],
+  "references": [
+    {
+      "title": "CWE-601: URL Redirection to Untrusted Site",
+      "url": "https://cwe.mitre.org/data/definitions/601.html"
+    },
+    {
+      "title": "OWASP Unvalidated Redirects and Forwards Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"
+    }
+  ]
+}

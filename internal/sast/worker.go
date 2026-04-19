@@ -1,25 +1,42 @@
 package sast
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
+	"github.com/sentinelcore/sentinelcore/pkg/archive"
 	sc_nats "github.com/sentinelcore/sentinelcore/pkg/nats"
 )
 
-// ScanJob represents an incoming SAST scan request.
+// ArtifactStorageRoot mirrors the controlplane constant. Both services mount
+// the same volume at /app/artifacts.
+func ArtifactStorageRoot() string {
+	if v := os.Getenv("ARTIFACT_STORAGE_ROOT"); v != "" {
+		return v
+	}
+	return "/app/artifacts"
+}
+
+// ScanJob represents an incoming SAST scan request. It may carry either a
+// git source reference (legacy) or an artifact_id pointing to a bundle under
+// the shared artifact storage root.
 type ScanJob struct {
-	ScanJobID string    `json:"scan_job_id"`
-	ProjectID string    `json:"project_id"`
-	SourceRef SourceRef `json:"source_ref"`
+	ScanJobID        string    `json:"scan_id"`
+	ProjectID        string    `json:"project_id"`
+	SourceRef        SourceRef `json:"source_ref"`
+	SourceArtifactID string    `json:"source_artifact_id,omitempty"`
 }
 
 // SourceRef identifies the source code to scan.
@@ -92,20 +109,38 @@ func (w *Worker) processScan(ctx context.Context, job ScanJob) {
 
 	w.publishStatus(ctx, job.ScanJobID, "running", "")
 
-	// Git clone
-	branch := job.SourceRef.Branch
-	if branch == "" {
-		branch = "main"
+	srcDir := workDir + "/src"
+	if err := os.MkdirAll(srcDir, 0o750); err != nil {
+		w.publishStatus(ctx, job.ScanJobID, "failed", err.Error())
+		return
 	}
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", branch, job.SourceRef.RepoURL, workDir+"/src")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		w.logger.Error().Err(err).Str("output", string(output)).Msg("git clone failed")
-		w.publishStatus(ctx, job.ScanJobID, "failed", "git clone failed: "+err.Error())
+
+	// Source selection: artifact bundle if provided, else legacy git clone.
+	if job.SourceArtifactID != "" {
+		artifactPath := filepath.Join(ArtifactStorageRoot(), job.SourceArtifactID+".zip")
+		if err := extractArtifactSafely(artifactPath, srcDir); err != nil {
+			w.logger.Error().Err(err).Str("artifact", job.SourceArtifactID).Msg("artifact extract failed")
+			w.publishStatus(ctx, job.ScanJobID, "failed", "artifact extract failed: "+err.Error())
+			return
+		}
+	} else if job.SourceRef.RepoURL != "" {
+		branch := job.SourceRef.Branch
+		if branch == "" {
+			branch = "main"
+		}
+		cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", branch, job.SourceRef.RepoURL, srcDir)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			w.logger.Error().Err(err).Str("output", string(output)).Msg("git clone failed")
+			w.publishStatus(ctx, job.ScanJobID, "failed", "git clone failed: "+err.Error())
+			return
+		}
+	} else {
+		w.publishStatus(ctx, job.ScanJobID, "failed", "scan job has neither repo_url nor source_artifact_id")
 		return
 	}
 
 	// Analyze
-	findings, err := w.analyzer.AnalyzeDirectory(workDir + "/src")
+	findings, err := w.analyzer.AnalyzeDirectory(srcDir)
 	if err != nil {
 		w.publishStatus(ctx, job.ScanJobID, "failed", err.Error())
 		return
@@ -143,6 +178,69 @@ func (w *Worker) processScan(ctx context.Context, job ScanJob) {
 	}
 
 	w.publishStatus(ctx, job.ScanJobID, "completed", "")
+}
+
+// extractArtifactSafely validates the zip at path against DefaultLimits and
+// then extracts its contents under destDir. Symlinks, absolute paths, parent
+// traversal, and oversized entries are all rejected upfront by
+// archive.ValidateZipFile, so this function only needs to do the happy-path
+// extraction — but we still re-check each entry's final resolved path to
+// guarantee we stay inside destDir.
+func extractArtifactSafely(archivePath, destDir string) error {
+	if _, err := archive.ValidateZipFile(archivePath, archive.DefaultLimits()); err != nil {
+		return err
+	}
+	zr, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+
+	absDest, err := filepath.Abs(destDir)
+	if err != nil {
+		return err
+	}
+
+	for _, f := range zr.File {
+		target := filepath.Join(absDest, f.Name)
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			return err
+		}
+		if !strings.HasPrefix(absTarget, absDest+string(os.PathSeparator)) && absTarget != absDest {
+			return fmt.Errorf("archive entry escapes root: %q", f.Name)
+		}
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(absTarget, 0o750); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(absTarget), 0o750); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(absTarget, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		// archive.ValidateZipFile already enforced MaxEntryBytes, so this copy
+		// is bounded.
+		if _, err := io.Copy(out, rc); err != nil {
+			rc.Close()
+			out.Close()
+			return err
+		}
+		rc.Close()
+		if err := out.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (w *Worker) publishStatus(ctx context.Context, scanID, status, errorMsg string) {

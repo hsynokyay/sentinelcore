@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JAVA-PATH-001",
+  "version": "1.0.0",
+  "title": "Path Traversal via unsanitized file path input",
+  "summary": "User-controlled input is used to construct a file system path that is then opened for reading or writing. An attacker can use directory traversal sequences (../) to escape the intended directory and access arbitrary files on the server.",
+
+  "why_it_matters": "Path traversal allows an attacker to read sensitive files (/etc/passwd, application.properties, database credentials), overwrite configuration files, or upload web shells. Even read-only access is devastating when the attacker can extract secrets, source code, or customer data. This vulnerability is listed in OWASP Top 10 A01:2021 (Broken Access Control).",
+
+  "how_to_fix": "Apply a two-step defense: normalize the path, then verify it stays within the allowed base directory.\n\n1. Define a base directory that all file access must stay within.\n2. Resolve the user-supplied path component against the base directory.\n3. Normalize the resolved path using Path.toRealPath(), File.getCanonicalPath(), or Path.normalize().\n4. Verify the normalized absolute path starts with the base directory. If it doesn't, reject the request.\n5. Never construct file paths by simple string concatenation with user input.\n6. Consider using an allowlist of permitted filenames when the set is known.",
+
+  "unsafe_example": "// UNSAFE: user input used directly as file path\nString filename = request.getParameter(\"file\");\nFileInputStream fis = new FileInputStream(\"/opt/uploads/\" + filename);\n// Attacker sends: file=../../etc/passwd",
+
+  "safe_example": "// SAFE: normalize + containment check\nString filename = request.getParameter(\"file\");\nPath baseDir = Paths.get(\"/opt/uploads\").toAbsolutePath();\nPath resolved = baseDir.resolve(filename).normalize();\nif (!resolved.startsWith(baseDir)) {\n    throw new SecurityException(\"path traversal attempt\");\n}\nFileInputStream fis = new FileInputStream(resolved.toFile());",
+
+  "developer_notes": "Path.normalize() removes redundant `.` and `..` segments but does not resolve symlinks. For maximum safety, use Path.toRealPath() which resolves symlinks too — but this requires the file to exist. The containment check (startsWith) is the critical defense; normalization alone is not sufficient because an attacker can craft paths that normalize to valid-looking but still-escaping paths on some OS configurations.",
+
+  "verification_checklist": [
+    "File path is normalized using getCanonicalPath() or Path.normalize()",
+    "Normalized path is checked against the intended base directory with startsWith()",
+    "User input is never concatenated directly into a file path without validation",
+    "Symlink resolution is considered for high-security contexts",
+    "Error responses do not reveal the server's file system structure"
+  ],
+
+  "references": [
+    {"title": "CWE-22: Path Traversal", "url": "https://cwe.mitre.org/data/definitions/22.html"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"},
+    {"title": "OWASP Path Traversal", "url": "https://owasp.org/www-community/attacks/Path_Traversal"},
+    {"title": "OWASP Input Validation Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html"}
+  ]
+}

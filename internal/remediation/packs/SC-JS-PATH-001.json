@@ -1,0 +1,32 @@
+{
+  "rule_id": "SC-JS-PATH-001",
+  "version": "1.0.0",
+  "title": "Path Traversal via unsanitized file path",
+  "summary": "User-controlled input flows into fs.readFile(), fs.writeFile(), fs.createReadStream(), or similar file system APIs without path normalization or boundary validation. An attacker can use ../ sequences to escape the intended directory and read or overwrite arbitrary files on the server, including configuration files, secrets, and application source code.",
+
+  "why_it_matters": "Path traversal is a high-severity vulnerability that can expose the entire server file system to an attacker. By submitting a path like `../../etc/passwd` or `..\\..\\windows\\system32\\config\\sam`, an attacker can read sensitive system files, application secrets (e.g., .env files, private keys), or overwrite critical files to achieve code execution. In containerized environments, path traversal can still expose mounted secrets, service account tokens, and configuration. Exploitation requires no authentication when the vulnerable endpoint is publicly accessible, and automated tools like dirb and dotdotpwn make discovery trivial.",
+
+  "how_to_fix": "Resolve the final path and verify it falls within the intended base directory before performing any file operation.\n\n1. Use path.resolve() to normalize the user-supplied filename against your base directory — this collapses ../ sequences and symbolic links.\n2. After resolving, verify the resulting absolute path starts with (startsWith) the intended base directory plus a path separator.\n3. Never use path.join() alone as a security control — path.join('/uploads', '../etc/passwd') still produces '/etc/passwd'.\n4. Reject filenames containing null bytes (\\0) which can truncate paths in some native bindings.\n5. If possible, use a UUID or hash-based naming scheme for stored files so user-supplied filenames are never used directly.\n6. Consider using chroot, containers, or OS-level filesystem sandboxing as defense-in-depth.",
+
+  "unsafe_example": "// UNSAFE: user input appended directly to file path\nconst fs = require('fs');\n\napp.get('/download', (req, res) => {\n  const file = req.query.file;\n  fs.readFile('/uploads/' + file, (err, data) => {\n    if (err) return res.status(404).send('Not found');\n    res.send(data);\n  });\n});",
+
+  "safe_example": "// SAFE: resolve path and verify it stays within base directory\nconst fs = require('fs');\nconst path = require('path');\n\nconst BASE_DIR = path.resolve('/uploads');\n\napp.get('/download', (req, res) => {\n  const filename = req.query.file;\n  if (filename.includes('\\0')) {\n    return res.status(400).send('Invalid filename');\n  }\n  const resolvedPath = path.resolve(BASE_DIR, filename);\n  if (!resolvedPath.startsWith(BASE_DIR + path.sep)) {\n    return res.status(403).send('Access denied');\n  }\n  fs.readFile(resolvedPath, (err, data) => {\n    if (err) return res.status(404).send('Not found');\n    res.send(data);\n  });\n});",
+
+  "developer_notes": "path.resolve() without a base directory resolves relative to process.cwd(), which is not a security boundary. Always pass your intended base directory as the first argument. The startsWith check must include the trailing path separator (path.sep) to prevent bypasses like /uploads-evil matching /uploads. In Windows environments, be aware of alternative path separators (\\) and drive letter prefixes. If using Express, consider express.static() with the root option set, which includes built-in traversal protection. For TypeScript projects, the same rules apply — path resolution is a runtime concern, not a type-level one.",
+
+  "verification_checklist": [
+    "File paths are resolved with path.resolve() against an explicit base directory",
+    "Resolved path is verified with startsWith(baseDir + path.sep) before any file operation",
+    "Null bytes in filenames are rejected",
+    "User-supplied filenames are not used directly in the file system where possible",
+    "Error messages do not reveal the internal directory structure",
+    "Symbolic link resolution is considered if the base directory may contain symlinks"
+  ],
+
+  "references": [
+    {"title": "CWE-22: Improper Limitation of a Pathname to a Restricted Directory", "url": "https://cwe.mitre.org/data/definitions/22.html"},
+    {"title": "OWASP Path Traversal", "url": "https://owasp.org/www-community/attacks/Path_Traversal"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"},
+    {"title": "OWASP Input Validation Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html"}
+  ]
+}

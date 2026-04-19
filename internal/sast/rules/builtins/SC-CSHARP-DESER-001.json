@@ -1,0 +1,42 @@
+{
+  "rule_id": "SC-CSHARP-DESER-001",
+  "name": "Unsafe deserialization via BinaryFormatter",
+  "language": "csharp",
+  "cwe": ["CWE-502"],
+  "owasp": ["A08:2021"],
+  "severity": "critical",
+  "description": "BinaryFormatter.Deserialize, SoapFormatter.Deserialize, NetDataContractSerializer.Deserialize, or JsonConvert.DeserializeObject with TypeNameHandling is invoked on untrusted data. These APIs instantiate arbitrary types and invoke their constructors, enabling reliable remote code execution against any process that deserializes attacker-controlled input.",
+  "remediation": "Do not use BinaryFormatter, SoapFormatter, or NetDataContractSerializer on untrusted data — these APIs are deprecated as of .NET 5 for this exact reason. Use System.Text.Json.JsonSerializer with strongly-typed target classes. If you must use Newtonsoft.Json, set TypeNameHandling = TypeNameHandling.None (the default).",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/502.html",
+    "https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/",
+    "https://learn.microsoft.com/en-us/dotnet/standard/serialization/binaryformatter-security-guide"
+  ],
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "System.Runtime.Serialization.Formatters.Binary.BinaryFormatter",
+        "callee": "Deserialize",
+        "message_template": "BinaryFormatter.Deserialize is unsafe on untrusted data"
+      },
+      {
+        "receiver_fqn": "System.Runtime.Serialization.Formatters.Soap.SoapFormatter",
+        "callee": "Deserialize",
+        "message_template": "SoapFormatter.Deserialize is unsafe on untrusted data"
+      },
+      {
+        "receiver_fqn": "System.Runtime.Serialization.NetDataContractSerializer",
+        "callee": "Deserialize",
+        "message_template": "NetDataContractSerializer.Deserialize is unsafe on untrusted data"
+      }
+    ]
+  },
+  "confidence": {
+    "base": 0.90
+  },
+  "examples": {
+    "vulnerable": "var formatter = new BinaryFormatter();\nvar obj = formatter.Deserialize(Request.Body);",
+    "fixed": "var obj = JsonSerializer.Deserialize<KnownType>(requestJson);"
+  }
+}

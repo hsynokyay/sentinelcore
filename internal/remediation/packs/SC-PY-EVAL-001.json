@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-EVAL-001",
+  "version": "1.0.0",
+  "title": "Remediate Python eval/exec Code Injection",
+  "summary": "User-controlled input is passed to eval() or exec(), allowing arbitrary Python code execution on the server. Replace with ast.literal_eval() for literal parsing or use structured data formats like JSON instead of dynamic code evaluation.",
+  "why_it_matters": "eval() and exec() execute arbitrary Python code with the full privileges of the application process. An attacker who controls the input to these functions can read and write files, access databases, make network requests, spawn processes, and completely compromise the server. Unlike command injection which is limited to shell commands, code injection through eval/exec provides full access to the Python runtime and all imported modules. This is effectively remote code execution with zero restrictions.",
+  "how_to_fix": "1. Replace eval() with ast.literal_eval() when you need to parse Python literals (strings, numbers, lists, dicts).\n2. For mathematical expressions, use a dedicated safe parser library.\n3. For data interchange, use json.loads() or yaml.safe_load() instead of eval().\n4. Remove all uses of exec() with user-controlled input entirely.\n5. If dynamic behavior is needed, implement a safe DSL or use a sandboxed interpreter.",
+  "unsafe_example": "from flask import request\n\ndef calculate():\n    expr = request.form.get(\"expr\")\n    # VULNERABLE: user input passed directly to eval()\n    result = eval(expr)\n    return str(result)",
+  "safe_example": "from flask import request\nimport ast\nimport json\n\ndef calculate():\n    expr = request.form.get(\"expr\")\n    try:\n        # SAFE: ast.literal_eval only parses Python literals\n        result = ast.literal_eval(expr)\n        return str(result)\n    except (ValueError, SyntaxError):\n        return \"Invalid expression\", 400",
+  "developer_notes": "ast.literal_eval() safely evaluates strings containing Python literal structures (strings, bytes, numbers, tuples, lists, dicts, sets, booleans, and None). It raises ValueError for anything that is not a literal, making it safe against code injection. Note that ast.literal_eval() does not support operators or function calls, so '1 + 2' will raise an error. For mathematical expression evaluation, consider libraries like 'simpleeval' that provide a restricted evaluation environment. Never attempt to sanitize input for eval() -- it is practically impossible to do safely.",
+  "verification_checklist": [
+    "Confirm no calls to eval() or exec() remain that accept user-controlled input",
+    "Verify ast.literal_eval() is used instead of eval() for parsing literal values",
+    "Ensure json.loads() or yaml.safe_load() is used for data deserialization instead of eval()",
+    "Check that error handling covers ValueError and SyntaxError from ast.literal_eval()",
+    "Run the SAST scanner to confirm SC-PY-EVAL-001 no longer triggers"
+  ],
+  "references": [
+    {"title": "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code", "url": "https://cwe.mitre.org/data/definitions/95.html"},
+    {"title": "Python ast.literal_eval documentation", "url": "https://docs.python.org/3/library/ast.html#ast.literal_eval"},
+    {"title": "OWASP Code Injection", "url": "https://owasp.org/www-community/attacks/Code_Injection"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"}
+  ]
+}

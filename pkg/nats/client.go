@@ -37,6 +37,7 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream) error {
 		{Name: "FINDINGS", Subjects: []string{"findings.>"}, MaxAge: 7 * 24 * time.Hour},
 		{Name: "AUDIT", Subjects: []string{"audit.>"}, MaxAge: 30 * 24 * time.Hour},
 		{Name: "VULN", Subjects: []string{"vuln.>"}, MaxAge: 7 * 24 * time.Hour},
+		{Name: "GOVERNANCE", Subjects: []string{"governance.>"}, MaxAge: 7 * 24 * time.Hour},
 	}
 	for _, cfg := range streams {
 		_, err := js.CreateOrUpdateStream(ctx, cfg)

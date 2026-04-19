@@ -1,0 +1,8 @@
+{
+  "language": "java",
+  "framework": "servlet-redirect",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "javax.servlet.http.HttpServletResponse", "method": "sendRedirect", "vuln_class": "open_redirect", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "org.springframework.web.servlet.view.RedirectView", "method": "<init>", "vuln_class": "open_redirect", "arg_index": 0}
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-JS-REDIRECT-001",
+  "version": "1.0.0",
+  "title": "Open Redirect via Unsanitized Redirect in Express",
+  "summary": "User-controlled input from req.query, req.params, or req.body is passed directly to res.redirect() without validation. An attacker can craft a malicious URL parameter that redirects the victim to an attacker-controlled site, enabling phishing attacks that appear to originate from the trusted application domain.",
+
+  "why_it_matters": "Open redirects are frequently used as the first stage in phishing campaigns. Because the initial URL points to a legitimate domain, victims are more likely to trust the link and enter credentials on the attacker's site. Open redirects can also be chained with other vulnerabilities: OAuth flows that accept arbitrary redirect URIs can be exploited to steal authorization codes, and some SSO implementations treat redirects from trusted domains as safe. While the direct impact is phishing, the indirect impact can be full account takeover when combined with authentication flows.",
+
+  "how_to_fix": "Never pass raw user input to res.redirect().\n\n1. Maintain an allowlist of permitted redirect paths or hostnames. Before redirecting, parse the target URL and verify that the host matches your domain or is in the allowlist.\n2. Use relative paths for internal redirects (e.g., res.redirect('/dashboard')) instead of absolute URLs.\n3. If you must accept a redirect URL parameter (e.g., ?returnTo=/settings), parse it with new URL() and verify that the origin matches your application's origin before redirecting.\n4. Reject any redirect target that starts with // or contains a different hostname, as these can redirect to external sites.\n5. Log rejected redirect attempts for security monitoring.",
+
+  "unsafe_example": "// UNSAFE: user-controlled redirect target\napp.get('/login/callback', (req, res) => {\n  const returnUrl = req.query.returnTo;\n  res.redirect(returnUrl); // attacker sets returnTo=https://evil.com\n});",
+
+  "safe_example": "// SAFE: validate redirect target against allowlist\nconst ALLOWED_PATHS = ['/dashboard', '/settings', '/profile'];\n\napp.get('/login/callback', (req, res) => {\n  const returnTo = req.query.returnTo || '/dashboard';\n  // Only allow relative paths that are in the allowlist\n  if (ALLOWED_PATHS.includes(returnTo)) {\n    res.redirect(returnTo);\n  } else {\n    res.redirect('/dashboard');\n  }\n});",
+
+  "developer_notes": "The taint analysis traces data from Express request properties (req.query, req.params, req.body) to res.redirect(). If your application uses a validation middleware or a URL validation utility before reaching the redirect call, the taint may still be flagged because the engine does not currently model sanitizer functions. In that case, mark the finding as a false positive with a comment explaining the validation. Be aware that URL parsing edge cases (backslashes, protocol-relative URLs, Unicode normalization) can bypass naive validation; always use the built-in URL constructor for parsing.",
+
+  "verification_checklist": [
+    "No res.redirect() call receives unvalidated user input",
+    "An allowlist of permitted redirect paths or hostnames is enforced",
+    "Redirect targets are parsed with the URL constructor and the origin is verified",
+    "Protocol-relative URLs (//evil.com) and javascript: URIs are explicitly rejected",
+    "Rejected redirect attempts are logged for security monitoring"
+  ],
+
+  "references": [
+    {"title": "CWE-601: URL Redirection to Untrusted Site (Open Redirect)", "url": "https://cwe.mitre.org/data/definitions/601.html"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"},
+    {"title": "OWASP Unvalidated Redirects and Forwards Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"}
+  ]
+}

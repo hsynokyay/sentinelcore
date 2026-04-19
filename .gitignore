@@ -6,7 +6,22 @@ bin/
 *.o
 *.so
 *.dylib
-vuln-intel
+/vuln-intel
+/controlplane
+/notification-worker
+/retention-worker
+/dast-worker
+/auth-broker
+/sast-worker
+/audit-service
+/policy-engine
+/updater
+/np-gc
+/correlation-engine
+/backup
+/cli
+/migrate
+/sentinelcore-cli
 
 # Environment and secrets
 .env
@@ -36,3 +51,9 @@ coverage.html
 
 # OS
 Thumbs.db
+web/.next/
+web/node_modules/
+
+# Git worktrees (used by superpowers subagent-driven-development)
+.worktrees/
+/rotate-sweep

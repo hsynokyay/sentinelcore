@@ -1,0 +1,20 @@
+{
+  "language": "csharp",
+  "framework": "dotnet-net",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "GetAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "PostAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "PutAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "DeleteAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "SendAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "GetStringAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "GetStreamAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpClient", "method": "GetByteArrayAsync", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.WebRequest", "method": "Create", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.Http.HttpRequestMessage", "method": "<init>", "vuln_class": "ssrf", "arg_index": 1},
+    {"kind": "sink", "receiver_fqn": "System.Net.WebClient", "method": "DownloadString", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.WebClient", "method": "DownloadData", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.WebClient", "method": "DownloadFile", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Net.WebClient", "method": "OpenRead", "vuln_class": "ssrf", "arg_index": 0}
+  ]
+}

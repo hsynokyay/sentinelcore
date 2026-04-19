@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-CSHARP-PATH-001",
+  "version": "1.0.0",
+  "title": "Path Traversal via unsanitized file path",
+  "summary": "User input flows into a System.IO file-access API without path normalization or containment checks. An attacker can use `..` segments to read, write, or delete files outside the intended directory.",
+
+  "why_it_matters": "Path traversal lets an attacker escape an intended base directory. For read sinks (File.ReadAllText, File.OpenRead) this often means reading secrets, configuration, or source code. For write sinks (File.WriteAllText, File.Open in write mode) it can mean overwriting application binaries, web roots, or startup scripts — in the worst case this becomes remote code execution.",
+
+  "how_to_fix": "Use a two-step process to contain user input to a known base directory:\n\n1. Strip directory components from the user input with Path.GetFileName — this removes any `..` or absolute path prefixes.\n2. Combine the base directory and the cleaned filename, then call Path.GetFullPath to resolve any remaining `..` segments.\n3. Verify the fully-resolved path still starts with the fully-resolved base directory. If not, reject the request.\n\nPrefer this pattern over simple string checks because Path.GetFullPath handles both Windows and POSIX path semantics, symlinks (on Linux), and mixed separators.",
+
+  "unsafe_example": "// UNSAFE: raw user input as the path\nstring filename = Request.Query[\"file\"];\nstring content = File.ReadAllText(filename);\n\n// UNSAFE: Path.Combine does NOT protect against ..\nstring full = Path.Combine(baseDir, Request.Query[\"file\"]);\nFile.ReadAllText(full);",
+
+  "safe_example": "// SAFE: strip directory, resolve, and verify containment\nstring filename = Request.Query[\"file\"];\nstring safe = Path.GetFileName(filename);\nstring baseDir = Path.GetFullPath(\"/var/data/reports\");\nstring full = Path.GetFullPath(Path.Combine(baseDir, safe));\nif (!full.StartsWith(baseDir + Path.DirectorySeparatorChar))\n    throw new SecurityException(\"path escape\");\nstring content = File.ReadAllText(full);",
+
+  "developer_notes": "On Linux, symbolic links can still escape the base directory even after Path.GetFullPath. For maximum safety, use File.ReadAllText(File.OpenHandle(path, FileOptions.None, FileAccess.Read)) and verify the inode after opening. Consider using a dedicated sandbox (chroot, AppArmor) for any code path that reads user-supplied filenames.",
+
+  "verification_checklist": [
+    "User-supplied filenames are passed through Path.GetFileName before use",
+    "Combined paths are resolved with Path.GetFullPath",
+    "Resolved paths are verified to start with the intended base directory",
+    "Directory separator is explicit in the containment check (baseDir + Path.DirectorySeparatorChar)",
+    "Write operations use a dedicated upload directory with restricted permissions"
+  ],
+
+  "references": [
+    {"title": "CWE-22: Improper Limitation of a Pathname to a Restricted Directory", "url": "https://cwe.mitre.org/data/definitions/22.html"},
+    {"title": "OWASP Path Traversal", "url": "https://owasp.org/www-community/attacks/Path_Traversal"},
+    {"title": "Microsoft: Security considerations for System.IO", "url": "https://learn.microsoft.com/en-us/dotnet/standard/io/"}
+  ]
+}

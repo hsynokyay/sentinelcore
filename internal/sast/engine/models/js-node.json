@@ -1,0 +1,30 @@
+{
+  "language": "javascript",
+  "framework": "node-stdlib",
+  "models": [
+    {"kind": "source", "receiver_fqn": "express.request", "method": "query", "taint_kind": "http_input"},
+    {"kind": "source", "receiver_fqn": "express.request", "method": "body", "taint_kind": "http_input"},
+    {"kind": "source", "receiver_fqn": "express.request", "method": "params", "taint_kind": "http_input"},
+    {"kind": "source", "receiver_fqn": "req", "method": "query", "taint_kind": "http_input"},
+    {"kind": "source", "receiver_fqn": "req", "method": "body", "taint_kind": "http_input"},
+    {"kind": "source", "receiver_fqn": "req", "method": "params", "taint_kind": "http_input"},
+
+    {"kind": "sink", "receiver_fqn": "child_process", "method": "exec", "vuln_class": "command_injection"},
+    {"kind": "sink", "receiver_fqn": "child_process", "method": "execSync", "vuln_class": "command_injection"},
+    {"kind": "sink", "receiver_fqn": "child_process", "method": "spawn", "vuln_class": "command_injection"},
+
+    {"kind": "sink", "receiver_fqn": "fs", "method": "readFile", "vuln_class": "path_traversal"},
+    {"kind": "sink", "receiver_fqn": "fs", "method": "readFileSync", "vuln_class": "path_traversal"},
+    {"kind": "sink", "receiver_fqn": "fs", "method": "writeFile", "vuln_class": "path_traversal"},
+    {"kind": "sink", "receiver_fqn": "fs", "method": "writeFileSync", "vuln_class": "path_traversal"},
+    {"kind": "sink", "receiver_fqn": "fs", "method": "createReadStream", "vuln_class": "path_traversal"},
+
+    {"kind": "sink", "receiver_fqn": "", "method": "eval", "vuln_class": "unsafe_eval"},
+    {"kind": "sink", "receiver_fqn": "Function", "method": "<init>", "vuln_class": "unsafe_eval"},
+
+    {"kind": "sink", "receiver_fqn": "res", "method": "send", "vuln_class": "xss"},
+    {"kind": "sink", "receiver_fqn": "res", "method": "write", "vuln_class": "xss"},
+    {"kind": "sink", "receiver_fqn": "document", "method": "write", "vuln_class": "xss"},
+    {"kind": "sink", "receiver_fqn": "", "method": "innerHTML", "vuln_class": "xss"}
+  ]
+}

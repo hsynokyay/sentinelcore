@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-CSHARP-SQL-001",
+  "version": "1.0.0",
+  "title": "SQL Injection via SqlCommand with string concatenation",
+  "summary": "User input flows into a SqlCommand constructor or execution method as part of a concatenated or interpolated SQL string, without parameterized queries. An attacker can inject arbitrary SQL to read, modify, or delete database contents.",
+
+  "why_it_matters": "SQL injection is one of the top web vulnerabilities because it gives direct access to the application's data. Successful exploitation can expose user credentials, PII, financial data, and session tokens, or escalate to operating-system command execution via stored procedures like xp_cmdshell. Automated scanners find these flaws in minutes.",
+
+  "how_to_fix": "Use parameterized queries in every database call. SqlCommand supports this via the Parameters collection:\n\n1. Construct the SqlCommand with named parameters (`@id`, `@email`) in the SQL string.\n2. For each parameter, call cmd.Parameters.AddWithValue(\"@name\", value) or use a typed SqlParameter with an explicit SqlDbType.\n3. Never interpolate or concatenate user input into the SQL string — treat `$\"SELECT ... {value}\"` the same as string concatenation.\n\nFor bulk operations or ORMs, use Dapper (Execute, Query with parameters) or Entity Framework with LINQ — both are parameterized by default.",
+
+  "unsafe_example": "// UNSAFE: string concatenation\nstring id = Request.Query[\"id\"];\nstring sql = \"SELECT * FROM users WHERE id = \" + id;\nvar cmd = new SqlCommand(sql, conn);\ncmd.ExecuteReader();\n\n// UNSAFE: string interpolation is still concatenation\nstring email = Request.Query[\"email\"];\nvar cmd2 = new SqlCommand($\"SELECT * FROM users WHERE email = '{email}'\", conn);",
+
+  "safe_example": "// SAFE: parameterized query\nstring id = Request.Query[\"id\"];\nvar cmd = new SqlCommand(\"SELECT * FROM users WHERE id = @id\", conn);\ncmd.Parameters.AddWithValue(\"@id\", id);\ncmd.ExecuteReader();\n\n// SAFE: typed parameters\nvar cmd2 = new SqlCommand(\"SELECT * FROM users WHERE email = @email AND active = @active\", conn);\ncmd2.Parameters.Add(\"@email\", SqlDbType.NVarChar, 256).Value = email;\ncmd2.Parameters.Add(\"@active\", SqlDbType.Bit).Value = true;",
+
+  "developer_notes": "String interpolation ($\"...\") looks safer than concatenation (\"...\" + x) but is exactly equivalent for SQL injection purposes — the compiler turns it into string.Format at compile time. Use FormattableString with SqlClient helpers (e.g., FormattableStringFactory) only when the receiving API is explicitly documented to parameterize the arguments.",
+
+  "verification_checklist": [
+    "No string concatenation of user input into SQL strings",
+    "No $\"...\" interpolation of user input into SQL strings",
+    "Every parameter uses cmd.Parameters.AddWithValue or a typed SqlParameter",
+    "Stored procedure calls pass arguments as parameters, not in the SQL string",
+    "ORM calls (Dapper, EF) use named parameters, never Raw SQL with interpolated input"
+  ],
+
+  "references": [
+    {"title": "CWE-89: SQL Injection", "url": "https://cwe.mitre.org/data/definitions/89.html"},
+    {"title": "OWASP SQL Injection Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"},
+    {"title": "SqlCommand.Parameters docs", "url": "https://learn.microsoft.com/en-us/dotnet/api/system.data.sqlclient.sqlcommand.parameters"}
+  ]
+}

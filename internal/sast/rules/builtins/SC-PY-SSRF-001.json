@@ -1,0 +1,21 @@
+{
+  "rule_id": "SC-PY-SSRF-001",
+  "name": "Server-Side Request Forgery via unsanitized URL",
+  "language": "python",
+  "cwe": ["CWE-918"],
+  "owasp": ["A10:2021"],
+  "severity": "high",
+  "confidence": {
+    "base": 0.75
+  },
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "ssrf"
+  },
+  "description": "User input flows into HTTP request URL.",
+  "remediation": "Validate URLs against an allowlist.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/918.html",
+    "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"
+  ]
+}

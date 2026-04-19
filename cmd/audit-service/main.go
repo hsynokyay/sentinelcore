@@ -6,10 +6,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sentinelcore/sentinelcore/internal/audit"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/internal/audit/integrity"
+	"github.com/sentinelcore/sentinelcore/internal/audit/partition"
+	pkgaudit "github.com/sentinelcore/sentinelcore/pkg/audit"
 	sc_nats "github.com/sentinelcore/sentinelcore/pkg/nats"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
@@ -19,14 +26,40 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// Connect to PostgreSQL
-	pool, err := db.NewPool(ctx, db.Config{
-		Host:     getEnv("DB_HOST", "localhost"),
-		Port:     5432,
-		Database: getEnv("DB_NAME", "sentinelcore"),
-		User:     getEnv("DB_USER", "sentinelcore"),
-		Password: getEnv("DB_PASSWORD", "dev-password"),
-	})
+	// Connect to PostgreSQL via a custom pgxpool so we can install an
+	// AfterConnect hook that stamps the session with app.writer_role.
+	// When ops splits auth.audit_log to a non-owner DB role (plan §1.5),
+	// that session var is what the INSERT RLS policy enforces. Setting
+	// it today is a no-op for the owner role but ensures the next
+	// operator-level role change lands safely.
+	maxConns, _ := strconv.Atoi(getEnv("DB_MAX_CONNS", "10"))
+	if maxConns < 1 {
+		maxConns = 10
+	}
+	dbPort, _ := strconv.Atoi(getEnv("DB_PORT", "5432"))
+	if dbPort == 0 {
+		dbPort = 5432
+	}
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
+		getEnv("DB_USER", "sentinelcore"),
+		getEnv("DB_PASSWORD", "dev-password"),
+		getEnv("DB_HOST", "localhost"),
+		dbPort,
+		getEnv("DB_NAME", "sentinelcore"),
+	)
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("pgxpool parse config")
+	}
+	poolCfg.MaxConns = int32(maxConns)
+	poolCfg.MaxConnLifetime = 30 * time.Minute
+	poolCfg.MaxConnIdleTime = 5 * time.Minute
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		// Session variable read by audit.audit_log's INSERT RLS policy.
+		_, err := conn.Exec(ctx, `SET app.writer_role = 'audit_worker'`)
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to connect to database")
 	}
@@ -58,9 +91,66 @@ func main() {
 		}
 	}()
 
-	// Start consumer
+	// Partition manager: keeps a rolling window of monthly partitions so
+	// a boundary-crossing audit row never lands in audit_log_default.
+	// Runs once at startup, then daily. Tuneable via env for ops testing.
+	monthsAhead, _ := strconv.Atoi(getEnv("AUDIT_PARTITION_MONTHS_AHEAD", "2"))
+	partInterval, err := time.ParseDuration(getEnv("AUDIT_PARTITION_INTERVAL", "24h"))
+	if err != nil {
+		partInterval = 24 * time.Hour
+	}
+	pm := partition.New(pool, logger)
+	if _, err := pm.EnsureRollingWindow(ctx, monthsAhead); err != nil {
+		// Non-fatal: migration 033 already seeded the window, cron will retry.
+		logger.Error().Err(err).Msg("initial partition ensure failed; cron will retry")
+	} else {
+		logger.Info().Int("months_ahead", monthsAhead).Msg("audit partitions: initial window ok")
+	}
+	go pm.RunDaily(ctx, monthsAhead, partInterval)
+
+	// Start consumer. Mode is chosen by env:
+	//   AUDIT_CONSUMER_MODE=legacy (default) → pre-chain write path; rows
+	//       land with previous_hash='' / entry_hash=''. Verifier reports
+	//       'partial' outcome — expected during transition.
+	//   AUDIT_CONSUMER_MODE=hmac → chained, tamper-evident write path.
+	//       Requires AUDIT_HMAC_KEY_B64 to be set to a 32-byte base64 key.
 	writer := audit.NewWriter(pool)
 	consumer := audit.NewConsumer(js, writer, logger)
+
+	mode := getEnv("AUDIT_CONSUMER_MODE", "legacy")
+	switch mode {
+	case "legacy":
+		logger.Info().Msg("audit consumer: legacy write path (no chain)")
+	case "hmac":
+		keys, err := pkgaudit.NewEnvKeyResolver()
+		if err != nil {
+			logger.Fatal().Err(err).Msg("AUDIT_CONSUMER_MODE=hmac but key resolver failed")
+		}
+		hw := audit.NewHMACWriter(pool, keys).
+			WithProjector(audit.NewRiskProjector())
+		consumer.WithHMACWriter(hw)
+		logger.Info().
+			Int("key_version", keys.CurrentVersion()).
+			Str("fingerprint_prefix", keys.Fingerprint()[:16]).
+			Msg("audit consumer: HMAC chained write path")
+
+		// Hourly chain verification — warm partitions only for now.
+		// Writes a row per partition into audit.integrity_checks each run.
+		verifier := integrity.NewVerifier(pool, keys)
+		scheduler := integrity.NewScheduler(pool, verifier, logger)
+		verifyInterval, err := time.ParseDuration(getEnv("AUDIT_VERIFY_INTERVAL", "1h"))
+		if err != nil {
+			verifyInterval = time.Hour
+		}
+		warmMonths, _ := strconv.Atoi(getEnv("AUDIT_VERIFY_WARM_MONTHS", "4"))
+		go scheduler.RunHourly(ctx, verifyInterval, warmMonths)
+		logger.Info().
+			Dur("interval", verifyInterval).
+			Int("warm_months", warmMonths).
+			Msg("integrity verifier scheduler started")
+	default:
+		logger.Fatal().Str("mode", mode).Msg("AUDIT_CONSUMER_MODE must be 'legacy' or 'hmac'")
+	}
 
 	logger.Info().Msg("Audit Log Service starting")
 	if err := consumer.Start(ctx); err != nil && err != context.Canceled {

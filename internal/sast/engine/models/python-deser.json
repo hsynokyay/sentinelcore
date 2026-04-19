@@ -1,0 +1,10 @@
+{
+  "language": "python",
+  "framework": "python-serialization",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "pickle", "method": "loads", "vuln_class": "unsafe_deserialization"},
+    {"kind": "sink", "receiver_fqn": "pickle", "method": "load", "vuln_class": "unsafe_deserialization"},
+    {"kind": "sink", "receiver_fqn": "yaml", "method": "load", "vuln_class": "unsafe_deserialization"},
+    {"kind": "sink", "receiver_fqn": "yaml", "method": "unsafe_load", "vuln_class": "unsafe_deserialization"}
+  ]
+}

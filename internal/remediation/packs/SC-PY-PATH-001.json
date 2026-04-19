@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-PATH-001",
+  "version": "1.0.0",
+  "title": "Remediate Python Path Traversal",
+  "summary": "User-controlled input is used to construct file paths without validation, allowing attackers to read or write arbitrary files using directory traversal sequences like '../'. Normalize the path and verify it stays within the intended base directory.",
+  "why_it_matters": "Path traversal vulnerabilities allow attackers to escape the intended directory and access sensitive files on the server. This can expose configuration files containing database credentials, application source code, SSH keys, /etc/passwd, and other critical system files. In write scenarios, attackers can overwrite application code or configuration to achieve remote code execution. Path traversal is consistently ranked among the most exploited web application vulnerabilities.",
+  "how_to_fix": "1. Define a constant for the allowed base directory.\n2. Use os.path.realpath() to resolve the full canonical path, eliminating symlinks and '..' sequences.\n3. Check that the resolved path starts with the base directory using str.startswith().\n4. Reject the request with an error if the path escapes the allowed directory.\n5. Never use user input directly in open() or os.path.join() without validation.",
+  "unsafe_example": "from flask import request\n\ndef download():\n    filename = request.args.get(\"file\")\n    # VULNERABLE: user input concatenated into file path\n    with open(\"/uploads/\" + filename) as f:\n        return f.read()",
+  "safe_example": "from flask import request\nimport os\n\nBASE_DIR = \"/uploads\"\n\ndef download():\n    filename = request.args.get(\"file\")\n    safe_path = os.path.realpath(os.path.join(BASE_DIR, filename))\n    if not safe_path.startswith(BASE_DIR + os.sep):\n        return \"Access denied\", 403\n    with open(safe_path) as f:\n        return f.read()",
+  "developer_notes": "os.path.realpath() is preferred over os.path.abspath() because it also resolves symbolic links that could point outside the base directory. Always append os.sep to the base directory in the startswith() check to prevent partial directory name matches (e.g., /uploads-evil matching /uploads). Consider using pathlib.Path with its .resolve() and .is_relative_to() methods in Python 3.9+ for a more modern approach.",
+  "verification_checklist": [
+    "Confirm all file-opening code paths normalize user-supplied paths with os.path.realpath()",
+    "Verify startswith() checks include the trailing os.sep to prevent partial matches",
+    "Test with payloads like '../../etc/passwd' and symlink-based escapes",
+    "Ensure error responses do not reveal the resolved file path to the user",
+    "Run the SAST scanner to confirm SC-PY-PATH-001 no longer triggers"
+  ],
+  "references": [
+    {"title": "CWE-22: Improper Limitation of a Pathname to a Restricted Directory", "url": "https://cwe.mitre.org/data/definitions/22.html"},
+    {"title": "OWASP Path Traversal", "url": "https://owasp.org/www-community/attacks/Path_Traversal"},
+    {"title": "Python os.path documentation", "url": "https://docs.python.org/3/library/os.path.html"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"}
+  ]
+}

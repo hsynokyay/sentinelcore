@@ -1,0 +1,27 @@
+{
+  "rule_id": "SC-JS-SSRF-001",
+  "title": "Server-Side Request Forgery (SSRF) in Node.js",
+  "summary": "User-controlled input is passed directly to an HTTP client (http, https, axios) as the request URL, enabling server-side request forgery.",
+  "why_it_matters": "SSRF in Node.js applications allows attackers to abuse the server as a proxy to reach internal services, cloud metadata endpoints, and other resources behind the firewall. This can lead to theft of cloud credentials from metadata services (e.g., http://169.254.169.254/), access to internal APIs and databases not exposed to the internet, port scanning of internal network infrastructure, and data exfiltration from internal services.",
+  "how_to_fix": "Validate all user-supplied URLs against a strict allowlist of permitted hostnames and schemes.\nParse the URL and verify the hostname resolves to a public IP address before making the request.\nBlock requests to private and reserved IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16).\nDisable automatic redirect following or re-validate the URL after each redirect.\nUse a dedicated egress proxy with URL filtering at the network level.",
+  "unsafe_example": "const axios = require(\"axios\");\nconst url = req.query.url;\naxios.get(url);",
+  "safe_example": "const axios = require(\"axios\");\nconst { URL } = require(\"url\");\nconst dns = require(\"dns\").promises;\nconst net = require(\"net\");\n\nconst ALLOWED_HOSTS = new Set([\"api.example.com\", \"cdn.example.com\"]);\n\nasync function safeFetch(reqUrl) {\n  const parsed = new URL(reqUrl);\n  if (!ALLOWED_HOSTS.has(parsed.hostname)) {\n    throw new Error(\"Host not allowed: \" + parsed.hostname);\n  }\n  const { address } = await dns.lookup(parsed.hostname);\n  if (net.isIP(address) && isPrivateIP(address)) {\n    throw new Error(\"Requests to private IPs are blocked\");\n  }\n  return axios.get(parsed.href, { maxRedirects: 0 });\n}",
+  "developer_notes": "Be aware that axios and Node.js http follow redirects by default. An attacker can provide a URL that initially resolves to a public IP but redirects to an internal address. Always set maxRedirects to 0 or re-validate after each redirect. Also watch for DNS rebinding: resolve the hostname, check the IP, then make the request using the resolved IP rather than the hostname.",
+  "verification_checklist": [
+    "Confirm that all user-supplied URLs are validated against a hostname or domain allowlist before use.",
+    "Verify that DNS resolution is performed and the resolved IP is checked against private/reserved ranges.",
+    "Check that HTTP redirect following is disabled or that each redirect hop is re-validated.",
+    "Test with payloads targeting http://169.254.169.254/latest/meta-data/ and http://127.0.0.1/ to confirm they are blocked.",
+    "Ensure that URL parsing handles edge cases like http://evil.com@trusted.com and protocol-relative URLs."
+  ],
+  "references": [
+    {
+      "title": "CWE-918: Server-Side Request Forgery",
+      "url": "https://cwe.mitre.org/data/definitions/918.html"
+    },
+    {
+      "title": "OWASP SSRF Prevention Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+    }
+  ]
+}

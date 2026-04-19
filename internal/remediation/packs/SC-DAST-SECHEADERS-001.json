@@ -1,0 +1,32 @@
+{
+  "rule_id": "SC-DAST-SECHEADERS-001",
+  "version": "1.0.0",
+  "title": "Missing security headers in HTTP response",
+  "summary": "The HTTP response was observed missing one or more recommended security headers. The absence of headers such as Content-Security-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, and Referrer-Policy reduces the application's defense-in-depth posture and may leave users exposed to cross-site scripting, clickjacking, MIME-sniffing, and man-in-the-middle attacks.",
+
+  "why_it_matters": "Security headers instruct the browser to enable built-in protections that mitigate entire classes of attacks. Without Content-Security-Policy, injected scripts execute freely. Without Strict-Transport-Security, users may be downgraded to HTTP via SSL-stripping attacks. Without X-Frame-Options, the page can be embedded in an attacker's iframe for clickjacking. Without X-Content-Type-Options, browsers may MIME-sniff responses and execute uploaded files as scripts. These headers are low-cost, high-value defenses that complement application-level security controls.",
+
+  "how_to_fix": "Add the following security headers to all HTTP responses. Configure them at the web server, reverse proxy, or application middleware level:\n\n1. **Content-Security-Policy** — Restricts the sources from which scripts, styles, and other resources can be loaded.\n   Recommended: `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'`\n   Adjust based on your application's requirements. Start with report-only mode.\n\n2. **Strict-Transport-Security (HSTS)** — Forces browsers to use HTTPS for all future requests to the domain.\n   Recommended: `Strict-Transport-Security: max-age=31536000; includeSubDomains`\n   Only enable after confirming HTTPS works for all subdomains.\n\n3. **X-Content-Type-Options** — Prevents MIME-sniffing attacks.\n   Recommended: `X-Content-Type-Options: nosniff`\n\n4. **X-Frame-Options** — Prevents clickjacking by controlling iframe embedding.\n   Recommended: `X-Frame-Options: DENY` (or `SAMEORIGIN` if iframing within the same origin is required)\n   Note: CSP frame-ancestors is the modern replacement but X-Frame-Options provides backward compatibility.\n\n5. **Referrer-Policy** — Controls how much referrer information is sent with requests.\n   Recommended: `Referrer-Policy: strict-origin-when-cross-origin`\n\n6. **Permissions-Policy** — Restricts access to browser features (camera, microphone, geolocation).\n   Recommended: `Permissions-Policy: camera=(), microphone=(), geolocation=()`",
+
+  "unsafe_example": "HTTP/1.1 200 OK\nContent-Type: text/html; charset=utf-8\nCache-Control: no-cache\n\n<!DOCTYPE html>\n<html>...</html>\n\n<!-- No security headers present in the response -->",
+
+  "safe_example": "HTTP/1.1 200 OK\nContent-Type: text/html; charset=utf-8\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'self'\nStrict-Transport-Security: max-age=31536000; includeSubDomains\nX-Content-Type-Options: nosniff\nX-Frame-Options: DENY\nReferrer-Policy: strict-origin-when-cross-origin\nPermissions-Policy: camera=(), microphone=(), geolocation=()\nCache-Control: no-cache\n\n<!DOCTYPE html>\n<html>...</html>",
+
+  "developer_notes": "Configure security headers at the reverse proxy or load balancer level (Nginx, Apache, Cloudflare, AWS ALB) to ensure consistent coverage across all routes. Framework-specific configuration:\n- **Nginx**: add headers in the `server` or `location` block using `add_header` directives.\n- **Express**: use the `helmet` npm package, which sets secure defaults for all recommended headers.\n- **Django**: use `SecurityMiddleware` (HSTS) and `django-csp` for Content-Security-Policy.\n- **Spring Boot**: configure via `HttpSecurity.headers()` in your security configuration class.\n- **ASP.NET**: use `NWebsec` middleware or configure headers in `Startup.cs`.\n\nDeploy Content-Security-Policy in report-only mode (`Content-Security-Policy-Report-Only`) first to identify and resolve violations before switching to enforcement. Use tools like securityheaders.com or Mozilla Observatory to audit your header configuration.",
+
+  "verification_checklist": [
+    "Content-Security-Policy header is present with a policy that restricts script-src and other directives",
+    "Strict-Transport-Security header is present with max-age of at least 31536000 (one year)",
+    "X-Content-Type-Options: nosniff header is present on all responses",
+    "X-Frame-Options is set to DENY or SAMEORIGIN on HTML responses",
+    "Referrer-Policy header is present with strict-origin-when-cross-origin or stricter value",
+    "Security header configuration is tested with an automated scanner (e.g., securityheaders.com, Mozilla Observatory)"
+  ],
+
+  "references": [
+    {"title": "CWE-693: Protection Mechanism Failure", "url": "https://cwe.mitre.org/data/definitions/693.html"},
+    {"title": "OWASP Secure Headers Project", "url": "https://owasp.org/www-project-secure-headers/"},
+    {"title": "OWASP HTTP Security Response Headers Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html"},
+    {"title": "Mozilla Observatory", "url": "https://observatory.mozilla.org/"}
+  ]
+}

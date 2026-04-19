@@ -1,0 +1,8 @@
+{
+  "language": "csharp",
+  "framework": "dotnet-process",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "System.Diagnostics.Process", "method": "Start", "vuln_class": "command_injection", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Diagnostics.ProcessStartInfo", "method": "<init>", "vuln_class": "command_injection", "arg_index": 0}
+  ]
+}

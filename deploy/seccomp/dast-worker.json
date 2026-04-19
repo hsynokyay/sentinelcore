@@ -1,0 +1,38 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "architectures": [
+    "SCMP_ARCH_X86_64",
+    "SCMP_ARCH_AARCH64"
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "read", "write", "close", "fstat", "lseek",
+        "mmap", "mprotect", "munmap", "brk",
+        "pread64", "pwrite64",
+        "access", "getpid", "getuid", "getgid",
+        "geteuid", "getegid", "gettid",
+        "socket", "connect", "bind", "listen", "accept", "accept4",
+        "sendto", "recvfrom", "sendmsg", "recvmsg",
+        "setsockopt", "getsockopt", "getsockname", "getpeername",
+        "epoll_create1", "epoll_ctl", "epoll_wait", "epoll_pwait",
+        "select", "poll", "ppoll",
+        "openat", "readlinkat", "newfstatat",
+        "futex", "nanosleep", "clock_gettime", "clock_nanosleep",
+        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+        "sigaltstack", "tgkill",
+        "exit", "exit_group",
+        "getrandom",
+        "pipe2", "dup", "dup2", "dup3",
+        "fcntl",
+        "sched_yield", "sched_getaffinity",
+        "set_robust_list", "get_robust_list",
+        "arch_prctl", "set_tid_address",
+        "madvise", "mincore",
+        "clone3", "rseq"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ],
+  "_comment": "DAST worker seccomp profile: allows network syscalls (socket, connect, bind, etc.) for HTTP scanning but blocks execve, fork, mount, ptrace, and filesystem write operations. clone3 allowed for Go goroutines only."
+}

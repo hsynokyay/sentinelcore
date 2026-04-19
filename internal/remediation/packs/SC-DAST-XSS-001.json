@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-DAST-XSS-001",
+  "version": "1.0.0",
+  "title": "Reflected Cross-Site Scripting (XSS)",
+  "summary": "User-supplied input was observed reflected in the HTTP response without context-appropriate encoding. An attacker may craft a URL containing malicious JavaScript that, when clicked by a victim, executes in the victim's browser session with full access to the page context, cookies, and session data.",
+
+  "why_it_matters": "Reflected XSS is one of the most prevalent web vulnerabilities (OWASP Top 10 A03:2021 Injection). A successful exploit allows an attacker to steal session tokens, impersonate users, redirect to phishing pages, deface content, or install keyloggers — all by tricking a user into clicking a crafted link. XSS attacks bypass same-origin policy protections because the malicious script executes within the trusted origin. Automated scanners and attackers routinely probe for reflection points, making unencoded output a high-priority finding.",
+
+  "how_to_fix": "Apply context-aware output encoding to all user-controlled data before including it in HTTP responses:\n\n1. **HTML context** — HTML-entity encode user input before inserting it into HTML body content. Encode `<`, `>`, `&`, `\"`, and `'` at minimum.\n2. **HTML attribute context** — Attribute-encode user input and always quote attribute values. Never insert user input into unquoted attributes or event handler attributes.\n3. **JavaScript context** — JavaScript-encode (hex escape) user input before inserting it into script blocks. Prefer assigning values via DOM APIs rather than inline interpolation.\n4. **URL context** — URL-encode user input before inserting it into URL parameters. Validate that URLs begin with `https://` or a relative path (never `javascript:` or `data:`).\n5. **CSS context** — CSS-encode user input before inserting it into style blocks or attributes.\n6. **Use framework auto-escaping** — Modern frameworks (React, Angular, Vue, Django templates, Thymeleaf, Razor) auto-escape by default. Never bypass these protections (e.g., `dangerouslySetInnerHTML`, `|safe`, `{!! !!}`) without thorough review.\n7. **Deploy Content-Security-Policy** — A strict CSP provides defense-in-depth by preventing execution of injected scripts even if an encoding gap exists.",
+
+  "unsafe_example": "<!-- UNSAFE: user input reflected without encoding -->\n<p>Search results for: ${userInput}</p>\n\n// UNSAFE: server-side rendering without encoding (Node.js/Express)\napp.get('/search', (req, res) => {\n  const query = req.query.q;\n  res.send(`<p>You searched for: ${query}</p>`);\n});",
+
+  "safe_example": "// SAFE: context-aware HTML encoding (Node.js/Express with escape-html)\nconst escapeHtml = require('escape-html');\napp.get('/search', (req, res) => {\n  const query = escapeHtml(req.query.q);\n  res.send(`<p>You searched for: ${query}</p>`);\n});\n\n// SAFE: React auto-escaping (default behavior)\nfunction SearchResults({ query }) {\n  return <p>You searched for: {query}</p>;\n  // React automatically escapes the query variable\n}\n\n// SAFE: Django template auto-escaping (default behavior)\n// <p>You searched for: {{ query }}</p>",
+
+  "developer_notes": "Encoding must be context-specific. HTML-entity encoding is not sufficient for JavaScript or URL contexts. The most common XSS mistakes are: (1) using raw string interpolation in server-rendered templates, (2) bypassing framework auto-escaping with raw/safe directives, and (3) using innerHTML or document.write with user input on the client side. For React applications, avoid `dangerouslySetInnerHTML` unless the content has been sanitized with a library like DOMPurify. For server-rendered applications (Express, Django, Spring MVC), ensure the templating engine's auto-escaping is enabled globally and not overridden on a per-template basis.",
+
+  "verification_checklist": [
+    "All user-controlled input is encoded using context-appropriate encoding (HTML, attribute, JavaScript, URL) before being included in responses",
+    "Framework auto-escaping is enabled globally and no templates use raw/safe/unescaped output directives without documented justification",
+    "Client-side code does not use innerHTML, document.write, or outerHTML with user-controlled data",
+    "Content-Security-Policy header is deployed with a strict script-src directive as defense-in-depth",
+    "Automated tests submit XSS probe payloads and verify they are rendered as text, not executed"
+  ],
+
+  "references": [
+    {"title": "CWE-79: Improper Neutralization of Input During Web Page Generation (XSS)", "url": "https://cwe.mitre.org/data/definitions/79.html"},
+    {"title": "OWASP XSS Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"},
+    {"title": "OWASP DOM-based XSS Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html"}
+  ]
+}

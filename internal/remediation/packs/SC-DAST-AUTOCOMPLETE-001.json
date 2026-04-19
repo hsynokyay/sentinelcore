@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-DAST-AUTOCOMPLETE-001",
+  "version": "1.0.0",
+  "title": "Password field autocomplete enabled",
+  "summary": "A password input field was observed without an explicit autocomplete attribute restricting credential caching. On shared or kiosk devices, browser autocomplete may cache credentials locally, making them accessible to subsequent users of the same device. This finding is observational and may be lower risk on personal devices where the user is the sole operator.",
+
+  "why_it_matters": "When browsers store credentials via autocomplete, those credentials persist in the browser's password manager or form autofill data. On shared workstations, public terminals, or kiosk environments, this means a subsequent user could access stored credentials through the browser's autofill suggestions. While modern browsers have moved toward ignoring `autocomplete=\"off\"` for password fields (in favor of their own password managers), the `autocomplete` attribute still provides a meaningful signal to the browser about the intended behavior of the field, particularly for the distinction between new and existing passwords.",
+
+  "how_to_fix": "Set the appropriate `autocomplete` attribute on password fields based on context:\n\n1. **Login forms** — Use `autocomplete=\"current-password\"` on the password field. This signals to the browser that this is an existing credential, enabling password manager integration (which is generally more secure than manual entry).\n2. **Registration / password-change forms** — Use `autocomplete=\"new-password\"` on new password fields. This tells the browser to offer a generated password and not to autofill an existing one.\n3. **Sensitive environments (kiosks, shared devices)** — Consider `autocomplete=\"off\"` on the password field, though be aware that many modern browsers intentionally ignore this for usability reasons. In high-security kiosk environments, combine with session-level protections (clearing browser data on logout, using ephemeral browser profiles).\n4. **Username fields** — Use `autocomplete=\"username\"` on the corresponding username or email field to improve password manager integration.",
+
+  "unsafe_example": "<!-- Password field with no autocomplete attribute (browser default behavior) -->\n<form action=\"/login\" method=\"POST\">\n  <input type=\"text\" name=\"username\" placeholder=\"Username\">\n  <input type=\"password\" name=\"password\" placeholder=\"Password\">\n  <button type=\"submit\">Log In</button>\n</form>",
+
+  "safe_example": "<!-- Login form: explicit autocomplete values for password manager integration -->\n<form action=\"/login\" method=\"POST\">\n  <input type=\"text\" name=\"username\" autocomplete=\"username\" placeholder=\"Username\">\n  <input type=\"password\" name=\"password\" autocomplete=\"current-password\" placeholder=\"Password\">\n  <button type=\"submit\">Log In</button>\n</form>\n\n<!-- Registration form: signals browser to offer generated password -->\n<form action=\"/register\" method=\"POST\">\n  <input type=\"text\" name=\"username\" autocomplete=\"username\" placeholder=\"Username\">\n  <input type=\"password\" name=\"password\" autocomplete=\"new-password\" placeholder=\"Create Password\">\n  <input type=\"password\" name=\"confirm\" autocomplete=\"new-password\" placeholder=\"Confirm Password\">\n  <button type=\"submit\">Register</button>\n</form>",
+
+  "developer_notes": "This finding is informational in many contexts. Modern browsers (Chrome, Firefox, Safari) deliberately ignore `autocomplete=\"off\"` on password fields because they consider password managers to be a net security benefit. The more useful approach is to use semantic autocomplete values (`current-password`, `new-password`, `username`) to help password managers function correctly. For shared or kiosk environments, the real mitigation is at the session level: use ephemeral browser profiles, clear browser data on logout, or deploy a managed kiosk solution. Evaluate this finding in the context of your application's threat model before prioritizing remediation.",
+
+  "verification_checklist": [
+    "Login password fields have autocomplete=\"current-password\" set",
+    "Registration and password-change fields have autocomplete=\"new-password\" set",
+    "Username or email fields have autocomplete=\"username\" set",
+    "Shared-device or kiosk deployments implement session-level credential clearing",
+    "The finding has been evaluated against the application's threat model to determine appropriate priority"
+  ],
+
+  "references": [
+    {"title": "CWE-522: Insufficiently Protected Credentials", "url": "https://cwe.mitre.org/data/definitions/522.html"},
+    {"title": "OWASP Authentication Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html"},
+    {"title": "MDN Web Docs: autocomplete attribute", "url": "https://developer.mozilla.org/en-US/docs/Web/HTML/Attributes/autocomplete"}
+  ]
+}

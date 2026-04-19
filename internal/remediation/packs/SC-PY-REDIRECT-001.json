@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-PY-REDIRECT-001",
+  "version": "1.0.0",
+  "title": "Open Redirect via Unsanitized Redirect Target in Flask",
+  "summary": "User-controlled input from request.args or request.form flows directly into flask.redirect() without validation. An attacker can craft a URL parameter that redirects the victim to a malicious site, enabling phishing attacks that exploit the trust users place in the legitimate application domain.",
+
+  "why_it_matters": "Open redirects are a common vector for phishing campaigns and are listed under OWASP A01:2021 Broken Access Control. When a redirect URL parameter is not validated, an attacker can construct a link like https://your-app.com/login?next=https://evil.com that appears trustworthy because it starts with your domain. Victims who click the link are seamlessly redirected to the attacker's site, which can mimic your login page to harvest credentials. Open redirects can also be chained with OAuth and SAML flows to steal authorization tokens, escalating the impact to full account takeover.",
+
+  "how_to_fix": "Validate all redirect targets before passing them to flask.redirect().\n\n1. Use url_for() for internal redirects to generate URLs from endpoint names rather than accepting raw URL strings.\n2. If a redirect URL parameter is necessary (e.g., ?next=/dashboard after login), parse it with urllib.parse.urlparse() and verify that the scheme is empty or http/https and the netloc is empty (relative URL) or matches your domain.\n3. Maintain an allowlist of permitted redirect paths and reject any target not in the list.\n4. Never redirect to a URL that starts with // (protocol-relative URL) or contains an @ character before the path (credential-based URL confusion).\n5. Log rejected redirect attempts for security monitoring and incident response.",
+
+  "unsafe_example": "# UNSAFE: user-controlled redirect target\nfrom flask import request, redirect\n\n@app.route('/login/callback')\ndef login_callback():\n    next_url = request.args.get('next')\n    return redirect(next_url)  # Attacker sets next=https://evil.com",
+
+  "safe_example": "# SAFE: validate redirect target is a relative path\nfrom flask import request, redirect, url_for\nfrom urllib.parse import urlparse\n\n@app.route('/login/callback')\ndef login_callback():\n    next_url = request.args.get('next', '/dashboard')\n    parsed = urlparse(next_url)\n    # Only allow relative paths (no scheme, no netloc)\n    if parsed.scheme or parsed.netloc:\n        next_url = '/dashboard'\n    return redirect(next_url)",
+
+  "developer_notes": "The taint analysis traces data from Flask request.args and request.form to the redirect() function. If your application uses a custom validation function or decorator to sanitize the redirect target before it reaches redirect(), the finding may be a false positive. Mark it as such with a comment explaining the validation. Be aware that URL parsing edge cases can bypass naive validation: backslashes, tab characters, and Unicode homoglyphs in URLs may be interpreted differently by the browser and the server-side parser. Always use urllib.parse.urlparse() for URL decomposition.",
+
+  "verification_checklist": [
+    "No flask.redirect() call receives unvalidated user input",
+    "Redirect targets are parsed with urlparse() and verified to be relative paths or match the application domain",
+    "url_for() is used for internal redirects where possible",
+    "Protocol-relative URLs and URLs with embedded credentials are explicitly rejected",
+    "Rejected redirect attempts are logged for security monitoring"
+  ],
+
+  "references": [
+    {"title": "CWE-601: URL Redirection to Untrusted Site (Open Redirect)", "url": "https://cwe.mitre.org/data/definitions/601.html"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"},
+    {"title": "OWASP Unvalidated Redirects and Forwards Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"}
+  ]
+}

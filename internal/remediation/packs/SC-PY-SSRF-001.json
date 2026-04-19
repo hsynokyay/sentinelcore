@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-SSRF-001",
+  "version": "1.0.0",
+  "title": "Remediate Python Server-Side Request Forgery (SSRF)",
+  "summary": "User-controlled input is used as a URL in an outbound HTTP request without validation. Implement a URL allowlist to restrict requests to approved domains and block access to internal network resources.",
+  "why_it_matters": "SSRF vulnerabilities allow attackers to make the server send HTTP requests to arbitrary destinations, including internal services that are not accessible from the internet. This can expose cloud metadata endpoints (e.g., AWS IMDSv1 at 169.254.169.254) containing temporary credentials, access internal APIs and databases, scan internal network ports, and exfiltrate data through the server as a proxy. SSRF has been added to the OWASP Top 10 as its own category (A10:2021) due to the increasing severity of these attacks in cloud environments.",
+  "how_to_fix": "1. Define a strict allowlist of permitted destination domains or URL patterns.\n2. Parse the user-supplied URL and validate the scheme (https only), hostname, and port.\n3. Resolve the hostname to an IP address and verify it is not in private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 127.0.0.0/8).\n4. Block requests to cloud metadata endpoints (169.254.169.254).\n5. Use a dedicated HTTP client configuration with timeouts and redirect limits.",
+  "unsafe_example": "from flask import request\nimport requests\n\ndef fetch():\n    url = request.args.get(\"url\")\n    # VULNERABLE: user-controlled URL without validation\n    response = requests.get(url)\n    return response.text",
+  "safe_example": "from flask import request\nimport requests\nfrom urllib.parse import urlparse\n\nALLOWED_DOMAINS = {\"api.example.com\", \"cdn.example.com\"}\n\ndef fetch():\n    url = request.args.get(\"url\")\n    parsed = urlparse(url)\n    if parsed.scheme != \"https\" or parsed.hostname not in ALLOWED_DOMAINS:\n        return \"URL not allowed\", 400\n    response = requests.get(url, timeout=10, allow_redirects=False)\n    return response.text",
+  "developer_notes": "URL validation must happen after DNS resolution to prevent DNS rebinding attacks where a hostname initially resolves to a public IP during validation but later resolves to a private IP during the actual request. Set allow_redirects=False or implement redirect validation to prevent attackers from using open redirects to bypass domain allowlists. Consider using a dedicated SSRF-prevention library that handles edge cases like IPv6-mapped IPv4 addresses, URL encoding tricks, and alternative IP representations (octal, hexadecimal). In cloud environments, enforce IMDSv2 (which requires a PUT request with a token) as an additional defense-in-depth measure.",
+  "verification_checklist": [
+    "Confirm all outbound HTTP requests validate the destination URL against an allowlist",
+    "Verify that DNS resolution results are checked against private IP ranges before the request is made",
+    "Test with payloads targeting internal IPs (127.0.0.1, 169.254.169.254, 10.0.0.1) and alternative encodings",
+    "Ensure HTTP redirects are either disabled or validated against the same allowlist rules",
+    "Run the SAST scanner to confirm SC-PY-SSRF-001 no longer triggers"
+  ],
+  "references": [
+    {"title": "CWE-918: Server-Side Request Forgery", "url": "https://cwe.mitre.org/data/definitions/918.html"},
+    {"title": "OWASP SSRF Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"},
+    {"title": "OWASP Top 10 A10:2021 SSRF", "url": "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"},
+    {"title": "PortSwigger SSRF Reference", "url": "https://portswigger.net/web-security/ssrf"}
+  ]
+}

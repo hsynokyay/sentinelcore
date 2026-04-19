@@ -1,0 +1,32 @@
+{
+  "rule_id": "SC-DAST-INLINE-001",
+  "version": "1.0.0",
+  "title": "Excessive inline scripts observed without Content-Security-Policy",
+  "summary": "Multiple inline <script> blocks were observed in the HTTP response, and no Content-Security-Policy header was detected that would restrict inline script execution. The presence of numerous inline scripts without CSP enforcement may increase the XSS attack surface, because any injection point that allows HTML insertion could execute attacker-controlled JavaScript without additional restrictions.",
+
+  "why_it_matters": "Inline scripts are the primary vector for Cross-Site Scripting (XSS) exploitation. When an attacker finds an injection point in a page that uses inline scripts freely and has no CSP, they can inject a <script> tag that executes immediately with full access to the page context, cookies, and session data. A strict Content-Security-Policy that disallows inline scripts (or requires nonces/hashes) provides a strong defense-in-depth layer: even if an injection vulnerability exists, the browser will refuse to execute the injected script. Without CSP, the application relies entirely on output encoding to prevent XSS, with no safety net.",
+
+  "how_to_fix": "Externalize inline scripts and deploy a strict Content-Security-Policy:\n\n1. **Move inline scripts to external files** — Extract all inline <script> blocks into separate .js files served from your origin. Reference them via `<script src=\"/js/app.js\">`.\n2. **Deploy a strict CSP with nonces** — Generate a unique, cryptographically random nonce per response and include it on each script tag and in the CSP header:\n   `Content-Security-Policy: script-src 'nonce-{random}' 'strict-dynamic'`\n   `<script nonce=\"{random}\" src=\"/js/app.js\"></script>`\n3. **Alternative: hash-based CSP** — If nonces are impractical, compute the SHA-256 hash of each inline script body and include it in the CSP:\n   `Content-Security-Policy: script-src 'sha256-{hash}'`\n4. **Use 'strict-dynamic'** — This allows scripts loaded by trusted scripts to execute, simplifying CSP deployment for applications with complex script dependency chains.\n5. **Remove inline event handlers** — Replace `onclick`, `onload`, and other inline event handler attributes with `addEventListener` calls in external scripts, as CSP nonces do not apply to inline event handlers.",
+
+  "unsafe_example": "<!-- UNSAFE: multiple inline scripts with no CSP header -->\n<html>\n<head><title>Dashboard</title></head>\n<body>\n  <script>\n    var userId = 'user123';\n    // ... application logic\n  </script>\n  <div id=\"content\"></div>\n  <script>\n    document.getElementById('content').innerHTML = getData();\n  </script>\n  <button onclick=\"doAction()\">Click</button>\n</body>\n</html>\n<!-- No Content-Security-Policy header in the HTTP response -->",
+
+  "safe_example": "<!-- SAFE: external scripts with nonce-based CSP -->\n<!-- HTTP Response Header: -->\n<!-- Content-Security-Policy: script-src 'nonce-4AEemGb0xJptoIGFP3Nd' 'strict-dynamic'; object-src 'none'; base-uri 'self' -->\n<html>\n<head><title>Dashboard</title></head>\n<body>\n  <script nonce=\"4AEemGb0xJptoIGFP3Nd\" src=\"/js/app.js\"></script>\n  <div id=\"content\"></div>\n  <!-- Event handlers moved to external JS using addEventListener -->\n  <button id=\"action-btn\">Click</button>\n</body>\n</html>",
+
+  "developer_notes": "Deploying CSP in report-only mode first (`Content-Security-Policy-Report-Only`) allows you to identify violations without breaking functionality. Use a CSP reporting endpoint to collect and triage violations before switching to enforcement mode. For frameworks:\n- **React/Next.js**: scripts are typically bundled, making CSP easier; configure nonces via middleware or custom server.\n- **Django**: use django-csp middleware for nonce injection.\n- **Express**: use the helmet package with `contentSecurityPolicy` configuration.\n- **Spring Boot**: configure CSP via `HttpSecurity.headers().contentSecurityPolicy()`.\nNote that Google Tag Manager, analytics snippets, and third-party widgets are common sources of inline scripts that require careful CSP planning.",
+
+  "verification_checklist": [
+    "Inline <script> blocks have been moved to external .js files or annotated with a per-response nonce",
+    "Content-Security-Policy header is present and restricts script-src to nonces or hashes",
+    "Inline event handlers (onclick, onload, etc.) have been replaced with addEventListener in external scripts",
+    "CSP report-only mode was used to identify and resolve violations before enforcement",
+    "Third-party scripts (analytics, tag managers) are accounted for in the CSP policy",
+    "No 'unsafe-inline' directive appears in the production CSP policy"
+  ],
+
+  "references": [
+    {"title": "CWE-829: Inclusion of Functionality from Untrusted Control Sphere", "url": "https://cwe.mitre.org/data/definitions/829.html"},
+    {"title": "MDN Web Docs: Content-Security-Policy", "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy"},
+    {"title": "OWASP Content Security Policy Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html"},
+    {"title": "Google CSP Evaluator", "url": "https://csp-evaluator.withgoogle.com/"}
+  ]
+}

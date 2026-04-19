@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-JS-SSRF-002",
+  "version": "1.0.0",
+  "title": "Server-Side Request Forgery via fetch/got/node-fetch",
+  "summary": "User-controlled input flows into fetch(), got.get(), got.post(), or node-fetch without URL validation. An attacker can manipulate the target URL to make the server send requests to internal services, cloud metadata endpoints (169.254.169.254), or other resources that are not directly accessible from the internet, leading to data exfiltration, internal service abuse, or credential theft.",
+
+  "why_it_matters": "SSRF is ranked in the OWASP Top 10 (A10:2021) and has been the root cause of major cloud breaches, most notably the 2019 Capital One breach where SSRF against the AWS metadata service leaked credentials for over 100 million customer records. In cloud environments, the instance metadata endpoint at 169.254.169.254 provides temporary IAM credentials that grant access to cloud services. Kubernetes clusters expose the kubelet API and service discovery DNS internally. Any server-side HTTP client that accepts user-controlled URLs without validation is a potential entry point for accessing these resources.",
+
+  "how_to_fix": "Validate and restrict all outbound HTTP requests that use user-supplied URLs.\n\n1. Parse the user-supplied URL with new URL() and validate the hostname against an allowlist of permitted external domains.\n2. Resolve the hostname to an IP address before making the request, and reject any IP in private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) or link-local (169.254.0.0/16).\n3. Reject URLs with schemes other than http: and https: to prevent file:, gopher:, and other protocol abuse.\n4. Implement a centralized HTTP client wrapper that enforces these validations, so individual call sites cannot bypass them.\n5. If the application needs to fetch arbitrary URLs (e.g., webhook delivery), use a dedicated egress proxy that enforces network-level restrictions.",
+
+  "unsafe_example": "// UNSAFE: user-controlled URL passed directly to fetch\nconst got = require('got');\n\napp.get('/proxy', async (req, res) => {\n  const url = req.query.url;\n  const response = await got.get(url); // SSRF: attacker sets url=http://169.254.169.254/latest/meta-data/\n  res.send(response.body);\n});",
+
+  "safe_example": "// SAFE: validate URL against allowlist and block private IPs\nconst { URL } = require('url');\nconst dns = require('dns').promises;\nconst got = require('got');\nconst ipRangeCheck = require('ip-range-check');\n\nconst BLOCKED_RANGES = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '127.0.0.0/8'];\n\napp.get('/proxy', async (req, res) => {\n  const parsed = new URL(req.query.url);\n  if (!['http:', 'https:'].includes(parsed.protocol)) {\n    return res.status(400).send('Invalid protocol');\n  }\n  const { address } = await dns.lookup(parsed.hostname);\n  if (ipRangeCheck(address, BLOCKED_RANGES)) {\n    return res.status(403).send('Blocked destination');\n  }\n  const response = await got.get(parsed.href);\n  res.send(response.body);\n});",
+
+  "developer_notes": "DNS rebinding attacks can bypass hostname-based validation by returning a public IP during the validation check and a private IP during the actual request. To mitigate this, resolve the hostname once, verify the IP, and then make the request using the resolved IP directly (setting the Host header manually). Also be aware that URL parsing libraries may handle edge cases differently (e.g., backslash as path separator, Unicode homoglyphs in hostnames). Always use the standard URL constructor for parsing and avoid string-based checks like startsWith('http').",
+
+  "verification_checklist": [
+    "No fetch(), got, or node-fetch call accepts unvalidated user input as the URL",
+    "URLs are parsed with the URL constructor and the protocol is restricted to http/https",
+    "Hostnames are resolved to IP addresses and checked against private/link-local ranges",
+    "A centralized HTTP client wrapper enforces URL validation for all outbound requests",
+    "DNS rebinding mitigation is in place for high-security endpoints"
+  ],
+
+  "references": [
+    {"title": "CWE-918: Server-Side Request Forgery (SSRF)", "url": "https://cwe.mitre.org/data/definitions/918.html"},
+    {"title": "OWASP Top 10 A10:2021 Server-Side Request Forgery", "url": "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"},
+    {"title": "OWASP SSRF Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"}
+  ]
+}

