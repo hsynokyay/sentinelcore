@@ -36,7 +36,10 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          # 1.26.2 patches GO-2026-4866/4869/4870/4946/4947 (stdlib
+          # crypto/x509 + crypto/tls + archive/tar). Track the next
+          # minor the moment it lands.
+          go-version: '1.26.2'
           cache: true
 
       - name: mod verify + tidy-clean
