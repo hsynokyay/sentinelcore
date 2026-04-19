@@ -329,6 +329,17 @@ func (h *Handlers) resolveOrProvisionSSOUser(
 				`UPDATE core.users SET role = $1 WHERE id = $2`, resolvedRole, id); err != nil {
 				return "", false, err
 			}
+			// Phase 8 §4.2 S4: rotate sessions on privilege change.
+			// Revoke every existing JTI so the new role takes effect
+			// on the user's next login. Best-effort — a Redis error
+			// must not abort the SSO login; the old JWT will simply
+			// expire naturally at its 15-min ceiling.
+			if h.sessions != nil {
+				if rerr := h.sessions.RevokeAllForUser(ctx, id); rerr != nil {
+					h.logger.Warn().Err(rerr).Str("user_id", id).
+						Msg("sso: revoke-all after role change failed")
+				}
+			}
 		}
 		return id, false, tx.Commit(ctx)
 	case !errors.Is(err, pgx.ErrNoRows):
@@ -356,6 +367,13 @@ func (h *Handlers) resolveOrProvisionSSOUser(
 			if _, err := tx.Exec(ctx,
 				`UPDATE core.users SET role = $1 WHERE id = $2`, resolvedRole, id); err != nil {
 				return "", false, err
+			}
+			// Phase 8 §4.2 S4: rotate sessions on privilege change.
+			if h.sessions != nil {
+				if rerr := h.sessions.RevokeAllForUser(ctx, id); rerr != nil {
+					h.logger.Warn().Err(rerr).Str("user_id", id).
+						Msg("sso: revoke-all after role change failed")
+				}
 			}
 		}
 		return id, false, tx.Commit(ctx)

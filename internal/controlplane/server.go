@@ -143,6 +143,35 @@ func (s *Server) authz(perm string, next http.HandlerFunc) http.Handler {
 	return auth.RequirePermission(perm, s.rbacCache, s.denier)(http.HandlerFunc(next))
 }
 
+// stepUp composes authz + RequireStepUp so destructive admin routes
+// carry BOTH "has the capability" and "recently re-authed" gates.
+// Phase 8 §4.1 A7. A missing session store is a programming error;
+// we no-op (warn once) rather than crash on cold boot.
+func (s *Server) stepUp(perm string, next http.HandlerFunc) http.Handler {
+	inner := s.authz(perm, next)
+	if s.sessions == nil {
+		s.logger.Warn().Str("perm", perm).Msg("stepUp: session store nil, step-up gate disabled")
+		return inner
+	}
+	cfg := httpsec.StepUpConfig{
+		Sessions: s.sessions,
+		GetJTI: func(ctx context.Context) (string, bool) {
+			if p, ok := auth.PrincipalFromContext(ctx); ok && p.JTI != "" {
+				return p.JTI, true
+			}
+			return "", false
+		},
+		MaxAge: 5 * time.Minute,
+		ErrorWriter: func(w http.ResponseWriter, status int, msg, code string) {
+			// Match the controlplane writeError envelope shape.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"error":"` + msg + `","code":"` + code + `"}`))
+		},
+	}
+	return httpsec.RequireStepUp(cfg)(inner)
+}
+
 // requestIDMiddleware generates a UUID request ID and injects it into context and response header.
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -323,11 +352,11 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("PATCH /api/v1/auth-profiles/{id}", handlers.UpdateAuthProfile)
 	mux.HandleFunc("DELETE /api/v1/auth-profiles/{id}", handlers.DeleteAuthProfile)
 
-	// API keys
+	// API keys. Revoke + rotate are destructive — step-up-gated.
 	mux.Handle("POST /api/v1/api-keys", s.authz("api_keys.manage", handlers.CreateAPIKey))
 	mux.HandleFunc("GET /api/v1/api-keys", handlers.ListAPIKeys)
-	mux.HandleFunc("DELETE /api/v1/api-keys/{id}", handlers.RevokeAPIKey)
-	mux.Handle("POST /api/v1/api-keys/{id}/rotate", s.authz("api_keys.manage", handlers.RotateAPIKey))
+	mux.Handle("DELETE /api/v1/api-keys/{id}", s.stepUp("api_keys.manage", handlers.RevokeAPIKey))
+	mux.Handle("POST /api/v1/api-keys/{id}/rotate", s.stepUp("api_keys.manage", handlers.RotateAPIKey))
 
 	// Scan targets
 	mux.HandleFunc("POST /api/v1/projects/{id}/scan-targets", handlers.CreateScanTarget)
@@ -430,7 +459,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("POST /api/v1/sso/providers", s.authz("sso.manage", handlers.CreateSSOProvider))
 	mux.Handle("GET /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.GetSSOProvider))
 	mux.Handle("PATCH /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.UpdateSSOProvider))
-	mux.Handle("DELETE /api/v1/sso/providers/{id}", s.authz("sso.manage", handlers.DeleteSSOProvider))
+	mux.Handle("DELETE /api/v1/sso/providers/{id}", s.stepUp("sso.manage", handlers.DeleteSSOProvider))
 
 	mux.Handle("GET /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.ListSSOMappings))
 	mux.Handle("POST /api/v1/sso/providers/{id}/mappings", s.authz("sso.manage", handlers.CreateSSOMapping))
