@@ -1,0 +1,147 @@
+name: ci
+
+# Phase 8 Wave 3 — CI pipeline. Runs on every PR + push to main.
+#
+# Gates:
+#   - go build, test, vet, staticcheck
+#   - govulncheck (fails on matched-to-called vulns)
+#   - npm audit high+ (frontend)
+#   - trivy image scan on push to main
+#   - cyclonedx SBOM artifact on push to main
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write   # upload sarif results
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go / build test vet vuln
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: mod verify + tidy-clean
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: build
+        run: go build ./...
+
+      - name: test
+        run: go test -race -count=1 ./...
+
+      - name: vet
+        run: go vet ./...
+
+      - name: staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # -test scans test files too; matched-to-called semantics
+          # means we only fail on vulns actually reachable from our code.
+          govulncheck -test ./...
+
+  frontend:
+    name: frontend / build audit
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # --production limits the audit to the dep graph that actually
+      # ships; devDependencies vulnerabilities are less critical
+      # (they don't reach a customer).
+      - run: npm audit --audit-level=high --omit=dev
+
+      - run: npm run build
+
+      # Next.js doesn't ship a test script by default; uncomment when
+      # tests land.
+      # - run: npm test
+
+  container-scan:
+    name: container / trivy + sbom
+    runs-on: ubuntu-24.04
+    needs: [go]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - controlplane
+          - audit-service
+          - sast-worker
+          - notification-worker
+          - retention-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build image
+        run: |
+          docker build \
+            --build-arg SERVICE=${{ matrix.service }} \
+            -t sc-${{ matrix.service }}:ci-${{ github.sha }} \
+            .
+
+      - name: trivy scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: sc-${{ matrix.service }}:ci-${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}.sarif'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true   # don't fail on vulns with no upstream fix
+
+      - name: upload trivy sarif
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}.sarif'
+          category: 'trivy-${{ matrix.service }}'
+
+      - name: generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: sc-${{ matrix.service }}:ci-${{ github.sha }}
+          format: cyclonedx-json
+          output-file: '${{ matrix.service }}.cdx.json'
+          upload-artifact: false
+
+      - name: upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}-${{ github.sha }}
+          path: '${{ matrix.service }}.cdx.json'
+          retention-days: 90
