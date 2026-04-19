@@ -15,7 +15,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,6 +72,39 @@ var allowedDirectPoolCallers = map[string]bool{
 	// of) a tenant-scoped session. org-resolve-by-slug and login-error
 	// event inserts happen before RLS context is available.
 	"internal/controlplane/api/sso.go":              true,
+	// Global infrastructure layer — all platform-wide state with no
+	// tenant context. Updater trust store, policy/permissions cache,
+	// scan-target existence probe, and the global CVE database.
+	"internal/updater":                              true,
+	"internal/policy":                               true,
+	"internal/vuln":                                 true,
+	// SAST adapter dispatches scan jobs as a worker, pre-tenancy.
+	"internal/sast/engine":                          true,
+	// Bootstrap/CLI commands run before a session exists.
+	"internal/cli":                                  true,
+	// SSO store layer: mixed pre-session (OIDC callback JIT) + admin
+	// config path. Store API takes provider_id only, so the caller
+	// establishes the tenant context. Admin routes are RBAC-gated to
+	// owner/admin; the callback path runs mid-flow before a JWT
+	// exists. Migrating the Store API to accept a tenant.Scope is
+	// Wave 3 work.
+	"pkg/sso":                                       true,
+	// API key CRUD + resolve: tenant.Tx integration lands with the
+	// HMAC+pepper rewrite planned as a dedicated commit in Wave 2.
+	// Until then, keep the baseline direct pool access allowlisted.
+	"pkg/apikeys":                                   true,
+	// Platform-admin audit export endpoint: cross-tenant streaming by
+	// design (complements audit_integrity.go already above).
+	"internal/controlplane/api/audit_export.go":     true,
+	// Worker entrypoints: run as platform service, no tenant scope.
+	"cmd/sast-worker":                               true,
+	"cmd/audit-service":                             true,
+	"cmd/controlplane":                              true,
+	"cmd/auth-broker":                               true,
+	"cmd/migrate":                                   true,
+	// AES key catalog reload: reads the whole table at startup to warm
+	// the in-memory cache; happens before any tenant context exists.
+	"pkg/crypto":                                    true,
 }
 
 // poolRecvTypes are variable names conventionally used for the pool
@@ -85,15 +117,10 @@ var poolRecvTypes = []string{"pool", "Pool", "dbPool", "p.pool", "s.pool", "h.po
 // for disallowed calls to pool.Exec/Query/QueryRow/SendBatch. Any hit
 // outside the allowlist fails the test.
 //
-// Wave 1 of the Phase 7 rollout ships the tenant package without
-// migrating the ~95 existing handler call-sites. The strict enforcement
-// turns on once Wave 2 finishes the migration; until then the test is
-// skipped unless TENANT_LINT_STRICT=1 is set. Running it manually is
-// still useful: it prints the offence list as a progress indicator.
+// Enforced unconditionally as of Phase 7 Wave 2. New regressions
+// either pick tenant.Tx (the right answer 99% of the time) or add an
+// allowlist entry with a documented reason — no silent bypass.
 func TestNoDirectTenantWrites(t *testing.T) {
-	if os.Getenv("TENANT_LINT_STRICT") == "" {
-		t.Skip("skip; set TENANT_LINT_STRICT=1 to enforce after Wave 2 migration")
-	}
 	// Walk from module root (two levels above this test file, since
 	// the test runs from pkg/tenant/).
 	root := "../.."
