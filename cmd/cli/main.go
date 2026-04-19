@@ -25,6 +25,8 @@ func main() {
 		}
 	case "rotate":
 		runRotate()
+	case "db-split-roles":
+		runDBSplitRoles()
 	case "version":
 		cli.PrintVersion()
 	default:
@@ -61,6 +63,40 @@ func runRotate() {
 	}
 }
 
+// runDBSplitRoles is the same pool setup as runRotate; the operations
+// require CREATEROLE / ALTER ROLE privileges which the monolithic
+// sentinelcore role holds by default (Postgres grants it to the db
+// owner). On the deploy VPS this runs once per environment.
+func runDBSplitRoles() {
+	cfg := db.Config{
+		Host:     envOrDefault("DB_HOST", "localhost"),
+		Port:     envIntOrDefault("DB_PORT", 5432),
+		Database: envOrDefault("DB_NAME", "sentinelcore"),
+		User:     envOrDefault("DB_USER", "sentinelcore"),
+		Password: envOrDefault("DB_PASSWORD", "dev-password"),
+		MaxConns: 2,
+	}
+	ctx := context.Background()
+	// --generate doesn't need the DB at all; check it before dialing.
+	if len(os.Args) >= 3 && os.Args[2] == "--generate" {
+		if err := cli.RunDBSplitRolesCommand(ctx, nil, os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "db-split-roles: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	pool, err := db.NewPool(ctx, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "db-split-roles: connect to db: %v\n", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	if err := cli.RunDBSplitRolesCommand(ctx, pool, os.Args[2:]); err != nil {
+		fmt.Fprintf(os.Stderr, "db-split-roles: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func printUsage() {
 	fmt.Println("Usage: sentinelcore-cli <command> [options]")
 	fmt.Println()
@@ -68,6 +104,7 @@ func printUsage() {
 	fmt.Println("  bootstrap  Initialize the system with default org, team, and admin user")
 	fmt.Println("  update     Manage secure updates (verify-bundle, trust-status, lockdown)")
 	fmt.Println("  rotate     Rotate secrets: aes/<purpose>, hmac/audit, apikey-pepper")
+	fmt.Println("  db-split-roles  Generate/apply/verify split-role passwords (Phase 7 Wave 3)")
 	fmt.Println("  version    Show version information")
 	fmt.Println()
 	fmt.Println("Bootstrap options:")
