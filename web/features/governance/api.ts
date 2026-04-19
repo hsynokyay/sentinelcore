@@ -21,8 +21,13 @@ export async function getApprovals(filters: ApprovalFilters = {}): Promise<Appro
   return api.get<ApprovalsResponse>(`/api/v1/governance/approvals?${params.toString()}`);
 }
 
+// Phase 9 §4.1: multi-approver routes. The old /decide endpoint
+// stays on the server for backward compat, but new UI voting uses
+// the FSM-gated /approve and /reject routes so step-up errors
+// (requester vote, duplicate vote, terminal state) surface cleanly.
 export async function decideApproval(id: string, decision: "approved" | "rejected", reason: string) {
-  return api.post(`/api/v1/governance/approvals/${id}/decide`, { decision, reason });
+  const path = decision === "approved" ? "approve" : "reject";
+  return api.post(`/api/v1/governance/approvals/${id}/${path}`, { reason });
 }
 
 export async function getSettings(): Promise<OrgSettings> {
