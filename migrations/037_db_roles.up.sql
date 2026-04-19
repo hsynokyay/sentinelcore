@@ -49,15 +49,15 @@ END $$;
 -- instead, which the audit-service consumes under a different role.
 
 GRANT USAGE ON SCHEMA
-    core, scans, findings, governance, auth, risk
+    core, scans, findings, governance, auth
 TO sentinelcore_controlplane;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA
-    core, scans, findings, governance, auth, risk
+    core, scans, findings, governance, auth
 TO sentinelcore_controlplane;
 
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA
-    core, scans, findings, governance, auth, risk
+    core, scans, findings, governance, auth
 TO sentinelcore_controlplane;
 
 -- Audit: SELECT only (for the display endpoints).
@@ -91,12 +91,21 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA audit TO sentinelcore_audit_write
 -- scan output (findings, risk.clusters) but MUST NOT mutate core tables
 -- (no org/project/user changes) or touch audit directly.
 
-GRANT USAGE ON SCHEMA core, scans, findings, risk TO sentinelcore_worker;
+GRANT USAGE ON SCHEMA core, scans, findings TO sentinelcore_worker;
 GRANT SELECT ON ALL TABLES IN SCHEMA core TO sentinelcore_worker;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA scans, findings, risk
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA scans, findings
     TO sentinelcore_worker;
-GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA scans, findings, risk
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA scans, findings
     TO sentinelcore_worker;
+
+-- risk schema is optional — Phase 6 catalog arrives in a later migration.
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'risk') THEN
+        EXECUTE 'GRANT USAGE ON SCHEMA risk TO sentinelcore_worker, sentinelcore_controlplane, sentinelcore_readonly';
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA risk TO sentinelcore_worker, sentinelcore_controlplane';
+        EXECUTE 'GRANT SELECT ON ALL TABLES IN SCHEMA risk TO sentinelcore_readonly';
+    END IF;
+END $$;
 
 -- Vuln-intel schema is a read-cache; workers populate, controlplane reads.
 DO $$ BEGIN
@@ -112,11 +121,11 @@ END $$;
 -- Useful for ad-hoc DBA queries: safer than handing out the owner role.
 
 GRANT USAGE ON SCHEMA
-    core, scans, findings, governance, auth, risk, audit
+    core, scans, findings, governance, auth, audit
 TO sentinelcore_readonly;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA
-    core, scans, findings, governance, auth, risk, audit
+    core, scans, findings, governance, auth, audit
 TO sentinelcore_readonly;
 
 DO $$ BEGIN
@@ -137,14 +146,14 @@ END $$;
 -- automatically get the appropriate role grants.
 
 ALTER DEFAULT PRIVILEGES FOR ROLE sentinelcore IN SCHEMA
-    core, scans, findings, governance, auth, risk
+    core, scans, findings, governance, auth
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sentinelcore_controlplane;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE sentinelcore IN SCHEMA
-    core, scans, findings, governance, auth, risk
+    core, scans, findings, governance, auth
     GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO sentinelcore_controlplane;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE sentinelcore IN SCHEMA scans, findings, risk
+ALTER DEFAULT PRIVILEGES FOR ROLE sentinelcore IN SCHEMA scans, findings
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sentinelcore_worker;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE sentinelcore IN SCHEMA core
@@ -154,7 +163,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE sentinelcore IN SCHEMA audit
     GRANT INSERT ON TABLES TO sentinelcore_audit_writer;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE sentinelcore IN SCHEMA
-    core, scans, findings, governance, auth, risk, audit
+    core, scans, findings, governance, auth, audit
     GRANT SELECT ON TABLES TO sentinelcore_readonly;
 
 -- --- 7. RLS-bypass waiver for audit-writer --------------------------------
