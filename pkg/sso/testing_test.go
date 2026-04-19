@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +28,6 @@ type fakeIdP struct {
 	keyID     string
 	algOverride string // if set, override the JWS alg header (for tamper tests)
 
-	mu         sync.Mutex
 	signingKey *rsa.PrivateKey // defaults to key; can be swapped to simulate rotation / tamper
 }
 

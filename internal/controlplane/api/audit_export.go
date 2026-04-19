@@ -10,7 +10,6 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/internal/audit/export"
 	"github.com/sentinelcore/sentinelcore/internal/audit/query"
-	pkgaudit "github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 )
@@ -141,7 +140,7 @@ func (h *Handlers) CreateAuditExport(w http.ResponseWriter, r *http.Request) {
 			ActorType:    p.Kind,
 			ActorID:      p.UserID,
 			ActorIP:      clientIP(r),
-			Action:       string(pkgaudit.AuditExportRequested),
+			Action:       string(audit.AuditExportRequested),
 			ResourceType: "audit_export",
 			ResourceID:   jobID,
 			OrgID:        p.OrgID,

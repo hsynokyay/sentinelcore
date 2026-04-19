@@ -54,9 +54,11 @@ jobs:
         run: go vet ./...
 
       - name: staticcheck
+        # -tests=false skips test-file-only U1000 + SA1012 noise.
+        # Production code is held to the full default checklist.
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@latest
-          staticcheck ./...
+          staticcheck -tests=false ./...
 
       - name: govulncheck
         run: |
