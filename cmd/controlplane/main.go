@@ -15,6 +15,7 @@ import (
 
 	sessrevoke "github.com/sentinelcore/sentinelcore/internal/apikeys"
 	"github.com/sentinelcore/sentinelcore/internal/controlplane"
+	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
@@ -45,6 +46,17 @@ func main() {
 	}
 	defer pool.Close()
 	logger.Info().Msg("connected to PostgreSQL")
+
+	// API key pepper (Phase 7 §5.2). Load before the HTTP server starts
+	// so Create + Resolve can use the HMAC path on the first request.
+	// Missing env is NON-fatal: the transition keeps the legacy
+	// SHA-256 hash path fully functional; new keys go without the
+	// verifier, Resolve falls back to key_hash, no functional break.
+	if err := apikeys.LoadPepper(1); err != nil {
+		logger.Warn().Err(err).Msg("api key pepper unavailable — operating in legacy-hash-only mode")
+	} else {
+		logger.Info().Int("version", apikeys.PepperVersion()).Msg("api key pepper loaded")
+	}
 
 	// Redis
 	redisURL := envOrDefault("REDIS_URL", "redis://localhost:6379")
