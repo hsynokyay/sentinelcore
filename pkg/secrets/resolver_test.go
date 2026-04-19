@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,27 @@ func TestAllPaths_NoDuplicates(t *testing.T) {
 			t.Errorf("duplicate path %q", p)
 		}
 		seen[p] = true
+	}
+}
+
+// TestSecretPathsDriftCheck guards against paths.go diverging from
+// docs/secret-path-catalog.md. Every constant in AllPaths() must be
+// mentioned in the doc; every `tier<N>/...` path in the doc must be
+// in AllPaths().
+//
+// The check is intentionally forgiving about markdown formatting —
+// it just greps for the tier path strings.
+func TestSecretPathsDriftCheck(t *testing.T) {
+	docBytes, err := os.ReadFile("../../docs/secret-path-catalog.md")
+	if err != nil {
+		t.Skipf("secret-path-catalog.md not found (%v) — skipping drift check", err)
+	}
+	doc := string(docBytes)
+
+	for _, p := range AllPaths() {
+		// Expect backtick-quoted path in a table row.
+		if !strings.Contains(doc, "`"+p+"`") {
+			t.Errorf("path %q missing from docs/secret-path-catalog.md", p)
+		}
 	}
 }

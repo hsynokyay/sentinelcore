@@ -102,6 +102,10 @@ var allowedDirectPoolCallers = map[string]bool{
 	"cmd/controlplane":                              true,
 	"cmd/auth-broker":                               true,
 	"cmd/migrate":                                   true,
+	// AES re-encryption sweep: platform-operator tool, iterates
+	// across tenants by design (purpose-wide). Safe because the
+	// envelope is tenant-opaque — this only changes the wrapping.
+	"cmd/rotate-sweep":                              true,
 	// AES key catalog reload: reads the whole table at startup to warm
 	// the in-memory cache; happens before any tenant context exists.
 	"pkg/crypto":                                    true,

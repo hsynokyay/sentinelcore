@@ -49,6 +49,10 @@ func TestNoDirectAuditLogWrites(t *testing.T) {
 		"/internal/audit/integrity/",
 		"/migrations/",
 		"/pkg/audit/", // this test file itself mentions the patterns
+		// Role-split integration tests assert that writes to audit
+		// tables from specific DB roles are REJECTED — the SQL
+		// string appears as a test probe, not a live write.
+		"/test/integration/role_split_test.go",
 	}
 
 	var violations []string
