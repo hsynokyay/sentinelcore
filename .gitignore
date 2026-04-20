@@ -6,18 +6,18 @@ bin/
 *.o
 *.so
 *.dylib
-vuln-intel
-controlplane
-notification-worker
-retention-worker
-dast-worker
-auth-broker
-sast-worker
-audit-service
-policy-engine
-updater
-np-gc
-correlation-engine
+/vuln-intel
+/controlplane
+/notification-worker
+/retention-worker
+/dast-worker
+/auth-broker
+/sast-worker
+/audit-service
+/policy-engine
+/updater
+/np-gc
+/correlation-engine
 
 # Environment and secrets
 .env
