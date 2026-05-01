@@ -402,6 +402,33 @@
   }
 }
 
+/* ─── View-transition animations (route changes) ─────────────────────── */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 150ms;
+  animation-timing-function: var(--ease-out-sentinel);
+}
+::view-transition-old(root) {
+  animation-name: fadeOut;
+}
+::view-transition-new(root) {
+  animation-name: fadeSlideIn;
+}
+@keyframes fadeOut {
+  to { opacity: 0; }
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0ms !important;
+  }
+}
+
 /* Reduced-motion: every non-essential animation collapses to 0ms. This
    applies to the whole app, not just the security layer, and must ship
    before any new motion is introduced. */
