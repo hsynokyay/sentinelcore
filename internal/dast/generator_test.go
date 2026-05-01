@@ -432,6 +432,60 @@ func TestGenerateTestCases_PrototypePollution(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_ProfileGating(t *testing.T) {
+	endpoints := []Endpoint{
+		{
+			Path:        "/users",
+			Method:      "POST",
+			BaseURL:     "http://target.local",
+			Parameters:  []Parameter{{Name: "id", In: "path", Type: "string"}},
+			RequestBody: &RequestBodySpec{ContentType: "application/json", Schema: map[string]string{"name": "string"}},
+			CapturedJWT: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1In0.HrYpNiCfH_pBSYQ4G-bDzHOhx2eZ4q39oS24a3Y_uwQ",
+		},
+		{
+			Path:    "/graphql",
+			Method:  "POST",
+			BaseURL: "http://target.local",
+		},
+		{
+			Path:        "/parse",
+			Method:      "POST",
+			BaseURL:     "http://target.local",
+			RequestBody: &RequestBodySpec{ContentType: "application/xml"},
+		},
+	}
+	collect := func(profile string) map[string]int {
+		buckets := map[string]int{}
+		for _, c := range GenerateTestCases(endpoints, profile) {
+			buckets[c.RuleID]++
+		}
+		return buckets
+	}
+	passive := collect("passive")
+	for _, id := range []string{"DAST-GRAPHQL-001", "DAST-JWT-001"} {
+		if passive[id] == 0 {
+			t.Errorf("passive profile should include %s", id)
+		}
+	}
+	for _, id := range []string{"DAST-MASS-001", "DAST-PROTO-POL-001", "DAST-XXE-001", "DAST-NOSQL-001"} {
+		if passive[id] != 0 {
+			t.Errorf("passive profile should NOT include %s", id)
+		}
+	}
+	standard := collect("standard")
+	for _, id := range []string{"DAST-MASS-001", "DAST-PROTO-POL-001"} {
+		if standard[id] != 0 {
+			t.Errorf("standard profile should NOT include %s", id)
+		}
+	}
+	aggressive := collect("aggressive")
+	for _, id := range []string{"DAST-MASS-001", "DAST-PROTO-POL-001", "DAST-XXE-001", "DAST-GRAPHQL-001"} {
+		if aggressive[id] == 0 {
+			t.Errorf("aggressive profile should include %s", id)
+		}
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string
