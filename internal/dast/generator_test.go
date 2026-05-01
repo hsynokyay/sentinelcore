@@ -16,7 +16,7 @@ func TestGenerateTestCases_SQLi(t *testing.T) {
 		},
 	}
 
-	cases := GenerateTestCases(endpoints)
+	cases := GenerateTestCases(endpoints, "standard")
 	if len(cases) == 0 {
 		t.Fatal("expected test cases to be generated")
 	}
@@ -45,7 +45,7 @@ func TestGenerateTestCases_XSS(t *testing.T) {
 		},
 	}
 
-	cases := GenerateTestCases(endpoints)
+	cases := GenerateTestCases(endpoints, "standard")
 	var xssCount int
 	for _, tc := range cases {
 		if tc.Category == "xss" {
@@ -69,7 +69,7 @@ func TestGenerateTestCases_SSRF(t *testing.T) {
 		},
 	}
 
-	cases := GenerateTestCases(endpoints)
+	cases := GenerateTestCases(endpoints, "standard")
 	var ssrfCount int
 	for _, tc := range cases {
 		if tc.Category == "ssrf" {
@@ -93,7 +93,7 @@ func TestGenerateTestCases_IDOR(t *testing.T) {
 		},
 	}
 
-	cases := GenerateTestCases(endpoints)
+	cases := GenerateTestCases(endpoints, "standard")
 	var idorCount int
 	for _, tc := range cases {
 		if tc.Category == "idor" {
@@ -118,7 +118,7 @@ func TestGenerateTestCases_MultipleCategories(t *testing.T) {
 		},
 	}
 
-	cases := GenerateTestCases(endpoints)
+	cases := GenerateTestCases(endpoints, "standard")
 	categories := make(map[string]int)
 	for _, tc := range cases {
 		categories[tc.Category]++
@@ -131,7 +131,7 @@ func TestGenerateTestCases_MultipleCategories(t *testing.T) {
 }
 
 func TestGenerateTestCases_NoEndpoints(t *testing.T) {
-	cases := GenerateTestCases(nil)
+	cases := GenerateTestCases(nil, "standard")
 	if len(cases) != 0 {
 		t.Fatalf("expected 0 test cases for nil endpoints, got %d", len(cases))
 	}

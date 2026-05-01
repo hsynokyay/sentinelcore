@@ -36,10 +36,27 @@ type RequestBodySpec struct {
 	Example     string
 }
 
-// GenerateTestCases creates DAST test cases for a set of API endpoints.
-func GenerateTestCases(endpoints []Endpoint) []TestCase {
-	var cases []TestCase
+// profileRank ranks scan profiles for filtering. Higher = more permissive.
+var profileRank = map[string]int{
+	"passive":    0,
+	"standard":   1,
+	"aggressive": 2,
+}
 
+// GenerateTestCases creates DAST test cases for a set of API endpoints.
+// `profile` is the scan profile ("passive", "standard", "aggressive");
+// empty string defaults to "standard". Test cases whose MinProfile rank
+// exceeds the requested profile are dropped.
+func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
+	if profile == "" {
+		profile = "standard"
+	}
+	requested, ok := profileRank[profile]
+	if !ok {
+		requested = profileRank["standard"]
+	}
+
+	var cases []TestCase
 	for _, ep := range endpoints {
 		fullURL := ep.BaseURL + ep.Path
 		cases = append(cases, generateSQLiTests(ep, fullURL)...)
@@ -50,7 +67,22 @@ func GenerateTestCases(endpoints []Endpoint) []TestCase {
 		cases = append(cases, generateHeaderInjectionTests(ep, fullURL)...)
 	}
 
-	return cases
+	// Filter by profile.
+	filtered := cases[:0]
+	for _, tc := range cases {
+		min := tc.MinProfile
+		if min == "" {
+			min = "standard"
+		}
+		minRank, ok := profileRank[min]
+		if !ok {
+			minRank = profileRank["standard"]
+		}
+		if minRank <= requested {
+			filtered = append(filtered, tc)
+		}
+	}
+	return filtered
 }
 
 func generateSQLiTests(ep Endpoint, baseURL string) []TestCase {
