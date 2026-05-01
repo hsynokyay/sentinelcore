@@ -1,6 +1,9 @@
 package dast
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -70,6 +73,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateNoSQLITests(ep, fullURL)...)
 		cases = append(cases, generateGraphQLIntrospectionTests(ep, fullURL)...)
 		cases = append(cases, generateJWTAlgNoneTests(ep, fullURL)...)
+		cases = append(cases, generateJWTWeakSecretTests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -305,6 +309,63 @@ func generateXXETests(ep Endpoint, baseURL string) []TestCase {
 			Reason:  "external entity resolved /etc/passwd",
 		},
 	}}
+}
+
+// jwtWeakSecretCandidates is the small dictionary that the weak-secret probe
+// brute-forces against captured HS256 tokens. Twelve entries — enough to
+// catch the most common copy-paste secrets; a longer list would inflate the
+// per-endpoint test count without much marginal coverage.
+var jwtWeakSecretCandidates = []string{
+	"secret", "key", "password", "123456", "admin", "jwt",
+	"JWT", "your-256-bit-secret", "please-change-me", "s3cr3t", "", "secretkey",
+}
+
+// generateJWTWeakSecretTests cracks the captured token offline against the
+// dictionary above. If a candidate verifies the HS256 signature, the probe
+// emits a single TestCase that re-uses the original token with that secret —
+// the active probe is just hitting the endpoint with the same token to flag
+// the finding (the cracked secret is the actual evidence and lives in the
+// finding's name/description).
+func generateJWTWeakSecretTests(ep Endpoint, baseURL string) []TestCase {
+	if ep.CapturedJWT == "" {
+		return nil
+	}
+	parts := strings.Split(ep.CapturedJWT, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil
+	}
+	if !strings.Contains(string(headerJSON), `"HS256"`) {
+		return nil
+	}
+	signedInput := []byte(parts[0] + "." + parts[1])
+	expected, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return nil
+	}
+	for _, secret := range jwtWeakSecretCandidates {
+		mac := hmac.New(sha256.New, []byte(secret))
+		mac.Write(signedInput)
+		if hmac.Equal(mac.Sum(nil), expected) {
+			return []TestCase{{
+				ID:         fmt.Sprintf("jwt-weak-%s", ep.Method),
+				RuleID:     "DAST-JWT-002",
+				Name:       fmt.Sprintf("JWT signed with weak secret %q", secret),
+				Category:   "jwt_weak_secret",
+				Severity:   "high",
+				Confidence: "high",
+				Method:     ep.Method,
+				URL:        baseURL,
+				Headers:    map[string]string{"Authorization": "Bearer " + ep.CapturedJWT},
+				MinProfile: "standard",
+				Matcher:    &StatusCodeMatcher{Codes: []int{200}},
+			}}
+		}
+	}
+	return nil
 }
 
 // generateJWTAlgNoneTests re-signs a captured JWT with alg=none and an empty

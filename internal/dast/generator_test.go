@@ -279,6 +279,33 @@ func TestGenerateTestCases_JWTAlgNone_NoTokenSkipped(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_JWTWeakSecret(t *testing.T) {
+	// Token signed with HS256 secret "secret":
+	// header = {"alg":"HS256","typ":"JWT"}, payload = {"sub":"u"}
+	// Signature verified: hmac-sha256("secret", header+"."+payload)
+	jwt := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1In0.D9OYCASOic8f2se0l70pQbnYe4k4FisxamL3OAU6LCc"
+	endpoints := []Endpoint{
+		{Path: "/me", Method: "GET", BaseURL: "http://target.local", CapturedJWT: jwt},
+	}
+	cases := GenerateTestCases(endpoints, "standard")
+	var hit *TestCase
+	for i, c := range cases {
+		if c.RuleID == "DAST-JWT-002" {
+			hit = &cases[i]
+			break
+		}
+	}
+	if hit == nil {
+		t.Fatalf("expected DAST-JWT-002, got 0 cases")
+	}
+	if !strings.Contains(hit.Name, "secret") {
+		t.Errorf("name should mention the cracked secret: %q", hit.Name)
+	}
+	if hit.MinProfile != "standard" {
+		t.Errorf("min_profile = %q, want standard", hit.MinProfile)
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string
