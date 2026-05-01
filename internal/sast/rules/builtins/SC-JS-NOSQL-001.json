@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-JS-NOSQL-001",
+  "name": "NoSQL injection via Mongoose find",
+  "language": "javascript",
+  "cwe": ["CWE-943"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.75 },
+  "detection": { "kind": "taint", "vuln_class": "nosql_injection" },
+  "description": "User input flows into Mongoose Model.find / findOne / where without operator coercion, allowing operator-injection attacks.",
+  "remediation": "Validate and coerce request fields to expected primitive types before building query objects.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/943.html"
+  ]
+}
