@@ -377,3 +377,11 @@
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--brand);
+  }
+}
