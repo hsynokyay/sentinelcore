@@ -22,6 +22,7 @@ const buttonVariants = cva(
           "bg-[color:var(--severity-critical)] text-white hover:opacity-90 hover:-translate-y-[0.5px]",
       },
       size: {
+        xs: "h-7 px-2 text-body-sm",
         sm: "h-8 px-2.5 text-body-sm",
         md: "h-9 px-3",
         lg: "h-10 px-4",
