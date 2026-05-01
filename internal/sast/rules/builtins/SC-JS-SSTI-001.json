@@ -1,0 +1,16 @@
+{
+  "rule_id": "SC-JS-SSTI-001",
+  "name": "Server-side template injection via Handlebars/EJS compile",
+  "language": "javascript",
+  "cwe": ["CWE-1336"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.80 },
+  "detection": { "kind": "taint", "vuln_class": "ssti" },
+  "description": "User input flows into a template-compile or render call. Handlebars and EJS interpret double-brace / scriptlet syntax embedded in the template source, enabling arbitrary code execution when the template body is attacker-controlled.",
+  "remediation": "Compile templates from static files; pass user data as context only. Never call compile() on a string composed from request input.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/1336.html",
+    "https://owasp.org/Top10/A03_2021-Injection/"
+  ]
+}
