@@ -1,0 +1,9 @@
+{
+  "language": "csharp",
+  "framework": "csharp-razor",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "RazorEngine.Engine", "method": "Razor.RunCompile", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "RazorEngineCore.RazorEngine", "method": "Compile", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "Microsoft.AspNetCore.Mvc.Razor.RazorView", "method": "RenderAsync", "vuln_class": "ssti"}
+  ]
+}
