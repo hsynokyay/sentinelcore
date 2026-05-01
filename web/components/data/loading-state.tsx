@@ -15,7 +15,7 @@ export function LoadingState({
         {Array.from({ length: columns }).map((_, i) => (
           <div
             key={i}
-            className="h-3 flex-1 animate-pulse rounded bg-surface-3"
+            className="h-3 flex-1 shimmer rounded bg-surface-3"
             style={{ maxWidth: i === 0 ? 80 : i === columns - 1 ? 100 : undefined }}
           />
         ))}
@@ -26,7 +26,7 @@ export function LoadingState({
             {Array.from({ length: columns }).map((_, c) => (
               <div
                 key={c}
-                className="h-3 flex-1 animate-pulse rounded bg-surface-2"
+                className="h-3 flex-1 shimmer rounded bg-surface-2"
                 style={{
                   animationDelay: `${(r + c) * 30}ms`,
                   maxWidth: c === 0 ? 80 : c === columns - 1 ? 100 : undefined,
