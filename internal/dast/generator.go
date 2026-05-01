@@ -13,6 +13,11 @@ type Endpoint struct {
 	Parameters  []Parameter
 	RequestBody *RequestBodySpec
 	BaseURL     string
+	// CapturedJWT, when non-empty, is a JWT (compact serialization) that
+	// the orchestrator captured from this endpoint's auth profile during
+	// baseline crawl. Used by JWT-targeted probes. Empty means no JWT
+	// was observed; JWT probes skip the endpoint silently.
+	CapturedJWT string
 }
 
 // Parameter represents an API parameter.
