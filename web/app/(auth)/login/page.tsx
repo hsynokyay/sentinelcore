@@ -1,65 +1,102 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { ShieldCheck, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { useAuth } from "@/features/auth/hooks";
-import { loginSchema, type LoginFormData } from "@/features/auth/schemas";
+import * as React from "react"
+import { useRouter } from "next/navigation"
+import { ShieldCheck } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { useAuth } from "@/features/auth/hooks"
 
 export default function LoginPage() {
-  const { login } = useAuth();
-  const [error, setError] = useState<string | null>(null);
+  const { login, isAuthenticated } = useAuth()
+  const router = useRouter()
+  const [email, setEmail] = React.useState("")
+  const [password, setPassword] = React.useState("")
+  const [error, setError] = React.useState<string | null>(null)
+  const [loading, setLoading] = React.useState(false)
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-  });
+  React.useEffect(() => {
+    if (isAuthenticated) router.push("/findings")
+  }, [isAuthenticated, router])
 
-  const onSubmit = async (data: LoginFormData) => {
-    setError(null);
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
     try {
-      await login(data.email, data.password);
+      await login(email, password)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message : "Login failed")
+    } finally {
+      setLoading(false)
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-2">
-            <ShieldCheck className="h-10 w-10 text-primary" />
+    <div className="min-h-screen grid lg:grid-cols-[3fr_2fr] bg-bg">
+      <aside className="hidden lg:flex relative items-center justify-center p-10 bg-gradient-to-br from-[oklch(0.18_0.04_285)] to-[oklch(0.14_0.02_14)] overflow-hidden">
+        <div className="relative z-10 max-w-md">
+          <div className="flex items-center gap-2 mb-6">
+            <ShieldCheck className="size-8 text-brand" />
+            <span className="text-display text-foreground">SentinelCore</span>
           </div>
-          <CardTitle className="text-xl">SentinelCore</CardTitle>
-          <CardDescription>Sign in to your account</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {error && (
-              <div className="p-3 text-sm text-destructive bg-destructive/10 rounded-md">{error}</div>
-            )}
-            <div className="space-y-2">
+          <p className="text-h2 text-muted-foreground/90 leading-snug">
+            Application security, automated. SAST + DAST + risk correlation in one platform.
+          </p>
+        </div>
+      </aside>
+
+      <main className="flex items-center justify-center p-6 lg:p-10">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="lg:hidden flex items-center gap-2 mb-6">
+            <ShieldCheck className="size-7 text-brand" />
+            <span className="text-h1 text-foreground">SentinelCore</span>
+          </div>
+
+          <div>
+            <h1 className="text-h1 text-foreground">Sign in</h1>
+            <p className="text-body-sm text-muted-foreground mt-1">
+              Welcome back. Enter your credentials to continue.
+            </p>
+          </div>
+
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div>
               <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="admin@example.com" {...register("email")} />
-              {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                required
+              />
             </div>
-            <div className="space-y-2">
+            <div>
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" {...register("password")} />
-              {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
             </div>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Sign in
+            {error && (
+              <p className="text-body-sm text-[color:var(--severity-critical)]">{error}</p>
+            )}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Signing in…" : "Sign in"}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+
+          <p className="text-caption text-muted-foreground text-center">
+            v0.1.0 · Need help? Contact your administrator.
+          </p>
+        </div>
+      </main>
     </div>
-  );
+  )
 }
