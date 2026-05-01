@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-JS-LOG-001",
+  "name": "Log injection via unsanitized request value",
+  "language": "javascript",
+  "cwe": ["CWE-117"],
+  "owasp": ["A09:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.60 },
+  "detection": { "kind": "taint", "vuln_class": "log_injection" },
+  "description": "Untrusted input flows into console.log / winston without CR/LF removal.",
+  "remediation": "Strip CR/LF and length-cap before logging.",
+  "references": ["https://cwe.mitre.org/data/definitions/117.html"]
+}
