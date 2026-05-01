@@ -61,13 +61,16 @@ export function Sidebar() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "relative flex items-center gap-2.5 rounded-md px-3 py-1.5 text-body-sm transition-colors duration-fast focus-ring",
+                    "group relative flex items-center gap-2.5 rounded-md px-3 py-1.5 text-body-sm transition-colors duration-fast focus-ring",
                     active
-                      ? "bg-surface-2 text-foreground font-medium before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[2px] before:rounded-full before:bg-brand"
+                      ? "relative bg-gradient-to-r from-brand/15 via-brand/8 to-transparent text-foreground font-medium before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[2px] before:rounded-full before:bg-brand"
                       : "text-muted-foreground hover:bg-surface-2 hover:text-foreground"
                   )}
                 >
-                  <item.icon className="size-4 shrink-0" />
+                  <item.icon className={cn(
+                    "size-4 shrink-0 transition-colors duration-fast",
+                    active ? "text-brand" : "text-muted-foreground group-hover:text-foreground"
+                  )} />
                   {item.label}
                 </Link>
               )
