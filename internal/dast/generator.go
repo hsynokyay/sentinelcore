@@ -3,6 +3,7 @@ package dast
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -65,6 +66,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateSSRFTests(ep, fullURL)...)
 		cases = append(cases, generateIDORTests(ep, fullURL)...)
 		cases = append(cases, generateHeaderInjectionTests(ep, fullURL)...)
+		cases = append(cases, generateXXETests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -270,6 +272,36 @@ func generateHeaderInjectionTests(ep Endpoint, baseURL string) []TestCase {
 			Matcher:  &BodyContainsMatcher{Patterns: []string{"evil.com"}},
 		},
 	}
+}
+
+// generateXXETests probes endpoints accepting XML bodies for external-entity
+// expansion. Payload includes a SYSTEM entity that resolves /etc/passwd; the
+// matcher fires on a /etc/passwd-shaped response body.
+func generateXXETests(ep Endpoint, baseURL string) []TestCase {
+	if ep.RequestBody == nil ||
+		!strings.Contains(strings.ToLower(ep.RequestBody.ContentType), "xml") {
+		return nil
+	}
+	payload := `<?xml version="1.0" encoding="UTF-8"?>` +
+		`<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>` +
+		`<root>&xxe;</root>`
+	return []TestCase{{
+		ID:          fmt.Sprintf("xxe-%s", ep.Method),
+		RuleID:      "DAST-XXE-001",
+		Name:        "XXE via SYSTEM entity in XML body",
+		Category:    "xxe",
+		Severity:    "high",
+		Confidence:  "medium",
+		Method:      ep.Method,
+		URL:         baseURL,
+		ContentType: "application/xml",
+		Body:        payload,
+		MinProfile:  "standard",
+		Matcher: &BodyRegexMatcher{
+			Pattern: regexp.MustCompile(`root:[^:]*:0:0:`),
+			Reason:  "external entity resolved /etc/passwd",
+		},
+	}}
 }
 
 func injectParam(baseURL string, param Parameter, payload string) string {

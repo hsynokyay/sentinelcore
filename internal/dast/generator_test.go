@@ -1,6 +1,7 @@
 package dast
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -148,6 +149,41 @@ func TestInjectParam_Path(t *testing.T) {
 	result := injectParam("https://example.com/users/{id}", Parameter{Name: "id", In: "path"}, "123")
 	if result != "https://example.com/users/123" {
 		t.Fatalf("unexpected URL: %s", result)
+	}
+}
+
+func TestGenerateTestCases_XXE(t *testing.T) {
+	endpoints := []Endpoint{
+		{
+			Path:    "/parse",
+			Method:  "POST",
+			BaseURL: "http://target.local",
+			RequestBody: &RequestBodySpec{
+				ContentType: "application/xml",
+			},
+		},
+	}
+	cases := GenerateTestCases(endpoints, "standard")
+	var xxe []TestCase
+	for _, c := range cases {
+		if c.RuleID == "DAST-XXE-001" {
+			xxe = append(xxe, c)
+		}
+	}
+	if len(xxe) == 0 {
+		t.Fatalf("expected at least 1 XXE test case, got 0")
+	}
+	if xxe[0].Category != "xxe" {
+		t.Errorf("category = %q, want xxe", xxe[0].Category)
+	}
+	if xxe[0].Severity != "high" {
+		t.Errorf("severity = %q, want high", xxe[0].Severity)
+	}
+	if xxe[0].ContentType != "application/xml" {
+		t.Errorf("content_type = %q, want application/xml", xxe[0].ContentType)
+	}
+	if !strings.Contains(xxe[0].Body, "ENTITY") {
+		t.Errorf("body should contain ENTITY declaration, got %q", xxe[0].Body)
 	}
 }
 
