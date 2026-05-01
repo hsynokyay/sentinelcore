@@ -68,6 +68,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateHeaderInjectionTests(ep, fullURL)...)
 		cases = append(cases, generateXXETests(ep, fullURL)...)
 		cases = append(cases, generateNoSQLITests(ep, fullURL)...)
+		cases = append(cases, generateGraphQLIntrospectionTests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -301,6 +302,44 @@ func generateXXETests(ep Endpoint, baseURL string) []TestCase {
 		Matcher: &BodyRegexMatcher{
 			Pattern: regexp.MustCompile(`root:[^:]*:0:0:`),
 			Reason:  "external entity resolved /etc/passwd",
+		},
+	}}
+}
+
+// generateGraphQLIntrospectionTests probes well-known GraphQL paths for an
+// introspection-enabled endpoint. Sends an introspection query; the matcher
+// fires when the response body advertises the schema.
+func generateGraphQLIntrospectionTests(ep Endpoint, _ string) []TestCase {
+	candidates := []string{"/graphql", "/api/graphql", "/v1/graphql"}
+	matched := false
+	for _, c := range candidates {
+		if ep.Path == c {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return nil
+	}
+	body := `{"query":"{__schema{types{name}}}"}`
+	return []TestCase{{
+		ID:          fmt.Sprintf("graphql-%s", ep.Method),
+		RuleID:      "DAST-GRAPHQL-001",
+		Name:        "GraphQL introspection enabled",
+		Category:    "graphql_introspection",
+		Severity:    "medium",
+		Confidence:  "high",
+		Method:      "POST",
+		URL:         ep.BaseURL + ep.Path,
+		ContentType: "application/json",
+		Body:        body,
+		MinProfile:  "passive",
+		Matcher: &CompositeMatcher{
+			Mode: "and",
+			Matchers: []ResponseMatcher{
+				&StatusCodeMatcher{Codes: []int{200}},
+				&BodyContainsMatcher{Patterns: []string{`"__schema"`, `"types"`}},
+			},
 		},
 	}}
 }

@@ -217,6 +217,28 @@ func TestGenerateTestCases_NoSQL(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_GraphQLIntrospection(t *testing.T) {
+	endpoints := []Endpoint{
+		{Path: "/graphql", Method: "POST", BaseURL: "http://target.local"},
+	}
+	cases := GenerateTestCases(endpoints, "passive")
+	var gql []TestCase
+	for _, c := range cases {
+		if c.RuleID == "DAST-GRAPHQL-001" {
+			gql = append(gql, c)
+		}
+	}
+	if len(gql) == 0 {
+		t.Fatalf("expected GraphQL probe, got 0")
+	}
+	if gql[0].MinProfile != "passive" {
+		t.Errorf("min_profile = %q, want passive", gql[0].MinProfile)
+	}
+	if !strings.Contains(gql[0].Body, "__schema") {
+		t.Errorf("body should contain __schema, got %q", gql[0].Body)
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string
