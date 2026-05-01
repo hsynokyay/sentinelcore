@@ -429,17 +429,13 @@
   }
 }
 
-/* Reduced-motion: every non-essential animation collapses to 0ms. This
-   applies to the whole app, not just the security layer, and must ship
-   before any new motion is introduced. */
+/* Reduced-motion: every non-essential animation + transition collapses
+   to effectively zero. Covers the entire app — not just individual
+   components — so new motion added later automatically respects the
+   user's OS preference without per-component opt-in. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
   }
-
 }
