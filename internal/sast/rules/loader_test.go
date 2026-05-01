@@ -56,6 +56,55 @@ func TestCompileAll(t *testing.T) {
 	}
 }
 
+func TestLoadBuiltins_NewClassesPR(t *testing.T) {
+	rs, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	idIndex := make(map[string]*Rule, len(rs))
+	for _, r := range rs {
+		idIndex[r.RuleID] = r
+	}
+
+	expected := []string{
+		"SC-PY-SSTI-001",
+		"SC-JS-SSTI-001",
+		"SC-JAVA-SSTI-001",
+		"SC-CSHARP-SSTI-001",
+		"SC-PY-NOSQL-001",
+		"SC-JS-NOSQL-001",
+		"SC-JS-PROTO-001",
+		"SC-JS-PROTO-002",
+		"SC-JS-MASS-001",
+		"SC-PY-MASS-001",
+		"SC-PY-HEADER-001",
+		"SC-JS-HEADER-001",
+		"SC-JAVA-HEADER-001",
+	}
+
+	for _, id := range expected {
+		t.Run(id, func(t *testing.T) {
+			r, ok := idIndex[id]
+			if !ok {
+				t.Fatalf("rule %s missing from builtins", id)
+			}
+			if r.Severity == "" {
+				t.Errorf("severity empty")
+			}
+			if r.Description == "" {
+				t.Errorf("description empty")
+			}
+			if r.Remediation == "" {
+				t.Errorf("remediation empty")
+			}
+			if r.Detection.Kind != DetectionTaint && r.Detection.Kind != DetectionASTCall {
+				t.Errorf("unexpected detection kind %q", r.Detection.Kind)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsBadRules(t *testing.T) {
 	cases := []struct {
 		name string
