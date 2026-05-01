@@ -11,7 +11,7 @@ const cardVariants = cva(
       variant: {
         default: "border-border",
         interactive:
-          "border-border hover:border-border-strong hover:bg-surface-2 cursor-pointer focus-ring",
+          "border-border hover:border-border-strong hover:bg-surface-2 hover:shadow-[0_0_24px_-12px_oklch(0.66_0.22_285_/_0.4)] cursor-pointer focus-ring",
         stat: "border-border",
         hero: "border-border bg-gradient-to-b from-surface-1 to-surface-2",
       },
