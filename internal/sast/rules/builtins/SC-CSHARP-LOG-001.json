@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-CSHARP-LOG-001",
+  "name": "Log injection via ILogger interpolation",
+  "language": "csharp",
+  "cwe": ["CWE-117"],
+  "owasp": ["A09:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.60 },
+  "detection": { "kind": "taint", "vuln_class": "log_injection" },
+  "description": "Request value is concatenated into an ILogger message without CR/LF removal.",
+  "remediation": "Use structured-logging template parameters (LogInformation(\"User {User}\", user)) or sanitize CR/LF before logging.",
+  "references": ["https://cwe.mitre.org/data/definitions/117.html"]
+}
