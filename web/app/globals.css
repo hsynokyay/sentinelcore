@@ -45,6 +45,9 @@
   --color-surface-1: var(--surface-1);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-muted: var(--brand-muted);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -159,6 +162,11 @@
   --duration-base: 150ms;
   --duration-slow: 250ms;
   --duration-score: 700ms;
+  --brand: oklch(0.55 0.22 285);
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-muted: oklch(0.55 0.22 285 / 10%);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
 }
 
 .dark {
@@ -238,6 +246,11 @@
   --duration-base: 150ms;
   --duration-slow: 250ms;
   --duration-score: 700ms;
+  --brand: oklch(0.66 0.22 285);
+  --brand-foreground: oklch(0.99 0 0);
+  --brand-muted: oklch(0.66 0.22 285 / 12%);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-foreground);
 }
 
 @layer base {
