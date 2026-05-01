@@ -362,6 +362,44 @@ func TestGenerateTestCases_OpenRedirect(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_MassAssignment(t *testing.T) {
+	endpoints := []Endpoint{
+		{
+			Path:    "/users",
+			Method:  "POST",
+			BaseURL: "http://target.local",
+			RequestBody: &RequestBodySpec{
+				ContentType: "application/json",
+				Schema: map[string]string{
+					"name":  "string",
+					"email": "string",
+				},
+			},
+		},
+	}
+	// Aggressive profile required.
+	casesAggr := GenerateTestCases(endpoints, "aggressive")
+	var hits []TestCase
+	for _, c := range casesAggr {
+		if c.RuleID == "DAST-MASS-001" {
+			hits = append(hits, c)
+		}
+	}
+	if len(hits) == 0 {
+		t.Fatalf("expected mass-assignment probe at aggressive profile, got 0")
+	}
+	if !strings.Contains(hits[0].Body, "is_admin") {
+		t.Errorf("body should include is_admin payload, got %q", hits[0].Body)
+	}
+	// Standard profile must NOT emit MASS probes.
+	casesStd := GenerateTestCases(endpoints, "standard")
+	for _, c := range casesStd {
+		if c.RuleID == "DAST-MASS-001" {
+			t.Fatalf("MASS probe should be gated to aggressive, but appeared in standard")
+		}
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string

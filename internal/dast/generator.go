@@ -76,6 +76,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateJWTWeakSecretTests(ep, fullURL)...)
 		cases = append(cases, generateCRLFTests(ep, fullURL)...)
 		cases = append(cases, generateOpenRedirectTests(ep, fullURL)...)
+		cases = append(cases, generateMassAssignmentTests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -490,6 +491,58 @@ func buildJSONWithOperator(schema map[string]string, target, opJSON string) stri
 		}
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+// generateMassAssignmentTests posts a JSON body that includes the documented
+// fields plus four privileged extras. The matcher fires when the response
+// echoes any of the extras with the injected value (1-step detection — full
+// 2-step verification with a follow-up read is a future enhancement).
+func generateMassAssignmentTests(ep Endpoint, baseURL string) []TestCase {
+	if ep.RequestBody == nil ||
+		!strings.Contains(strings.ToLower(ep.RequestBody.ContentType), "json") ||
+		ep.RequestBody.Schema == nil {
+		return nil
+	}
+	if ep.Method != "POST" && ep.Method != "PUT" && ep.Method != "PATCH" {
+		return nil
+	}
+	extras := map[string]string{
+		"is_admin": "true",
+		"role":     `"admin"`,
+		"verified": "true",
+		"balance":  "999999",
+	}
+	parts := []string{}
+	for k := range ep.RequestBody.Schema {
+		parts = append(parts, fmt.Sprintf(`%q: "probe"`, k))
+	}
+	for k, v := range extras {
+		parts = append(parts, fmt.Sprintf(`%q: %s`, k, v))
+	}
+	body := "{" + strings.Join(parts, ", ") + "}"
+	return []TestCase{{
+		ID:          fmt.Sprintf("mass-%s", ep.Method),
+		RuleID:      "DAST-MASS-001",
+		Name:        "Mass assignment via privileged extra fields in JSON body",
+		Category:    "mass_assignment",
+		Severity:    "medium",
+		Confidence:  "low",
+		Method:      ep.Method,
+		URL:         baseURL,
+		ContentType: "application/json",
+		Body:        body,
+		MinProfile:  "aggressive",
+		Matcher: &CompositeMatcher{
+			Mode: "and",
+			Matchers: []ResponseMatcher{
+				&StatusCodeMatcher{Codes: []int{200, 201}},
+				&BodyRegexMatcher{
+					Pattern: regexp.MustCompile(`"(is_admin|role|verified|balance)"\s*:\s*(true|"admin"|999999)`),
+					Reason:  "response echoes injected privileged field with the injected value",
+				},
+			},
+		},
+	}}
 }
 
 // redirectParamNames lists query parameters commonly used to encode the next
