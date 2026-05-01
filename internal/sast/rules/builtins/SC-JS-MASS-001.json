@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-JS-MASS-001",
+  "name": "Mass assignment via Model.create(req.body)",
+  "language": "javascript",
+  "cwe": ["CWE-915"],
+  "owasp": ["A04:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.55 },
+  "detection": { "kind": "taint", "vuln_class": "mass_assignment" },
+  "description": "Express request body passed wholesale to a Mongoose Model.create. Attacker can set fields the controller didn't intend (admin flag, role, isVerified) by adding extra keys to the request payload.",
+  "remediation": "Pick allowlisted fields from req.body explicitly or use a schema-level field allowlist (Mongoose strictMode) that excludes privileged fields.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/915.html"
+  ]
+}
