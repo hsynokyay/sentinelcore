@@ -1,0 +1,16 @@
+{
+  "rule_id": "SC-PY-NOSQL-001",
+  "name": "NoSQL injection via PyMongo find",
+  "language": "python",
+  "cwe": ["CWE-943"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.75 },
+  "detection": { "kind": "taint", "vuln_class": "nosql_injection" },
+  "description": "User input flows directly into a PyMongo query dict. Attacker can submit operator objects (e.g. {\"$ne\": null}) that bypass intended filtering.",
+  "remediation": "Coerce values to expected primitive types before building the query, or use a query-builder library that escapes operators.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/943.html",
+    "https://owasp.org/Top10/A03_2021-Injection/"
+  ]
+}
