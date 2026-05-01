@@ -53,3 +53,53 @@ func TestHeaderContainsMatcher_NilResp(t *testing.T) {
 		t.Fatalf("expected miss on nil response")
 	}
 }
+
+func TestHeaderRegexMatcher_Hit(t *testing.T) {
+	m := &HeaderRegexMatcher{
+		Name:    "Location",
+		Pattern: regexp.MustCompile(`https?://(evil|example)\.org`),
+		Reason:  "open redirect",
+	}
+	resp := &http.Response{Header: http.Header{"Location": []string{"https://example.org/x"}}}
+	hit, reason := m.Match(resp, nil)
+	if !hit || reason != "open redirect" {
+		t.Fatalf("hit=%v reason=%q", hit, reason)
+	}
+}
+
+func TestHeaderRegexMatcher_Miss(t *testing.T) {
+	m := &HeaderRegexMatcher{Name: "Location", Pattern: regexp.MustCompile(`evil`)}
+	resp := &http.Response{Header: http.Header{"Location": []string{"/internal/path"}}}
+	hit, _ := m.Match(resp, nil)
+	if hit {
+		t.Fatalf("expected miss")
+	}
+}
+
+func TestStatusDiffMatcher_HitWhenBaselineDiffers(t *testing.T) {
+	m := &StatusDiffMatcher{BaselineCode: 401, ProbeCode: 200, Reason: "auth bypass"}
+	resp := &http.Response{StatusCode: 200}
+	hit, reason := m.Match(resp, nil)
+	if !hit || reason != "auth bypass" {
+		t.Fatalf("hit=%v reason=%q", hit, reason)
+	}
+}
+
+func TestStatusDiffMatcher_MissWhenSameAsBaseline(t *testing.T) {
+	m := &StatusDiffMatcher{BaselineCode: 200, ProbeCode: 200}
+	resp := &http.Response{StatusCode: 200}
+	hit, _ := m.Match(resp, nil)
+	if hit {
+		t.Fatalf("expected miss when probe matches baseline")
+	}
+}
+
+func TestStatusDiffMatcher_HitWithoutBaseline(t *testing.T) {
+	// No baseline configured (zero value) → fire on ProbeCode alone
+	m := &StatusDiffMatcher{ProbeCode: 200, Reason: "static probe"}
+	resp := &http.Response{StatusCode: 200}
+	hit, _ := m.Match(resp, nil)
+	if !hit {
+		t.Fatalf("expected hit when baseline is zero and probe matches")
+	}
+}
