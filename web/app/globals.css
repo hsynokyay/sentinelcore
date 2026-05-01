@@ -372,6 +372,7 @@
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 16px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 @utility tabular {
