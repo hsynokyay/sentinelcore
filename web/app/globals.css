@@ -210,10 +210,10 @@
 
   /* ─── SentinelCore security tokens — dark mode (reference palette) ──── */
   /* Severity: brighter, higher-chroma values designed against --surface-1. */
-  --severity-critical: oklch(0.695 0.250 14);    /* red     */
-  --severity-high:     oklch(0.745 0.195 46);    /* amber   */
-  --severity-medium:   oklch(0.865 0.175 92);    /* yellow  */
-  --severity-low:      oklch(0.705 0.200 252);   /* blue    */
+  --severity-critical: oklch(0.700 0.225 14);    /* red     */
+  --severity-high:     oklch(0.755 0.175 46);    /* amber   */
+  --severity-medium:   oklch(0.870 0.155 92);    /* yellow  */
+  --severity-low:      oklch(0.715 0.180 252);   /* blue    */
   --severity-info:     oklch(0.635 0.020 260);   /* slate   */
 
   /* Signal channels. */
