@@ -239,6 +239,46 @@ func TestGenerateTestCases_GraphQLIntrospection(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_JWTAlgNone(t *testing.T) {
+	// Real-shaped HS256 token; payload contains no sensitive data.
+	// Header decodes to: {"alg":"HS256","typ":"JWT"}
+	// Payload decodes to: {"sub":"u","exp":99999999999}
+	jwt := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1IiwiZXhwIjo5OTk5OTk5OTk5OX0.signature"
+	endpoints := []Endpoint{
+		{Path: "/me", Method: "GET", BaseURL: "http://target.local", CapturedJWT: jwt},
+	}
+	cases := GenerateTestCases(endpoints, "passive")
+	var hits []TestCase
+	for _, c := range cases {
+		if c.RuleID == "DAST-JWT-001" {
+			hits = append(hits, c)
+		}
+	}
+	if len(hits) == 0 {
+		t.Fatalf("expected DAST-JWT-001 case, got 0")
+	}
+	auth := hits[0].Headers["Authorization"]
+	if !strings.HasPrefix(auth, "Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.") {
+		t.Errorf("Authorization header should carry an alg=none token, got %q", auth)
+	}
+	// Token must have empty signature (the trailing 3rd segment).
+	if strings.HasSuffix(strings.TrimPrefix(auth, "Bearer "), ".signature") {
+		t.Errorf("signature segment should be empty, got %q", auth)
+	}
+}
+
+func TestGenerateTestCases_JWTAlgNone_NoTokenSkipped(t *testing.T) {
+	endpoints := []Endpoint{
+		{Path: "/me", Method: "GET", BaseURL: "http://target.local"},
+	}
+	cases := GenerateTestCases(endpoints, "passive")
+	for _, c := range cases {
+		if c.RuleID == "DAST-JWT-001" {
+			t.Fatalf("expected JWT-001 to be skipped without CapturedJWT, but got %d cases", len(cases))
+		}
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string

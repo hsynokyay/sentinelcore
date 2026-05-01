@@ -69,6 +69,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateXXETests(ep, fullURL)...)
 		cases = append(cases, generateNoSQLITests(ep, fullURL)...)
 		cases = append(cases, generateGraphQLIntrospectionTests(ep, fullURL)...)
+		cases = append(cases, generateJWTAlgNoneTests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -303,6 +304,35 @@ func generateXXETests(ep Endpoint, baseURL string) []TestCase {
 			Pattern: regexp.MustCompile(`root:[^:]*:0:0:`),
 			Reason:  "external entity resolved /etc/passwd",
 		},
+	}}
+}
+
+// generateJWTAlgNoneTests re-signs a captured JWT with alg=none and an empty
+// signature. The matcher fires when the modified token is accepted (probe
+// returns 200 instead of the expected 401/403).
+func generateJWTAlgNoneTests(ep Endpoint, baseURL string) []TestCase {
+	if ep.CapturedJWT == "" {
+		return nil
+	}
+	parts := strings.Split(ep.CapturedJWT, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	// Build header {"alg":"none","typ":"JWT"} as base64url (no padding).
+	const noneHeaderB64 = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0"
+	noneToken := noneHeaderB64 + "." + parts[1] + "."
+	return []TestCase{{
+		ID:         fmt.Sprintf("jwt-none-%s", ep.Method),
+		RuleID:     "DAST-JWT-001",
+		Name:       "JWT alg=none accepted",
+		Category:   "jwt_alg_none",
+		Severity:   "critical",
+		Confidence: "high",
+		Method:     ep.Method,
+		URL:        baseURL,
+		Headers:    map[string]string{"Authorization": "Bearer " + noneToken},
+		MinProfile: "passive",
+		Matcher:    &StatusCodeMatcher{Codes: []int{200}},
 	}}
 }
 
