@@ -1,0 +1,48 @@
+{
+  "rule_id": "SC-JS-PROTO-001",
+  "name": "Prototype pollution via deep merge of request body",
+  "language": "javascript",
+  "cwe": ["CWE-1321"],
+  "owasp": ["A08:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.65 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "_",
+        "callee": "merge",
+        "arg_index": 1,
+        "arg_matches_any": ["req\\.(body|query|params)"],
+        "message_template": "lodash.merge with {{arg}} as source enables prototype pollution"
+      },
+      {
+        "receiver_fqn": "_",
+        "callee": "defaultsDeep",
+        "arg_index": 1,
+        "arg_matches_any": ["req\\.(body|query|params)"],
+        "message_template": "lodash.defaultsDeep with {{arg}} as source enables prototype pollution"
+      },
+      {
+        "receiver_fqn": "lodash",
+        "callee": "merge",
+        "arg_index": 1,
+        "arg_matches_any": ["req\\.(body|query|params)"],
+        "message_template": "lodash.merge with {{arg}} as source enables prototype pollution"
+      },
+      {
+        "receiver_fqn": "Object",
+        "callee": "assign",
+        "arg_index": 1,
+        "arg_matches_any": ["req\\.(body|query|params)"],
+        "message_template": "Object.assign({}, {{arg}}) into existing object enables key collision"
+      }
+    ]
+  },
+  "description": "Recursive merge functions (lodash.merge, defaultsDeep, hand-rolled deep-merge) walk source object keys and assign them onto a target. When the source is request input, an attacker can supply special keys like __proto__ or constructor.prototype to mutate Object.prototype globally.",
+  "remediation": "Use Object.create(null) for empty targets, prefer hasOwnProperty checks during merge, or use a hardened library like deepmerge with isMergeableObject restrictions.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/1321.html",
+    "https://github.com/HoLyVieR/prototype-pollution-nsec18"
+  ]
+}
