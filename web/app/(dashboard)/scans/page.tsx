@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Play } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
+import { DensityToggle } from "@/components/data/density-toggle";
+import { EmptyStateBranded } from "@/components/data/empty-state-branded";
 import { ErrorState } from "@/components/data/error-state";
 import { Pagination } from "@/components/data/pagination";
 import { Button } from "@/components/ui/button";
@@ -20,17 +22,22 @@ export default function ScansPage() {
 
   const scans = data?.scans ?? [];
   const hasMore = scans.length === PAGE_SIZE;
+  const isEmpty = !isLoading && scans.length === 0;
 
   return (
-    <div>
+    <>
       <PageHeader
         title="Scans"
         description="View and monitor security scan progress"
+        count={isLoading ? "—" : (data?.total ?? scans.length)}
         actions={
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Scan
-          </Button>
+          <>
+            <DensityToggle />
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              New Scan
+            </Button>
+          </>
         }
       />
 
@@ -38,6 +45,13 @@ export default function ScansPage() {
 
       {isError ? (
         <ErrorState message="Failed to load scans" onRetry={() => refetch()} />
+      ) : isEmpty ? (
+        <EmptyStateBranded
+          icon={Play}
+          title="No scans yet"
+          description="Configure a scan target to run your first scan."
+          action={{ label: "Configure target", href: "/targets" }}
+        />
       ) : (
         <>
           <ScansTable scans={scans} isLoading={isLoading} />
@@ -52,6 +66,6 @@ export default function ScansPage() {
           )}
         </>
       )}
-    </div>
+    </>
   );
 }
