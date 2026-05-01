@@ -75,6 +75,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateJWTAlgNoneTests(ep, fullURL)...)
 		cases = append(cases, generateJWTWeakSecretTests(ep, fullURL)...)
 		cases = append(cases, generateCRLFTests(ep, fullURL)...)
+		cases = append(cases, generateOpenRedirectTests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -489,6 +490,52 @@ func buildJSONWithOperator(schema map[string]string, target, opJSON string) stri
 		}
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+// redirectParamNames lists query parameters commonly used to encode the next
+// URL after a redirect. The probe only fires when one of these is present.
+var redirectParamNames = map[string]bool{
+	"redirect": true, "next": true, "url": true,
+	"return": true, "returnurl": true, "goto": true, "to": true,
+}
+
+// generateOpenRedirectTests injects external URLs into redirect-shaped
+// parameters and expects the response Location header to echo the injected
+// origin.
+func generateOpenRedirectTests(ep Endpoint, baseURL string) []TestCase {
+	payloads := []string{
+		"https://example.org/sentinel-probe",
+		"//example.org/sentinel-probe",
+	}
+	var cases []TestCase
+	for _, param := range ep.Parameters {
+		if param.In != "query" {
+			continue
+		}
+		if !redirectParamNames[strings.ToLower(param.Name)] {
+			continue
+		}
+		for i, payload := range payloads {
+			testURL := injectParam(baseURL, param, payload)
+			cases = append(cases, TestCase{
+				ID:         fmt.Sprintf("openredir-%s-%s-%d", ep.Method, param.Name, i),
+				RuleID:     "DAST-OPENREDIR-001",
+				Name:       fmt.Sprintf("Open redirect via %s param %q", param.In, param.Name),
+				Category:   "open_redirect",
+				Severity:   "medium",
+				Confidence: "high",
+				Method:     ep.Method,
+				URL:        testURL,
+				MinProfile: "standard",
+				Matcher: &HeaderRegexMatcher{
+					Name:    "Location",
+					Pattern: regexp.MustCompile(`(?:https?:)?//(?:[^/]*\.)?example\.org`),
+					Reason:  "Location header echoes attacker-controlled origin",
+				},
+			})
+		}
+	}
+	return cases
 }
 
 // generateCRLFTests injects %0d%0a-encoded CR/LF into query parameters and

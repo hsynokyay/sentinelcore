@@ -332,6 +332,36 @@ func TestGenerateTestCases_CRLF(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_OpenRedirect(t *testing.T) {
+	endpoints := []Endpoint{
+		{
+			Path:    "/login/callback",
+			Method:  "GET",
+			BaseURL: "http://target.local",
+			Parameters: []Parameter{
+				{Name: "next", In: "query", Type: "string"},
+				{Name: "id", In: "query", Type: "integer"},
+			},
+		},
+	}
+	cases := GenerateTestCases(endpoints, "standard")
+	var redirs []TestCase
+	for _, c := range cases {
+		if c.RuleID == "DAST-OPENREDIR-001" {
+			redirs = append(redirs, c)
+		}
+	}
+	if len(redirs) == 0 {
+		t.Fatalf("expected open-redirect probes, got 0")
+	}
+	// Should target the "next" param, not "id"
+	for _, c := range redirs {
+		if !strings.Contains(c.URL, "next=") {
+			t.Errorf("probe should target the redirect-shaped param, got URL %q", c.URL)
+		}
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string
