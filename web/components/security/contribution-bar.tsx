@@ -134,7 +134,7 @@ export function ContributionBar({
         </span>
       </div>
       <div
-        className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--contrib-track)]"
+        className="h-1 w-full overflow-hidden rounded-full bg-[var(--contrib-track)]"
         aria-hidden="true"
       >
         <div

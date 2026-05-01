@@ -37,7 +37,7 @@ export interface ScoreDisplayProps {
 const variantConfig = {
   hero: {
     ringSize: 160,
-    ringStroke: 10,
+    ringStroke: 8,
     numberClass: "text-4xl font-bold leading-none",
     denominatorClass: "mt-1 text-[10px] uppercase tracking-widest text-muted-foreground",
     showDenominator: true,
