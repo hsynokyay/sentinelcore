@@ -39,6 +39,10 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-bg: var(--bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -75,9 +79,13 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  --bg: oklch(1 0 0);
+  --background: var(--bg);
+  --surface-1: oklch(0.99 0 0);
+  --surface-2: oklch(0.97 0 0);
+  --surface-3: oklch(0.94 0 0);
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: var(--surface-1);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -150,9 +158,13 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --bg: oklch(0.135 0 0);
+  --background: var(--bg);
+  --surface-1: oklch(0.175 0 0);
+  --surface-2: oklch(0.215 0 0);
+  --surface-3: oklch(0.250 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: var(--surface-1);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
