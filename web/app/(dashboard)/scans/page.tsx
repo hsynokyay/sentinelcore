@@ -29,7 +29,7 @@ export default function ScansPage() {
       <PageHeader
         title="Scans"
         description="View and monitor security scan progress"
-        count={isLoading ? "—" : (data?.total ?? scans.length)}
+        count={isLoading ? "—" : scans.length}
         actions={
           <>
             <DensityToggle />

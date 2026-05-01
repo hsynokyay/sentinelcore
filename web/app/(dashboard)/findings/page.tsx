@@ -37,7 +37,7 @@ export default function FindingsPage() {
     <>
       <PageHeader
         title="Findings"
-        count={isLoading ? "—" : (data?.total ?? findings.length)}
+        count={isLoading ? "—" : findings.length}
         filters={
           <FindingFiltersBar
             severity={severity}
