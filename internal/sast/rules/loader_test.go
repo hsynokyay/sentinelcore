@@ -105,6 +105,53 @@ func TestLoadBuiltins_NewClassesPR(t *testing.T) {
 	}
 }
 
+func TestLoadBuiltins_MatrixGapsPR(t *testing.T) {
+	rs, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	idIndex := make(map[string]*Rule, len(rs))
+	for _, r := range rs {
+		idIndex[r.RuleID] = r
+	}
+
+	expected := []string{
+		"SC-PY-XSS-001",
+		"SC-JAVA-XSS-001",
+		"SC-CSHARP-XSS-001",
+		"SC-PY-LOG-001",
+		"SC-JS-LOG-001",
+		"SC-CSHARP-LOG-001",
+		"SC-PY-XXE-001",
+		"SC-JS-XXE-001",
+		"SC-CSHARP-XXE-001",
+		"SC-CSHARP-CRYPTO-001",
+		"SC-JAVA-EVAL-001",
+		"SC-CSHARP-EVAL-001",
+		"SC-CSHARP-REDIRECT-001",
+		"SC-JS-DESER-001",
+	}
+
+	for _, id := range expected {
+		t.Run(id, func(t *testing.T) {
+			r, ok := idIndex[id]
+			if !ok {
+				t.Fatalf("rule %s missing", id)
+			}
+			if r.Severity == "" {
+				t.Errorf("severity empty")
+			}
+			if r.Description == "" {
+				t.Errorf("description empty")
+			}
+			if r.Remediation == "" {
+				t.Errorf("remediation empty")
+			}
+		})
+	}
+}
+
 func TestValidateRejectsBadRules(t *testing.T) {
 	cases := []struct {
 		name string
