@@ -18,7 +18,7 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
   const hasActiveStops = (stopsData?.stops ?? []).length > 0
 
   return (
-    <header className="h-14 border-b border-border bg-bg flex items-center gap-4 px-4">
+    <header className="sticky top-0 z-30 h-14 border-b border-border-subtle glass-header flex items-center gap-4 px-4">
       <div className="flex-1 min-w-0">
         <Breadcrumbs />
       </div>
