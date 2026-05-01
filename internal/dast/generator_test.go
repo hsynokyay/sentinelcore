@@ -187,6 +187,36 @@ func TestGenerateTestCases_XXE(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_NoSQL(t *testing.T) {
+	endpoints := []Endpoint{
+		{
+			Path:    "/login",
+			Method:  "POST",
+			BaseURL: "http://target.local",
+			RequestBody: &RequestBodySpec{
+				ContentType: "application/json",
+				Schema: map[string]string{
+					"username": "string",
+					"password": "string",
+				},
+			},
+		},
+	}
+	cases := GenerateTestCases(endpoints, "standard")
+	var nosql []TestCase
+	for _, c := range cases {
+		if c.RuleID == "DAST-NOSQL-001" {
+			nosql = append(nosql, c)
+		}
+	}
+	if len(nosql) == 0 {
+		t.Fatalf("expected at least 1 NoSQL test case, got 0")
+	}
+	if !strings.Contains(nosql[0].Body, "$ne") && !strings.Contains(nosql[0].Body, "$gt") {
+		t.Errorf("expected $ne or $gt operator in body, got %q", nosql[0].Body)
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string

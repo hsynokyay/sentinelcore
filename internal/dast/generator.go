@@ -67,6 +67,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateIDORTests(ep, fullURL)...)
 		cases = append(cases, generateHeaderInjectionTests(ep, fullURL)...)
 		cases = append(cases, generateXXETests(ep, fullURL)...)
+		cases = append(cases, generateNoSQLITests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -302,6 +303,61 @@ func generateXXETests(ep Endpoint, baseURL string) []TestCase {
 			Reason:  "external entity resolved /etc/passwd",
 		},
 	}}
+}
+
+// generateNoSQLITests probes JSON-bodied endpoints for NoSQL-operator injection.
+// Substitutes operator objects into expected string fields and looks for a
+// status code that signals authentication or authorization bypass.
+func generateNoSQLITests(ep Endpoint, baseURL string) []TestCase {
+	if ep.RequestBody == nil ||
+		!strings.Contains(strings.ToLower(ep.RequestBody.ContentType), "json") ||
+		ep.RequestBody.Schema == nil {
+		return nil
+	}
+	operators := []string{
+		`{"$ne": null}`,
+		`{"$gt": ""}`,
+		`{"$regex": ".*"}`,
+	}
+	var cases []TestCase
+	for fieldName := range ep.RequestBody.Schema {
+		for i, op := range operators {
+			body := buildJSONWithOperator(ep.RequestBody.Schema, fieldName, op)
+			cases = append(cases, TestCase{
+				ID:          fmt.Sprintf("nosql-%s-%s-%d", ep.Method, fieldName, i),
+				RuleID:      "DAST-NOSQL-001",
+				Name:        fmt.Sprintf("NoSQL operator injection via field %q", fieldName),
+				Category:    "nosql_injection",
+				Severity:    "high",
+				Confidence:  "low",
+				Method:      ep.Method,
+				URL:         baseURL,
+				ContentType: "application/json",
+				Body:        body,
+				MinProfile:  "standard",
+				Matcher: &StatusCodeMatcher{
+					// 200 on a typical login endpoint = bypass; baseline diff
+					// would refine this in a future iteration.
+					Codes: []int{200},
+				},
+			})
+		}
+	}
+	return cases
+}
+
+// buildJSONWithOperator constructs a JSON body where one field is replaced by
+// a raw operator JSON snippet. Other fields get a placeholder string value.
+func buildJSONWithOperator(schema map[string]string, target, opJSON string) string {
+	var parts []string
+	for k := range schema {
+		if k == target {
+			parts = append(parts, fmt.Sprintf(`%q: %s`, k, opJSON))
+		} else {
+			parts = append(parts, fmt.Sprintf(`%q: "probe"`, k))
+		}
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 func injectParam(baseURL string, param Parameter, payload string) string {
