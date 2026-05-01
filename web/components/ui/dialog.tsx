@@ -40,7 +40,7 @@ function DialogBackdrop({ className, ...props }: React.ComponentProps<typeof Dia
   return (
     <DialogPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 z-50 bg-black/50 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity",
+        "fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity duration-slow ease-[cubic-bezier(0.16,1,0.3,1)]",
         className
       )}
       {...props}
@@ -48,24 +48,34 @@ function DialogBackdrop({ className, ...props }: React.ComponentProps<typeof Dia
   )
 }
 
+const sizeClass = {
+  sm: "max-w-sm",
+  md: "max-w-lg",
+  lg: "max-w-3xl",
+} as const
+
 function DialogContent({
   className,
   children,
+  size = "md",
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Popup>) {
+}: React.ComponentProps<typeof DialogPrimitive.Popup> & {
+  size?: keyof typeof sizeClass
+}) {
   return (
     <DialogPortal>
       <DialogBackdrop />
       <DialogPrimitive.Popup
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border bg-card p-6 shadow-lg data-[ending-style]:opacity-0 data-[ending-style]:scale-95 data-[starting-style]:opacity-0 data-[starting-style]:scale-95 transition-all",
+          "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface-2 p-6 shadow-2xl data-[ending-style]:opacity-0 data-[ending-style]:scale-95 data-[starting-style]:opacity-0 data-[starting-style]:scale-95 transition-all duration-slow ease-[cubic-bezier(0.16,1,0.3,1)]",
+          sizeClass[size],
           className
         )}
         {...props}
       >
         {children}
         <DialogPrimitive.Close
-          className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity"
+          className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus-ring"
         >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
