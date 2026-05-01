@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-CSHARP-XSS-001",
+  "name": "Reflected XSS via Html.Raw",
+  "language": "csharp",
+  "cwe": ["CWE-79"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.75 },
+  "detection": { "kind": "taint", "vuln_class": "xss" },
+  "description": "User input flows through HtmlHelper.Raw() or new HtmlString() in a Razor view, bypassing Razor's automatic HTML encoding.",
+  "remediation": "Drop @Html.Raw and let Razor's default encoding apply, or sanitize with Microsoft.Security.Application.Sanitizer.",
+  "references": ["https://cwe.mitre.org/data/definitions/79.html"]
+}
