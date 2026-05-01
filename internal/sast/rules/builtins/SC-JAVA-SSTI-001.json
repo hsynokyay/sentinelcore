@@ -1,0 +1,16 @@
+{
+  "rule_id": "SC-JAVA-SSTI-001",
+  "name": "Server-side template injection via Velocity/Thymeleaf",
+  "language": "java",
+  "cwe": ["CWE-1336"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.80 },
+  "detection": { "kind": "taint", "vuln_class": "ssti" },
+  "description": "User input is passed as the template body to Velocity.evaluate or Thymeleaf TemplateEngine.process. Both engines execute attacker-controlled directives, leading to RCE in the JVM.",
+  "remediation": "Render named template resources only; treat user input as data, never as template source.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/1336.html",
+    "https://owasp.org/Top10/A03_2021-Injection/"
+  ]
+}
