@@ -1,9 +1,11 @@
 "use client"
 
 import { useMemo } from "react"
+import { AlertTriangle, Activity, Shield, ShieldCheck } from "lucide-react"
 import { PageHeader } from "@/components/data/page-header"
 import { ChangeSummaryStrip } from "@/components/security/change-summary-strip"
 import { MicroInsight } from "@/components/security/micro-insight"
+import { HeroStat } from "@/components/security/hero-stat"
 import { SeverityDistributionChart } from "@/features/risks/severity-distribution-chart"
 import { TopRisksCard } from "@/features/risks/top-risks-card"
 import { RuntimeConfirmedCard } from "@/features/dashboard/runtime-confirmed-card"
@@ -48,9 +50,64 @@ export default function DashboardPage() {
       ? "neutral"
       : "positive") as "negative" | "neutral" | "positive"
 
+  const last7DaysSparkline = useMemo(() => {
+    const buckets = Array.from({ length: 7 }, (_, i) => {
+      const day = new Date()
+      day.setHours(0, 0, 0, 0)
+      day.setDate(day.getDate() - (6 - i))
+      const next = new Date(day)
+      next.setDate(next.getDate() + 1)
+      return risks.filter((r) => {
+        const t = new Date(r.first_seen_at ?? 0).getTime()
+        return t >= day.getTime() && t < next.getTime()
+      }).length
+    })
+    return buckets
+  }, [risks])
+
+  const completedScansLast7 = useMemo(() => {
+    const since = Date.now() - 7 * 24 * 60 * 60 * 1000
+    return (scansData?.scans ?? []).filter(
+      (s) => s.status === "completed" && new Date(s.created_at).getTime() >= since
+    ).length
+  }, [scansData])
+
   return (
     <div className="space-y-6">
       <PageHeader title="Dashboard" description="Security posture at a glance." />
+
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <HeroStat
+          label="Active risks"
+          value={activeCount}
+          icon={<AlertTriangle className="size-3.5" />}
+          delta={
+            criticalCount > 0
+              ? { text: `${criticalCount} critical`, tone: "negative" }
+              : { text: "no critical", tone: "positive" }
+          }
+          sparkline={last7DaysSparkline}
+          tone={criticalCount > 0 ? "critical" : "brand"}
+        />
+        <HeroStat
+          label="Critical"
+          value={criticalCount}
+          icon={<ShieldCheck className="size-3.5" />}
+          tone={criticalCount > 0 ? "critical" : "success"}
+        />
+        <HeroStat
+          label="Scans (7d)"
+          value={completedScansLast7}
+          icon={<Activity className="size-3.5" />}
+          tone="brand"
+        />
+        <HeroStat
+          label="Findings tracked"
+          value={risks.reduce((s, r) => s + (r.finding_count ?? 0), 0)}
+          icon={<Shield className="size-3.5" />}
+          tone="brand"
+        />
+      </section>
 
       <section>
         {!isLoading && <MicroInsight text={insightText} tone={insightTone} />}
