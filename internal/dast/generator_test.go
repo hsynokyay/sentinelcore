@@ -306,6 +306,32 @@ func TestGenerateTestCases_JWTWeakSecret(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_CRLF(t *testing.T) {
+	endpoints := []Endpoint{
+		{
+			Path:    "/track",
+			Method:  "GET",
+			BaseURL: "http://target.local",
+			Parameters: []Parameter{
+				{Name: "id", In: "query", Type: "string"},
+			},
+		},
+	}
+	cases := GenerateTestCases(endpoints, "standard")
+	var crlf []TestCase
+	for _, c := range cases {
+		if c.RuleID == "DAST-CRLF-001" {
+			crlf = append(crlf, c)
+		}
+	}
+	if len(crlf) == 0 {
+		t.Fatalf("expected CRLF probe, got 0")
+	}
+	if !strings.Contains(crlf[0].URL, "%0d%0a") && !strings.Contains(crlf[0].URL, "%0D%0A") {
+		t.Errorf("URL should encode CR/LF, got %q", crlf[0].URL)
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string

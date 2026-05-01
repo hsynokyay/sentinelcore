@@ -74,6 +74,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateGraphQLIntrospectionTests(ep, fullURL)...)
 		cases = append(cases, generateJWTAlgNoneTests(ep, fullURL)...)
 		cases = append(cases, generateJWTWeakSecretTests(ep, fullURL)...)
+		cases = append(cases, generateCRLFTests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -488,6 +489,54 @@ func buildJSONWithOperator(schema map[string]string, target, opJSON string) stri
 		}
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+// generateCRLFTests injects %0d%0a-encoded CR/LF into query parameters and
+// expects the response to echo a forged Set-Cookie header.
+func generateCRLFTests(ep Endpoint, baseURL string) []TestCase {
+	payloads := []string{
+		"%0d%0aSet-Cookie:%20pwn=1",
+		"%0D%0ASet-Cookie:%20pwn=1",
+		"\r\nSet-Cookie: pwn=1",
+	}
+	var cases []TestCase
+	for _, param := range ep.Parameters {
+		if param.In != "query" && param.In != "path" {
+			continue
+		}
+		for i, payload := range payloads {
+			// Build URL with raw query to preserve percent-encoded CR/LF literals.
+			var testURL string
+			if param.In == "query" {
+				u, err := url.Parse(baseURL)
+				if err != nil {
+					testURL = baseURL
+				} else {
+					u.RawQuery = param.Name + "=" + payload
+					testURL = u.String()
+				}
+			} else {
+				testURL = injectParam(baseURL, param, payload)
+			}
+			cases = append(cases, TestCase{
+				ID:         fmt.Sprintf("crlf-%s-%s-%d", ep.Method, param.Name, i),
+				RuleID:     "DAST-CRLF-001",
+				Name:       fmt.Sprintf("CRLF injection via %s param %q", param.In, param.Name),
+				Category:   "crlf_injection",
+				Severity:   "high",
+				Confidence: "medium",
+				Method:     ep.Method,
+				URL:        testURL,
+				MinProfile: "standard",
+				Matcher: &HeaderContainsMatcher{
+					Name:      "Set-Cookie",
+					Substring: "pwn=1",
+					Reason:    "injected Set-Cookie header echoed in response",
+				},
+			})
+		}
+	}
+	return cases
 }
 
 func injectParam(baseURL string, param Parameter, payload string) string {
