@@ -86,6 +86,7 @@
 :root {
   --bg: oklch(1 0 0);
   --background: var(--bg);
+  /* ─── Surfaces (4 layers) ─── */
   --surface-1: oklch(0.99 0 0);
   --surface-2: oklch(0.97 0 0);
   --surface-3: oklch(0.94 0 0);
@@ -94,8 +95,6 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -103,6 +102,7 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
+  /* ─── Border weights ─── */
   --border-subtle: oklch(0 0 0 / 5%);
   --border: oklch(0 0 0 / 10%);
   --border-strong: oklch(0 0 0 / 18%);
@@ -162,9 +162,10 @@
   --duration-base: 150ms;
   --duration-slow: 250ms;
   --duration-score: 700ms;
-  --brand: oklch(0.55 0.22 285);
+  /* ─── Brand ─── */
+  --brand: oklch(0.550 0.220 285);
   --brand-foreground: oklch(0.99 0 0);
-  --brand-muted: oklch(0.55 0.22 285 / 10%);
+  --brand-muted: oklch(0.550 0.220 285 / 10%);
   --primary: var(--brand);
   --primary-foreground: var(--brand-foreground);
 }
@@ -172,6 +173,7 @@
 .dark {
   --bg: oklch(0.135 0 0);
   --background: var(--bg);
+  /* ─── Surfaces (4 layers) ─── */
   --surface-1: oklch(0.175 0 0);
   --surface-2: oklch(0.215 0 0);
   --surface-3: oklch(0.250 0 0);
@@ -180,8 +182,6 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -189,6 +189,7 @@
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
+  /* ─── Border weights ─── */
   --border-subtle: oklch(1 0 0 / 6%);
   --border: oklch(1 0 0 / 12%);
   --border-strong: oklch(1 0 0 / 20%);
@@ -246,9 +247,10 @@
   --duration-base: 150ms;
   --duration-slow: 250ms;
   --duration-score: 700ms;
-  --brand: oklch(0.66 0.22 285);
+  /* ─── Brand ─── */
+  --brand: oklch(0.660 0.220 285);
   --brand-foreground: oklch(0.99 0 0);
-  --brand-muted: oklch(0.66 0.22 285 / 12%);
+  --brand-muted: oklch(0.660 0.220 285 / 12%);
   --primary: var(--brand);
   --primary-foreground: var(--brand-foreground);
 }
@@ -272,6 +274,66 @@
    charts, tooltips, KPI tiles, and score displays. */
 @utility tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* ─── Typography utilities (8-step scale) ─── */
+
+@utility text-display {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+@utility text-h1 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+@utility text-h2 {
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 600;
+}
+@utility text-h3 {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+}
+@utility text-body {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+@utility text-body-sm {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}
+@utility text-caption {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+@utility text-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Focus ring (keyboard-only) ─── */
+
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    box-shadow:
+      0 0 0 2px var(--bg),
+      0 0 0 4px var(--brand);
+  }
 }
 
 /* ─── SentinelCore keyframes ──────────────────────────────────────────── */
@@ -328,61 +390,5 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
-@utility text-display {
-  font-size: 28px;
-  line-height: 36px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-@utility text-h1 {
-  font-size: 22px;
-  line-height: 28px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
-}
-@utility text-h2 {
-  font-size: 18px;
-  line-height: 24px;
-  font-weight: 600;
-}
-@utility text-h3 {
-  font-size: 15px;
-  line-height: 22px;
-  font-weight: 600;
-}
-@utility text-body {
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 400;
-}
-@utility text-body-sm {
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 400;
-}
-@utility text-caption {
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-@utility text-mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 16px;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-@utility tabular {
-  font-variant-numeric: tabular-nums;
-}
-@utility focus-ring {
-  outline: none;
-  &:focus-visible {
-    box-shadow:
-      0 0 0 2px var(--bg),
-      0 0 0 4px var(--brand);
-  }
+
 }
