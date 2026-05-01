@@ -26,7 +26,7 @@ export default function ApprovalsPage() {
       <PageHeader
         title="Approvals"
         description="Review and manage governance approval requests"
-        count={isLoading ? "—" : (data?.total ?? requests.length)}
+        count={isLoading ? "—" : requests.length}
         actions={<DensityToggle />}
       />
 
