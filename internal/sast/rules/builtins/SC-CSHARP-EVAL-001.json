@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-CSHARP-EVAL-001",
+  "name": "Unsafe code compilation via CSharpCodeProvider",
+  "language": "csharp",
+  "cwe": ["CWE-95"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": { "kind": "taint", "vuln_class": "unsafe_eval" },
+  "description": "Microsoft.CSharp.CSharpCodeProvider.CompileAssemblyFromSource compiles arbitrary C# source code at runtime. With user input as the source, this is direct RCE.",
+  "remediation": "Avoid runtime compilation of user input. If you need expressions, use Roslyn's scripting API in a constrained AppDomain, or evaluate a small domain-specific language you fully control.",
+  "references": ["https://cwe.mitre.org/data/definitions/95.html"]
+}
