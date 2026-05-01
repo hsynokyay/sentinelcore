@@ -400,6 +400,38 @@ func TestGenerateTestCases_MassAssignment(t *testing.T) {
 	}
 }
 
+func TestGenerateTestCases_PrototypePollution(t *testing.T) {
+	endpoints := []Endpoint{
+		{
+			Path:    "/config",
+			Method:  "POST",
+			BaseURL: "http://target.local",
+			RequestBody: &RequestBodySpec{
+				ContentType: "application/json",
+			},
+		},
+	}
+	casesAggr := GenerateTestCases(endpoints, "aggressive")
+	var hits []TestCase
+	for _, c := range casesAggr {
+		if c.RuleID == "DAST-PROTO-POL-001" {
+			hits = append(hits, c)
+		}
+	}
+	if len(hits) == 0 {
+		t.Fatalf("expected proto-pollution probe at aggressive profile, got 0")
+	}
+	if !strings.Contains(hits[0].Body, "__proto__") {
+		t.Errorf("body should include __proto__, got %q", hits[0].Body)
+	}
+	casesStd := GenerateTestCases(endpoints, "standard")
+	for _, c := range casesStd {
+		if c.RuleID == "DAST-PROTO-POL-001" {
+			t.Fatalf("PROTO-POL probe should be gated to aggressive, but appeared in standard")
+		}
+	}
+}
+
 func TestIsIDParam(t *testing.T) {
 	tests := []struct {
 		name   string

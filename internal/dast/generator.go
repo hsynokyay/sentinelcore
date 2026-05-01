@@ -77,6 +77,7 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 		cases = append(cases, generateCRLFTests(ep, fullURL)...)
 		cases = append(cases, generateOpenRedirectTests(ep, fullURL)...)
 		cases = append(cases, generateMassAssignmentTests(ep, fullURL)...)
+		cases = append(cases, generatePrototypePollutionTests(ep, fullURL)...)
 	}
 
 	// Filter by profile.
@@ -491,6 +492,42 @@ func buildJSONWithOperator(schema map[string]string, target, opJSON string) stri
 		}
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+// generatePrototypePollutionTests posts a JSON body containing __proto__ /
+// constructor.prototype keys with a unique sentinel value. The matcher fires
+// when the response echoes the sentinel back, indicating the merge polluted
+// a shared object that the response constructed.
+func generatePrototypePollutionTests(ep Endpoint, baseURL string) []TestCase {
+	if ep.RequestBody == nil ||
+		!strings.Contains(strings.ToLower(ep.RequestBody.ContentType), "json") {
+		return nil
+	}
+	if ep.Method != "POST" && ep.Method != "PUT" && ep.Method != "PATCH" {
+		return nil
+	}
+	bodies := []string{
+		`{"__proto__":{"sentinelProbe":"polluted"}}`,
+		`{"constructor":{"prototype":{"sentinelProbe":"polluted"}}}`,
+	}
+	var cases []TestCase
+	for i, body := range bodies {
+		cases = append(cases, TestCase{
+			ID:          fmt.Sprintf("proto-pol-%s-%d", ep.Method, i),
+			RuleID:      "DAST-PROTO-POL-001",
+			Name:        "Prototype pollution via JSON merge sink",
+			Category:    "prototype_pollution",
+			Severity:    "high",
+			Confidence:  "low",
+			Method:      ep.Method,
+			URL:         baseURL,
+			ContentType: "application/json",
+			Body:        body,
+			MinProfile:  "aggressive",
+			Matcher:     &BodyContainsMatcher{Patterns: []string{`"sentinelProbe":"polluted"`}},
+		})
+	}
+	return cases
 }
 
 // generateMassAssignmentTests posts a JSON body that includes the documented
