@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { ChevronsUpDown, Check, ShieldCheck } from "lucide-react"
-import * as Popover from "@base-ui/react/popover"
+import { Popover } from "@base-ui/react/popover"
 import { useWorkspace } from "@/lib/workspace-context"
 import { cn } from "@/lib/utils"
 

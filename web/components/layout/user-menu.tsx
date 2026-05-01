@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { LogOut, Settings } from "lucide-react"
-import * as Popover from "@base-ui/react/popover"
+import { Popover } from "@base-ui/react/popover"
 import Link from "next/link"
 import { useAuth } from "@/features/auth/hooks"
 
