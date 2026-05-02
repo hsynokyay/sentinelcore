@@ -76,3 +76,39 @@ func TestValidateRejectsBadRules(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadBuiltins_CookieRulesPR(t *testing.T) {
+	rs, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	idIndex := make(map[string]*Rule, len(rs))
+	for _, r := range rs {
+		idIndex[r.RuleID] = r
+	}
+	expected := []string{
+		"SC-PY-COOKIE-001", "SC-PY-COOKIE-002", "SC-PY-COOKIE-003",
+		"SC-JS-COOKIE-001", "SC-JS-COOKIE-002", "SC-JS-COOKIE-003",
+		"SC-CSHARP-COOKIE-001", "SC-CSHARP-COOKIE-002", "SC-CSHARP-COOKIE-003",
+	}
+	for _, id := range expected {
+		t.Run(id, func(t *testing.T) {
+			r, ok := idIndex[id]
+			if !ok {
+				t.Fatalf("rule %s missing", id)
+			}
+			if r.Severity == "" {
+				t.Errorf("severity empty")
+			}
+			if r.Description == "" {
+				t.Errorf("description empty")
+			}
+			if r.Remediation == "" {
+				t.Errorf("remediation empty")
+			}
+			if r.Detection.Kind != DetectionASTCall {
+				t.Errorf("expected ast_call, got %q", r.Detection.Kind)
+			}
+		})
+	}
+}
