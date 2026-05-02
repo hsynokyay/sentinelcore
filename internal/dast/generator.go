@@ -61,6 +61,14 @@ func GenerateTestCases(endpoints []Endpoint, profile string) []TestCase {
 	}
 
 	var cases []TestCase
+
+	// Site-wide passive checks run once per scan against the base URL. Headers
+	// and cookies are server-wide policy concerns; running them per-endpoint
+	// would just produce duplicates.
+	if len(endpoints) > 0 && endpoints[0].BaseURL != "" {
+		cases = append(cases, generatePassiveSecurityChecks(endpoints[0].BaseURL)...)
+	}
+
 	for _, ep := range endpoints {
 		fullURL := ep.BaseURL + ep.Path
 		cases = append(cases, generateSQLiTests(ep, fullURL)...)
