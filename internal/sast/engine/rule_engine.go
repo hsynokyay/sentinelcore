@@ -113,14 +113,18 @@ func callMatchesPattern(inst *ir.Instruction, p rules.CompiledPattern) bool {
 			}
 		}
 		if len(src.ArgTextMissingAny) > 0 {
-			missing := false
+			// Semantics: pattern fires only if NONE of the listed needles
+			// appear. The list represents alternative spellings/forms of
+			// the same protective marker (e.g. ["httpOnly", "HttpOnly"]) —
+			// finding any one form means the call is safe.
+			anyPresent := false
 			for _, needle := range src.ArgTextMissingAny {
-				if needle != "" && !strings.Contains(text, needle) {
-					missing = true
+				if needle != "" && strings.Contains(text, needle) {
+					anyPresent = true
 					break
 				}
 			}
-			if !missing {
+			if anyPresent {
 				return false
 			}
 		}

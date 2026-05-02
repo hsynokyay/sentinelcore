@@ -79,6 +79,13 @@ const (
 // — the verbatim source-text representation of each operand. Use these for
 // cookie/JWT options-object patterns where a key's presence (or absence)
 // inside an object literal cannot be expressed as a string-literal regex.
+//
+//   ArgTextContainsAny — pattern fires when the operand source text contains
+//   at least one of the listed substrings.
+//   ArgTextMissingAny — pattern fires only when NONE of the listed substrings
+//   appear in the operand source text. The list represents alternative
+//   spellings of the same protective marker (e.g. ["httpOnly", "HttpOnly"]);
+//   finding any one form is enough to consider the call safe.
 type CallPattern struct {
 	ReceiverFQN        string   `json:"receiver_fqn,omitempty"`
 	Callee             string   `json:"callee,omitempty"`
