@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-COOKIE-001",
+  "name": "Cookie set without Secure flag",
+  "language": "javascript",
+  "cwe": ["CWE-614"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.75 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "res",
+        "callee": "cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["secure", "Secure"],
+        "message_template": "res.cookie() without secure: true"
+      },
+      {
+        "receiver_fqn": "response",
+        "callee": "cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["secure", "Secure"],
+        "message_template": "response.cookie() without secure: true"
+      }
+    ]
+  },
+  "description": "An Express response cookie is set without secure: true. Cookies without the Secure flag are sent over plaintext HTTP, leaking session tokens to passive network observers.",
+  "remediation": "Set secure: true in the cookie options. In production, also enable cookie.secure on the express-session middleware.",
+  "references": ["https://cwe.mitre.org/data/definitions/614.html"]
+}
