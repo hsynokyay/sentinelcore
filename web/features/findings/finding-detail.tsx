@@ -123,7 +123,11 @@ export function FindingDetail({ finding }: FindingDetailProps) {
         <div className="grid gap-4 sm:grid-cols-[200px_1fr] sm:items-start">
           <div>
             <Label htmlFor="triage-status">Status</Label>
-            <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+            <Select
+              value={selectedStatus}
+              onValueChange={setSelectedStatus}
+              itemToStringLabel={(v) => statusLabel[String(v)] ?? String(v).replace(/_/g, " ")}
+            >
               <SelectTrigger id="triage-status">
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
