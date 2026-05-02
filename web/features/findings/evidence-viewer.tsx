@@ -137,7 +137,8 @@ function ExchangePanel({
           {statusOrUrl}
         </span>
         <span className="text-[10px] text-muted-foreground tabular-nums">
-          {headerEntries.length} hdrs{body ? ` · ${formatBytes(bodySize ?? body.length)}` : ""}
+          {headerEntries.length} {headerEntries.length === 1 ? "header" : "headers"}
+          {body ? ` · ${formatBytes(bodySize ?? body.length)}` : ""}
         </span>
       </button>
       {expanded && (
