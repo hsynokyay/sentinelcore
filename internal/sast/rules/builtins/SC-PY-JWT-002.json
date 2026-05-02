@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-JWT-002",
+  "name": "JWT accepts alg=none",
+  "language": "python",
+  "cwe": ["CWE-327"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.90 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "jwt",
+        "callee": "decode",
+        "arg_index": 0,
+        "arg_text_contains_any": ["\"none\"", "'none'", "algorithms=[\"none\"]", "algorithms=['none']"],
+        "message_template": "jwt.decode allows alg=none — any unsigned token will be accepted"
+      }
+    ]
+  },
+  "description": "PyJWT is configured to accept the unsigned 'none' algorithm. An attacker can forge tokens with empty signatures.",
+  "remediation": "Use a fixed algorithms allowlist that only contains your real signing algorithm: algorithms=[\"HS256\"] or algorithms=[\"RS256\"].",
+  "references": ["https://cwe.mitre.org/data/definitions/327.html"]
+}
