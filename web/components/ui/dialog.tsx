@@ -18,10 +18,18 @@ function Dialog({
   // mode applies inert via Base UI's markOthers utility; if that cleanup races
   // with React's concurrent unmount, inert leaks and the sidebar / main content
   // become unclickable. trap-focus avoids the whole class of leak.
+  //
+  // `disablePointerDismissal=true` is required because nested portal-based
+  // popups (Select, Popover, etc. which themselves portal to body) sit
+  // OUTSIDE the dialog tree. With trap-focus mode, clicks on those nested
+  // popups are seen as outside-click and dismiss the dialog mid-interaction.
+  // Form dialogs in this app always contain at least one Select; explicit
+  // close (X button, Escape, Cancel button) remains available.
   return (
     <DialogPrimitive.Root
       open={open}
       modal="trap-focus"
+      disablePointerDismissal
       onOpenChange={onOpenChange ? (value) => onOpenChange(value) : undefined}
       {...props}
     />
