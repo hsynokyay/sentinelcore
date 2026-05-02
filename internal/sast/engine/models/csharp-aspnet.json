@@ -8,6 +8,8 @@
     {"kind": "source", "receiver_fqn": "Microsoft.AspNetCore.Http.HttpRequest", "method": "QueryString", "taint_kind": "http_input", "applies_to": "return"},
     {"kind": "source", "receiver_fqn": "System.Web.HttpRequest", "method": "QueryString", "taint_kind": "http_input", "applies_to": "return"},
     {"kind": "source", "receiver_fqn": "System.Web.HttpRequest", "method": "Form", "taint_kind": "http_input", "applies_to": "return"},
-    {"kind": "source", "receiver_fqn": "System.Web.HttpRequest", "method": "Params", "taint_kind": "http_input", "applies_to": "return"}
+    {"kind": "source", "receiver_fqn": "System.Web.HttpRequest", "method": "Params", "taint_kind": "http_input", "applies_to": "return"},
+    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "Headers.Add", "vuln_class": "auth_header_injection"},
+    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "AppendHeader", "vuln_class": "auth_header_injection"}
   ]
 }
