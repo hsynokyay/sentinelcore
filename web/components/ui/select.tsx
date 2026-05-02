@@ -70,12 +70,20 @@ function SelectContent({
   //
   // `Select.List` wrapper is required so the popup can register items
   // for keyboard navigation and pointer selection.
+  // z-index MUST live on the Positioner, not the Popup wrapper. The
+  // Positioner is the only `position: fixed` element in the chain — every
+  // descendant (popup wrapper, list, options) is `position: static` or
+  // `relative` with z-index: auto. Without an explicit z-index on the
+  // fixed element, the popup loses the stacking-context race against the
+  // Dialog (which is also `position: fixed` with `z-50`) and gets buried
+  // beneath the dialog body. Result: clicks land on the trigger button
+  // instead of the option, making selection impossible.
   return (
     <SelectPrimitive.Portal container={typeof document !== "undefined" ? document.body : undefined}>
-      <SelectPrimitive.Positioner sideOffset={4}>
+      <SelectPrimitive.Positioner sideOffset={4} className="z-[60]">
         <SelectPrimitive.Popup
           className={cn(
-            "z-50 min-w-[var(--anchor-width)] overflow-hidden rounded-lg border border-border bg-surface-2 p-1 text-popover-foreground shadow-xl data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity",
+            "min-w-[var(--anchor-width)] overflow-hidden rounded-lg border border-border bg-surface-2 p-1 text-popover-foreground shadow-xl data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity",
             className
           )}
           {...props}
