@@ -3,13 +3,10 @@
 import { use } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import { PageHeader } from "@/components/data/page-header";
 import { DetailShell } from "@/components/data/detail-shell";
 import { LoadingState } from "@/components/data/loading-state";
 import { ErrorState } from "@/components/data/error-state";
 import { Button } from "@/components/ui/button";
-import { SeverityBadge } from "@/components/badges/severity-badge";
-import { StatusBadge } from "@/components/badges/status-badge";
 import { FindingDetail } from "@/features/findings/finding-detail";
 import { useFinding } from "@/features/findings/hooks";
 
@@ -38,48 +35,55 @@ export default function FindingDetailPage({
 
   return (
     <div>
-      <PageHeader
-        title="Finding Detail"
-        actions={
-          <Link href="/findings">
-            <Button variant="outline" size="sm">
-              <ChevronLeft className="h-4 w-4 mr-1" /> Back to Findings
-            </Button>
-          </Link>
-        }
-      />
+      <div className="mb-4">
+        <Link href="/findings">
+          <Button variant="ghost" size="sm" className="-ml-2">
+            <ChevronLeft className="h-4 w-4 mr-1" /> Back to Findings
+          </Button>
+        </Link>
+      </div>
 
       {isLoading && <LoadingState rows={6} />}
       {isError && <ErrorState message="Failed to load finding" onRetry={() => refetch()} />}
       {f && (
         <DetailShell
           leftRail={
-            <dl className="space-y-2">
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Severity</dt>
-                <dd><SeverityBadge severity={f.severity} /></dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Status</dt>
-                <dd><StatusBadge status={f.status} /></dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Type</dt>
-                <dd className="text-xs uppercase font-medium">{f.finding_type}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Scan</dt>
-                <dd className="font-mono text-xs">#{f.scan_id?.slice(0, 8)}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Location</dt>
-                <dd className="font-mono text-xs truncate max-w-[120px]" title={location}>{location}</dd>
-              </div>
-              <div className="flex items-center justify-between">
-                <dt className="text-muted-foreground">Reported</dt>
-                <dd>{formatDate(f.created_at)}</dd>
-              </div>
-            </dl>
+            // Quick metadata — severity/status/type live in the main header
+            // (right next to the finding title where they're most useful);
+            // the rail is for the smaller "where it lives" facts.
+            <div className="space-y-1.5">
+              <h3 className="text-caption text-muted-foreground mb-2">Quick info</h3>
+              <dl className="space-y-2 text-body-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground shrink-0">Scan</dt>
+                  <dd className="font-mono text-mono">#{f.scan_id?.slice(0, 8) ?? "—"}</dd>
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <dt className="text-muted-foreground shrink-0">Location</dt>
+                  <dd className="font-mono text-mono text-right truncate max-w-[140px]" title={location}>
+                    {location}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <dt className="text-muted-foreground shrink-0">Reported</dt>
+                  <dd className="tabular-nums">{formatDate(f.created_at)}</dd>
+                </div>
+                {f.cwe_id && (
+                  <div className="flex items-center justify-between gap-2">
+                    <dt className="text-muted-foreground shrink-0">CWE</dt>
+                    <dd className="font-mono text-mono">CWE-{f.cwe_id}</dd>
+                  </div>
+                )}
+                {f.rule_id && (
+                  <div className="flex items-start justify-between gap-2">
+                    <dt className="text-muted-foreground shrink-0">Rule</dt>
+                    <dd className="font-mono text-mono text-right truncate max-w-[140px]" title={f.rule_id}>
+                      {f.rule_id}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            </div>
           }
           main={<FindingDetail finding={f} />}
         />

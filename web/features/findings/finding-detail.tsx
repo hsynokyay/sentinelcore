@@ -1,14 +1,23 @@
 "use client";
 
 import { useState } from "react";
+import { FileCode2, MessageSquare, ShieldAlert, Wrench } from "lucide-react";
 import { SeverityBadge } from "@/components/badges/severity-badge";
 import { StatusBadge } from "@/components/badges/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { useTriageFinding } from "./hooks";
 import { AnalysisTrace } from "./analysis-trace";
 import { RemediationPanel } from "./remediation-panel";
-import { DeveloperHandoff } from "./developer-handoff";
 import { ExportFindingButton } from "@/features/export/export-finding-button";
 import { ExportFindingSarifButton } from "@/features/export/export-sarif-buttons";
 import type { Finding } from "@/lib/types";
@@ -21,7 +30,17 @@ const triageStatuses = [
   "resolved",
   "accepted_risk",
   "false_positive",
-];
+] as const;
+
+const statusLabel: Record<string, string> = {
+  new: "New",
+  confirmed: "Confirmed",
+  in_progress: "In progress",
+  mitigated: "Mitigated",
+  resolved: "Resolved",
+  accepted_risk: "Accepted risk",
+  false_positive: "False positive",
+};
 
 interface FindingDetailProps {
   finding: Finding;
@@ -41,122 +60,107 @@ export function FindingDetail({ finding }: FindingDetailProps) {
     ? `${finding.file_path}${finding.line_number ? `:${finding.line_number}` : ""}`
     : finding.url
       ? `${finding.method || "GET"} ${finding.url}${finding.parameter ? ` (param: ${finding.parameter})` : ""}`
-      : "Unknown";
+      : null;
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight mb-3">{finding.title}</h2>
+    <div className="space-y-6">
+      {/* Title + meta pill row + actions */}
+      <header className="space-y-3">
+        <h1 className="font-display text-h1 text-foreground tracking-tight">
+          {finding.title}
+        </h1>
         <div className="flex items-center gap-2 flex-wrap">
           <SeverityBadge severity={finding.severity} />
           <StatusBadge status={finding.status} />
-          <Badge variant="outline" className="text-xs uppercase">
-            {finding.finding_type}
-          </Badge>
+          <Badge variant="outline">{finding.finding_type.toUpperCase()}</Badge>
+          {finding.scan_id && (
+            <Badge variant="tag">scan #{finding.scan_id.slice(0, 8)}</Badge>
+          )}
           <div className="ml-auto flex items-center gap-1.5">
             <ExportFindingButton finding={finding} />
             <ExportFindingSarifButton finding={finding} />
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Description */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Description</h3>
-        <p className="text-sm text-foreground leading-relaxed">
+      {/* Description card */}
+      <section className="rounded-lg border border-border bg-surface-1 p-5">
+        <h2 className="text-caption text-muted-foreground mb-2 inline-flex items-center gap-1.5">
+          <ShieldAlert className="size-3" /> Description
+        </h2>
+        <p className="text-body text-foreground leading-relaxed max-w-prose">
           {finding.description || "No description available."}
         </p>
       </section>
 
-      {/* Location */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Location</h3>
-        <code className="text-sm bg-muted px-2 py-1 rounded font-mono">{location}</code>
-      </section>
-
-      {/* Analysis Trace — SAST evidence chain */}
-      {finding.taint_paths && finding.taint_paths.length > 0 && (
-        <AnalysisTrace steps={finding.taint_paths} />
-      )}
-
-      {/* Evidence placeholder for findings without a trace */}
-      {(!finding.taint_paths || finding.taint_paths.length === 0) && (
-        <section>
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">Evidence</h3>
-          <div className="border rounded-lg p-4 bg-muted/30">
-            <p className="text-sm text-muted-foreground italic">
-              Evidence details will appear here when the finding has an
-              analysis trace.
-            </p>
-          </div>
+      {/* Location card — only if location is meaningful */}
+      {location && (
+        <section className="rounded-lg border border-border bg-surface-1 p-5">
+          <h2 className="text-caption text-muted-foreground mb-2 inline-flex items-center gap-1.5">
+            <FileCode2 className="size-3" /> Location
+          </h2>
+          <code className="block text-body-sm font-mono bg-surface-2 border border-border-subtle text-foreground px-3 py-2 rounded-md overflow-x-auto">
+            {location}
+          </code>
         </section>
       )}
 
-      {/* Remediation guidance */}
-      {finding.remediation && (
-        <RemediationPanel remediation={finding.remediation} />
+      {/* Analysis Trace — only if SAST evidence chain exists */}
+      {finding.taint_paths && finding.taint_paths.length > 0 && (
+        <section className="rounded-lg border border-border bg-surface-1 p-5">
+          <AnalysisTrace steps={finding.taint_paths} />
+        </section>
       )}
 
-      {/* Timeline */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Timeline</h3>
-        <div className="border rounded-lg p-4 bg-muted/30">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Created:</span>
-            <span>{new Date(finding.created_at).toLocaleString()}</span>
-          </div>
-        </div>
-      </section>
+      {/* Remediation guidance — already a card-styled subtree */}
+      {finding.remediation && <RemediationPanel remediation={finding.remediation} />}
 
-      {/* Correlation */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Correlation</h3>
-        <div className="border rounded-lg p-4 bg-muted/30">
-          <p className="text-sm text-muted-foreground italic">
-            Related findings and correlations will appear here.
-          </p>
-        </div>
-      </section>
-
-      {/* Triage Actions */}
-      <section className="border-t pt-6">
-        <h3 className="text-sm font-medium text-muted-foreground mb-3">Triage</h3>
-        <div className="space-y-3">
+      {/* Triage card */}
+      <section className="rounded-lg border border-border bg-surface-1 p-5">
+        <h2 className="text-caption text-muted-foreground mb-4 inline-flex items-center gap-1.5">
+          <Wrench className="size-3" /> Triage
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-[200px_1fr] sm:items-start">
           <div>
-            <label className="text-sm font-medium block mb-1">Status</label>
-            <select
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full max-w-xs border rounded-md px-3 py-2 text-sm bg-background"
-            >
-              {triageStatuses.map((s) => (
-                <option key={s} value={s}>
-                  {s.replace(/_/g, " ")}
-                </option>
-              ))}
-            </select>
+            <Label htmlFor="triage-status">Status</Label>
+            <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+              <SelectTrigger id="triage-status">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                {triageStatuses.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {statusLabel[s] ?? s.replace(/_/g, " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
-            <label className="text-sm font-medium block mb-1">Reason</label>
-            <textarea
+            <Label htmlFor="triage-reason" className="inline-flex items-center gap-1.5">
+              <MessageSquare className="size-3" /> Reason
+            </Label>
+            <Textarea
+              id="triage-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Provide a reason for this status change..."
-              className="w-full max-w-md border rounded-md px-3 py-2 text-sm bg-background min-h-[80px]"
+              placeholder="Why are you changing the status? (audit-trail)"
+              className="min-h-[88px]"
             />
           </div>
+        </div>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          {triage.isError && (
+            <p className="text-body-sm text-[color:var(--severity-critical)] mr-auto">
+              Failed to update — please retry.
+            </p>
+          )}
           <Button
             onClick={handleTriage}
             disabled={!reason.trim() || triage.isPending || selectedStatus === finding.status}
           >
-            {triage.isPending ? "Updating..." : "Update Status"}
+            {triage.isPending ? "Updating…" : "Update status"}
           </Button>
-          {triage.isError && (
-            <p className="text-sm text-destructive">
-              Failed to update status. Please try again.
-            </p>
-          )}
         </div>
       </section>
     </div>
