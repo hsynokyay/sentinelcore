@@ -77,6 +77,49 @@ func TestValidateRejectsBadRules(t *testing.T) {
 	}
 }
 
+func TestLoadBuiltins_AuthRulesPRC(t *testing.T) {
+	rs, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	idIndex := make(map[string]*Rule, len(rs))
+	for _, r := range rs {
+		idIndex[r.RuleID] = r
+	}
+	expected := []string{
+		"SC-PY-JWT-001", "SC-PY-JWT-002", "SC-PY-JWT-003",
+		"SC-JS-JWT-001", "SC-JS-JWT-002", "SC-JS-JWT-003",
+		"SC-JAVA-JWT-001", "SC-JAVA-JWT-002", "SC-JAVA-JWT-003",
+		"SC-CSHARP-JWT-001", "SC-CSHARP-JWT-002", "SC-CSHARP-JWT-003",
+		"SC-JS-SESSION-001",
+		"SC-JAVA-SESSION-001",
+		"SC-CSHARP-SESSION-001",
+		"SC-PY-SESSION-002",
+		"SC-JAVA-SESSION-002",
+		"SC-PY-AUTHHEADER-001",
+		"SC-JS-AUTHHEADER-001",
+		"SC-JAVA-AUTHHEADER-001",
+		"SC-CSHARP-AUTHHEADER-001",
+	}
+	for _, id := range expected {
+		t.Run(id, func(t *testing.T) {
+			r, ok := idIndex[id]
+			if !ok {
+				t.Fatalf("rule %s missing", id)
+			}
+			if r.Severity == "" {
+				t.Errorf("severity empty")
+			}
+			if r.Description == "" {
+				t.Errorf("description empty")
+			}
+			if r.Remediation == "" {
+				t.Errorf("remediation empty")
+			}
+		})
+	}
+}
+
 func TestLoadBuiltins_CookieRulesPR(t *testing.T) {
 	rs, err := LoadBuiltins()
 	if err != nil {
