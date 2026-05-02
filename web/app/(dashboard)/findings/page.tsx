@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { Shield } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
+import { DensityToggle } from "@/components/data/density-toggle";
+import { EmptyStateBranded } from "@/components/data/empty-state-branded";
 import { ErrorState } from "@/components/data/error-state";
 import { Pagination } from "@/components/data/pagination";
 import { FindingsTable } from "@/features/findings/findings-table";
@@ -28,27 +31,35 @@ export default function FindingsPage() {
 
   const findings = data?.findings ?? [];
   const hasMore = findings.length === PAGE_SIZE;
+  const isEmpty = !isLoading && findings.length === 0;
 
   return (
-    <div>
+    <>
       <PageHeader
         title="Findings"
-        description="Security findings from SAST, DAST, and SCA scans"
+        count={isLoading ? "—" : findings.length}
+        filters={
+          <FindingFiltersBar
+            severity={severity}
+            status={status}
+            findingType={findingType}
+            onSeverityChange={(v) => { setSeverity(v); setOffset(0); }}
+            onStatusChange={(v) => { setStatus(v); setOffset(0); }}
+            onTypeChange={(v) => { setFindingType(v); setOffset(0); }}
+          />
+        }
+        actions={<DensityToggle />}
       />
-
-      <div className="mb-4">
-        <FindingFiltersBar
-          severity={severity}
-          status={status}
-          findingType={findingType}
-          onSeverityChange={(v) => { setSeverity(v); setOffset(0); }}
-          onStatusChange={(v) => { setStatus(v); setOffset(0); }}
-          onTypeChange={(v) => { setFindingType(v); setOffset(0); }}
-        />
-      </div>
 
       {isError ? (
         <ErrorState message="Failed to load findings" onRetry={() => refetch()} />
+      ) : isEmpty ? (
+        <EmptyStateBranded
+          icon={Shield}
+          title="No findings yet"
+          description="Findings appear after a scan completes. Configure a target and run your first scan."
+          action={{ label: "Go to scans", href: "/scans" }}
+        />
       ) : (
         <>
           <FindingsTable findings={findings} isLoading={isLoading} />
@@ -63,6 +74,6 @@ export default function FindingsPage() {
           )}
         </>
       )}
-    </div>
+    </>
   );
 }

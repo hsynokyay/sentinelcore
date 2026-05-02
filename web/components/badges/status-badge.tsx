@@ -1,33 +1,42 @@
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 
-const statusColors: Record<string, string> = {
-  new: "bg-blue-100 text-blue-800",
-  confirmed: "bg-purple-100 text-purple-800",
-  in_progress: "bg-yellow-100 text-yellow-800",
-  mitigated: "bg-emerald-100 text-emerald-800",
-  resolved: "bg-green-100 text-green-800",
-  reopened: "bg-orange-100 text-orange-800",
-  accepted_risk: "bg-slate-100 text-slate-800",
-  false_positive: "bg-gray-100 text-gray-600",
+// Status-to-tone mapping
+// success  → terminal-success states: completed, resolved, approved, mitigated
+// error    → terminal-failure states: failed, aborted, rejected
+// warning  → caution / recoverable states: reopened, degraded
+// info     → in-flight states: new, confirmed, in_progress, running, queued, scheduled
+// neutral  → inactive / unknown / risk-accepted states: pending, cancelled, accepted_risk,
+//            false_positive, expired, and any unrecognised value
+const statusTones: Record<string, "success" | "error" | "warning" | "info" | "neutral"> = {
+  // Vulnerability / finding statuses
+  new: "info",
+  confirmed: "info",
+  in_progress: "info",
+  mitigated: "success",
+  resolved: "success",
+  reopened: "warning",
+  accepted_risk: "neutral",
+  false_positive: "neutral",
   // Scan statuses
-  queued: "bg-slate-100 text-slate-700",
-  running: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  cancelled: "bg-gray-100 text-gray-600",
-  aborted: "bg-red-100 text-red-600",
+  queued: "info",
+  running: "info",
+  completed: "success",
+  failed: "error",
+  cancelled: "neutral",
+  aborted: "error",
   // Approval statuses
-  pending: "bg-yellow-100 text-yellow-800",
-  approved: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800",
-  expired: "bg-gray-100 text-gray-600",
+  pending: "neutral",
+  approved: "success",
+  rejected: "error",
+  expired: "neutral",
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const label = status.replace(/_/g, " ");
+  const tone = statusTones[status] ?? "neutral";
+
   return (
-    <Badge variant="outline" className={cn("text-xs capitalize", statusColors[status] || "bg-gray-100 text-gray-700")}>
+    <Badge variant="status" tone={tone} className="text-xs capitalize">
       {label}
     </Badge>
   );

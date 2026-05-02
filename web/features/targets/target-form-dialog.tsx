@@ -174,6 +174,10 @@ export function TargetFormDialog({
                   value={field.value}
                   onValueChange={field.onChange}
                   disabled={projectLocked}
+                  itemToStringLabel={(v) => {
+                    const p = projects.find((p) => p.id === v);
+                    return p ? (p.display_name || p.name) : "";
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select project" />
@@ -206,9 +210,15 @@ export function TargetFormDialog({
                   value={field.value}
                   onValueChange={field.onChange}
                   disabled={isEdit}
+                  itemToStringLabel={(v) => {
+                    if (v === "web_app") return "Web Application";
+                    if (v === "api") return "REST API";
+                    if (v === "graphql") return "GraphQL API";
+                    return String(v);
+                  }}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Select target type" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="web_app">Web Application</SelectItem>
@@ -313,6 +323,11 @@ export function TargetFormDialog({
                   onValueChange={(v) =>
                     field.onChange(v === "__none__" ? "" : v)
                   }
+                  itemToStringLabel={(v) => {
+                    if (v === "__none__") return "None";
+                    const p = (authProfiles ?? []).find((p) => p.id === v);
+                    return p ? `${p.name} — ${p.auth_type.replace("_", " ")}` : "";
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="None" />

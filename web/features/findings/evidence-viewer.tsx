@@ -120,7 +120,7 @@ function ExchangePanel({
   const headerEntries = Object.entries(headers ?? {}).sort(([a], [b]) => a.localeCompare(b));
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg border bg-surface-1">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}

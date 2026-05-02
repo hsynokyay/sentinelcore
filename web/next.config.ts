@@ -7,6 +7,9 @@ if (!process.env.PATH?.includes("/opt/homebrew/Cellar/node")) {
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  experimental: {
+    viewTransition: true,
+  },
 };
 
 export default nextConfig;

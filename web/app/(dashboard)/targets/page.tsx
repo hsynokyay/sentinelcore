@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Target } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/data/page-header";
+import { DensityToggle } from "@/components/data/density-toggle";
+import { EmptyStateBranded } from "@/components/data/empty-state-branded";
 import { ErrorState } from "@/components/data/error-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -75,48 +77,65 @@ export default function TargetsPage() {
     });
   };
 
+  const targetList = targets ?? [];
+  const isEmpty = !isLoading && targetList.length === 0;
+
   return (
-    <div>
+    <>
       <PageHeader
         title="Scan Targets"
         description="Web apps, APIs, and GraphQL endpoints that scans will run against"
+        count={isLoading ? "—" : targetList.length}
+        filters={
+          <Select
+            value={projectId}
+            onValueChange={setProjectId}
+            disabled={loadingProjects}
+            itemToStringLabel={(v) => {
+              const p = projects.find((p) => p.id === v);
+              return p ? (p.display_name || p.name) : "";
+            }}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue
+                placeholder={loadingProjects ? "Loading…" : "Select project"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.display_name || p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
         actions={
-          <Button onClick={openCreate} disabled={!projectId}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Target
-          </Button>
+          <>
+            <DensityToggle />
+            <Button onClick={openCreate} disabled={!projectId}>
+              <Plus className="h-4 w-4 mr-1" />
+              New Target
+            </Button>
+          </>
         }
       />
-
-      <div className="flex items-center gap-2 mb-4 max-w-xs">
-        <Select
-          value={projectId}
-          onValueChange={setProjectId}
-          disabled={loadingProjects}
-        >
-          <SelectTrigger>
-            <SelectValue
-              placeholder={loadingProjects ? "Loading…" : "Select project"}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.display_name || p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
 
       {isError ? (
         <ErrorState
           message="Failed to load targets"
           onRetry={() => refetch()}
         />
+      ) : isEmpty ? (
+        <EmptyStateBranded
+          icon={Target}
+          title="No scan targets configured"
+          description="Add a web app, API, or GraphQL endpoint to start scanning."
+          action={{ label: "New target", onClick: openCreate }}
+        />
       ) : (
         <TargetsTable
-          targets={targets ?? []}
+          targets={targetList}
           isLoading={isLoading}
           onEdit={openEdit}
           onDelete={(t) => setDeleting(t)}
@@ -158,6 +177,6 @@ export default function TargetsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

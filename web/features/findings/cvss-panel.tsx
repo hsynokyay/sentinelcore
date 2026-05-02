@@ -14,7 +14,7 @@ export function CVSSPanel({ score, vector }: CVSSPanelProps) {
   const metrics = vector ? parseVector(vector) : null;
 
   return (
-    <div className="rounded-lg border bg-card p-4 flex flex-col gap-3">
+    <div className="rounded-lg border bg-surface-1 p-4 flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           CVSS 3.1

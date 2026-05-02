@@ -4,12 +4,13 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Filter } from "lucide-react";
 import { PageHeader } from "@/components/data/page-header";
+import { DensityToggle } from "@/components/data/density-toggle";
+import { EmptyStateBranded } from "@/components/data/empty-state-branded";
 import { ErrorState } from "@/components/data/error-state";
 import { ChangeSummaryStrip } from "@/components/security/change-summary-strip";
 import { useRegisterCommands } from "@/components/layout/command-provider";
 import type { DynamicCommand } from "@/components/layout/command-provider";
 import { RisksTable } from "@/features/risks/risks-table";
-import { RisksEmptyState } from "@/features/risks/risks-empty-state";
 import { SeverityDistributionChart } from "@/features/risks/severity-distribution-chart";
 import { useRisks } from "@/features/risks/hooks";
 import { computeRiskSummaryTiles } from "@/features/risks/risk-stats";
@@ -29,11 +30,6 @@ const statusTabs: { id: StatusFilter; label: string }[] = [
 export default function RisksPage() {
   const { data: projectsData } = useProjects();
   const projects = useMemo(() => projectsData?.projects ?? [], [projectsData]);
-  // The project selector is "controlled if explicit, else default to
-  // first available". Computed inline rather than via useEffect+setState
-  // so we don't trip the React 19 `set-state-in-effect` lint rule, and
-  // so the derived value reacts immediately to a new projects payload
-  // without an extra render cycle.
   const [explicitProjectId, setExplicitProjectId] = useState<string>("");
   const projectId = explicitProjectId || projects[0]?.id || "";
   const [status, setStatus] = useState<StatusFilter>("active");
@@ -106,11 +102,34 @@ export default function RisksPage() {
   );
   useRegisterCommands(riskJumpCommands);
 
+  const risks = data?.risks ?? [];
+  const isEmpty = !isLoading && risks.length === 0;
+
   return (
-    <div>
+    <>
       <PageHeader
         title="Risks"
         description="Explainable risk clusters correlated from SAST, DAST, and attack surface."
+        count={isLoading ? "—" : (allRisksData?.risks?.length ?? 0)}
+        filters={
+          <div className="flex gap-1 rounded-lg border bg-background p-1">
+            {statusTabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setStatus(t.id)}
+                className={`rounded-md px-3 py-1 text-sm ${
+                  status === t.id
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        }
+        actions={<DensityToggle />}
       />
 
       <div className="mb-4 space-y-4">
@@ -128,52 +147,20 @@ export default function RisksPage() {
         />
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <select
-          className="rounded border bg-background px-3 py-1.5 text-sm"
-          value={projectId}
-          onChange={(e) => setExplicitProjectId(e.target.value)}
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.display_name || p.name}
-            </option>
-          ))}
-        </select>
-
-        <div className="flex gap-1 rounded-lg border bg-background p-1">
-          {statusTabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setStatus(t.id)}
-              className={`rounded-md px-3 py-1 text-sm ${
-                status === t.id
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {isError ? (
         <ErrorState message="Failed to load risks" onRetry={() => refetch()} />
+      ) : isEmpty ? (
+        <EmptyStateBranded
+          icon={AlertTriangle}
+          title="No risks correlated yet"
+          description="Risks appear after a SAST + DAST scan completes for this project."
+        />
       ) : (
         <RisksTable
-          data={data?.risks ?? []}
+          data={risks}
           isLoading={isLoading}
-          emptyContent={
-            <RisksEmptyState
-              totalRisks={allRisksData?.risks?.length ?? 0}
-              currentFilter={status}
-              onClearFilter={() => setStatus("all")}
-            />
-          }
         />
       )}
-    </div>
+    </>
   );
 }

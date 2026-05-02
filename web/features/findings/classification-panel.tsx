@@ -65,7 +65,7 @@ export function ClassificationPanel({
   }
 
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="rounded-lg border bg-surface-1 p-4">
       <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3">
         Classification
       </h4>

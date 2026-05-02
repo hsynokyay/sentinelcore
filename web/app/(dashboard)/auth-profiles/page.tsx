@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { Plus, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/data/page-header";
+import { DensityToggle } from "@/components/data/density-toggle";
+import { EmptyStateBranded } from "@/components/data/empty-state-branded";
 import { ErrorState } from "@/components/data/error-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -75,48 +77,65 @@ export default function AuthProfilesPage() {
     });
   };
 
+  const profileList = profiles ?? [];
+  const isEmpty = !isLoading && profileList.length === 0;
+
   return (
-    <div>
+    <>
       <PageHeader
         title="Auth Profiles"
         description="DAST credentials — bearer tokens, API keys, and basic auth. Secrets are encrypted at rest and never returned."
+        count={isLoading ? "—" : profileList.length}
+        filters={
+          <Select
+            value={projectId}
+            onValueChange={setProjectId}
+            disabled={loadingProjects}
+            itemToStringLabel={(v) => {
+              const p = projects.find((p) => p.id === v);
+              return p ? (p.display_name || p.name) : "";
+            }}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue
+                placeholder={loadingProjects ? "Loading…" : "Select project"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.display_name || p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
         actions={
-          <Button onClick={openCreate} disabled={!projectId}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Profile
-          </Button>
+          <>
+            <DensityToggle />
+            <Button onClick={openCreate} disabled={!projectId}>
+              <Plus className="h-4 w-4 mr-1" />
+              New Profile
+            </Button>
+          </>
         }
       />
-
-      <div className="flex items-center gap-2 mb-4 max-w-xs">
-        <Select
-          value={projectId}
-          onValueChange={setProjectId}
-          disabled={loadingProjects}
-        >
-          <SelectTrigger>
-            <SelectValue
-              placeholder={loadingProjects ? "Loading…" : "Select project"}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.display_name || p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
 
       {isError ? (
         <ErrorState
           message="Failed to load auth profiles"
           onRetry={() => refetch()}
         />
+      ) : isEmpty ? (
+        <EmptyStateBranded
+          icon={KeyRound}
+          title="No auth profiles"
+          description="Add bearer tokens, API keys, or basic auth credentials for authenticated DAST scans."
+          action={{ label: "New profile", onClick: openCreate }}
+        />
       ) : (
         <AuthProfilesTable
-          profiles={profiles ?? []}
+          profiles={profileList}
           isLoading={isLoading}
           onEdit={openEdit}
           onDelete={(p) => setDeleting(p)}
@@ -162,6 +181,6 @@ export default function AuthProfilesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
