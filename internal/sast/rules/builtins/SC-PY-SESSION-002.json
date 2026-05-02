@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-SESSION-002",
+  "name": "Possible session-fixation: login without session reset",
+  "language": "python",
+  "cwe": ["CWE-384"],
+  "owasp": ["A07:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "flask_login",
+        "callee": "login_user",
+        "arg_index": 0,
+        "arg_text_missing_any": ["session.clear", "session.regenerate"],
+        "message_template": "flask_login.login_user without nearby session.clear/regenerate may leave the pre-auth session id intact"
+      }
+    ]
+  },
+  "description": "Calling flask_login.login_user without first clearing or regenerating the session id leaves the same session identifier alive across the login boundary, which is the canonical session-fixation pattern.",
+  "remediation": "Call session.clear() (or a custom regenerate helper) immediately before login_user. flask-login's session-protection helps but does not eliminate the risk on its own.",
+  "references": ["https://cwe.mitre.org/data/definitions/384.html"]
+}
