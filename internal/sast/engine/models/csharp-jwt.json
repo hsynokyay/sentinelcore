@@ -1,0 +1,8 @@
+{
+  "language": "csharp",
+  "framework": "csharp-jwt",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler", "method": "ReadJwtToken", "vuln_class": "jwt_unverified"},
+    {"kind": "sink", "receiver_fqn": "JwtSecurityTokenHandler", "method": "ReadJwtToken", "vuln_class": "jwt_unverified"}
+  ]
+}
