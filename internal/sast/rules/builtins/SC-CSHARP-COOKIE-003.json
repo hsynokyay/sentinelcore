@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-CSHARP-COOKIE-003",
+  "name": "Cookie appended without SameSite attribute",
+  "language": "csharp",
+  "cwe": ["CWE-1275"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.70 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "Microsoft.AspNetCore.Http.IResponseCookies",
+        "callee": "Append",
+        "arg_index": 0,
+        "arg_text_missing_any": ["SameSite"],
+        "message_template": "IResponseCookies.Append missing SameSite"
+      },
+      {
+        "receiver_fqn": "IResponseCookies",
+        "callee": "Append",
+        "arg_index": 0,
+        "arg_text_missing_any": ["SameSite"],
+        "message_template": "IResponseCookies.Append missing SameSite"
+      }
+    ]
+  },
+  "description": "Cookie appended without CookieOptions.SameSite set.",
+  "remediation": "Set SameSite = SameSiteMode.Lax (or Strict) on the CookieOptions initializer.",
+  "references": ["https://cwe.mitre.org/data/definitions/1275.html"]
+}
