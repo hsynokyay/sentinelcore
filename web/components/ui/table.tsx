@@ -46,7 +46,12 @@ const TableRow = React.forwardRef<
   <tr
     ref={ref}
     className={cn(
-      "border-b border-border-subtle transition-colors duration-fast hover:bg-surface-2 data-[state=selected]:bg-surface-2",
+      // Row hover: very subtle bg shift (surface-1/40 over bg) so tinted
+      // badges stay readable. The brand left-border accent (added per-row
+      // by DataTable when onRowClick is set) carries the primary hover
+      // signal; the bg shift is just for cursor-feedback at the row scope.
+      // Selected state stays at surface-2 (rare, more deliberate).
+      "border-b border-border-subtle transition-colors duration-fast hover:bg-surface-1/60 data-[state=selected]:bg-surface-2",
       className
     )}
     {...props}
