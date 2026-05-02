@@ -1,1 +1,34 @@
-{"rule_id":"SC-JAVA-XXE-001","name":"XML External Entity (XXE) Processing","language":"java","cwe":["CWE-611"],"owasp":["A05:2021"],"severity":"high","description":"DocumentBuilderFactory.newInstance() is used without disabling external entity processing. An attacker who controls XML input can read local files, perform SSRF, or cause denial of service via entity expansion.","remediation":"Disable DTDs and external entities by calling setFeature() on the factory: set http://apache.org/xml/features/disallow-doctype-decl to true, or set http://xml.org/sax/features/external-general-entities and http://xml.org/sax/features/external-parameter-entities to false.","references":["https://cwe.mitre.org/data/definitions/611.html"],"detection":{"kind":"ast_call","patterns":[{"receiver_fqn":"javax.xml.parsers.DocumentBuilderFactory","callee":"newInstance","message_template":"DocumentBuilderFactory.newInstance() without DTD/external entity restrictions"}]},"confidence":{"base":0.85}}
+{
+  "schema_version": 2,
+  "rule_id": "SC-JAVA-XXE-001",
+  "name": "XML External Entity (XXE) Processing",
+  "languages": [
+    "java"
+  ],
+  "category": "xxe",
+  "cwe": [
+    "CWE-611"
+  ],
+  "owasp": [
+    "A05:2021"
+  ],
+  "severity": "high",
+  "description": "DocumentBuilderFactory.newInstance() is used without disabling external entity processing. An attacker who controls XML input can read local files, perform SSRF, or cause denial of service via entity expansion.",
+  "remediation": "Disable DTDs and external entities by calling setFeature() on the factory: set http://apache.org/xml/features/disallow-doctype-decl to true, or set http://xml.org/sax/features/external-general-entities and http://xml.org/sax/features/external-parameter-entities to false.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/611.html"
+  ],
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "javax.xml.parsers.DocumentBuilderFactory",
+        "callee": "newInstance",
+        "message_template": "DocumentBuilderFactory.newInstance() without DTD/external entity restrictions"
+      }
+    ]
+  },
+  "confidence": {
+    "base": 0.85
+  }
+}

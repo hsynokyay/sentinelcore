@@ -1,9 +1,17 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-CSHARP-CMD-001",
   "name": "OS Command Injection via Process.Start",
-  "language": "csharp",
-  "cwe": ["CWE-78"],
-  "owasp": ["A03:2021"],
+  "languages": [
+    "csharp"
+  ],
+  "category": "injection",
+  "cwe": [
+    "CWE-78"
+  ],
+  "owasp": [
+    "A03:2021"
+  ],
   "severity": "critical",
   "description": "User-controlled input from an HTTP request flows into Process.Start or the ProcessStartInfo constructor without validation. An attacker can inject shell metacharacters to execute arbitrary commands on the host with the privileges of the running process.",
   "remediation": "Never pass user input directly to Process.Start. Use ProcessStartInfo with UseShellExecute=false and an explicit argument array, validate user input against a strict allowlist, and prefer .NET APIs over shelling out wherever possible.",
@@ -20,7 +28,7 @@
     "base": 0.85
   },
   "examples": {
-    "vulnerable": "string cmd = Request.Query[\"cmd\"];\nProcess.Start(cmd);",
-    "fixed": "string name = Request.Query[\"name\"];\nif (!Allowed.Contains(name)) throw new SecurityException();\nvar psi = new ProcessStartInfo(\"/usr/bin/tool\") { UseShellExecute = false };\npsi.ArgumentList.Add(name);\nProcess.Start(psi);"
+    "fixed": "string name = Request.Query[\"name\"];\nif (!Allowed.Contains(name)) throw new SecurityException();\nvar psi = new ProcessStartInfo(\"/usr/bin/tool\") { UseShellExecute = false };\npsi.ArgumentList.Add(name);\nProcess.Start(psi);",
+    "vulnerable": "string cmd = Request.Query[\"cmd\"];\nProcess.Start(cmd);"
   }
 }

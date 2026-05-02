@@ -1,21 +1,29 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-PY-PATH-001",
   "name": "Path Traversal via unsanitized file path",
-  "language": "python",
-  "cwe": ["CWE-22"],
-  "owasp": ["A01:2021"],
+  "languages": [
+    "python"
+  ],
+  "category": "path",
+  "cwe": [
+    "CWE-22"
+  ],
+  "owasp": [
+    "A01:2021"
+  ],
   "severity": "high",
-  "confidence": {
-    "base": 0.80
-  },
-  "detection": {
-    "kind": "taint",
-    "vuln_class": "path_traversal"
-  },
   "description": "User input flows into file path operations.",
   "remediation": "Normalize paths and verify they stay within the intended base directory.",
   "references": [
     "https://cwe.mitre.org/data/definitions/22.html",
     "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"
-  ]
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "path_traversal"
+  },
+  "confidence": {
+    "base": 0.8
+  }
 }

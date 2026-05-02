@@ -1,1 +1,28 @@
-{"rule_id":"SC-JS-PATH-001","name":"Path Traversal via unsanitized file path","language":"javascript","cwe":["CWE-22"],"owasp":["A01:2021"],"severity":"high","description":"User input flows into filesystem access without normalization.","remediation":"Normalize paths and verify they stay within the intended base directory.","references":["https://cwe.mitre.org/data/definitions/22.html"],"detection":{"kind":"taint","vuln_class":"path_traversal"},"confidence":{"base":0.80}}
+{
+  "schema_version": 2,
+  "rule_id": "SC-JS-PATH-001",
+  "name": "Path Traversal via unsanitized file path",
+  "languages": [
+    "javascript"
+  ],
+  "category": "path",
+  "cwe": [
+    "CWE-22"
+  ],
+  "owasp": [
+    "A01:2021"
+  ],
+  "severity": "high",
+  "description": "User input flows into filesystem access without normalization.",
+  "remediation": "Normalize paths and verify they stay within the intended base directory.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/22.html"
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "path_traversal"
+  },
+  "confidence": {
+    "base": 0.8
+  }
+}

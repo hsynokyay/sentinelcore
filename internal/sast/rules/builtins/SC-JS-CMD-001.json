@@ -1,1 +1,28 @@
-{"rule_id":"SC-JS-CMD-001","name":"Command Injection via child_process","language":"javascript","cwe":["CWE-78"],"owasp":["A03:2021"],"severity":"critical","description":"User input flows into shell command execution.","remediation":"Use execFile with explicit args instead of exec with shell string.","references":["https://cwe.mitre.org/data/definitions/78.html"],"detection":{"kind":"taint","vuln_class":"command_injection"},"confidence":{"base":0.85}}
+{
+  "schema_version": 2,
+  "rule_id": "SC-JS-CMD-001",
+  "name": "Command Injection via child_process",
+  "languages": [
+    "javascript"
+  ],
+  "category": "injection",
+  "cwe": [
+    "CWE-78"
+  ],
+  "owasp": [
+    "A03:2021"
+  ],
+  "severity": "critical",
+  "description": "User input flows into shell command execution.",
+  "remediation": "Use execFile with explicit args instead of exec with shell string.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/78.html"
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "command_injection"
+  },
+  "confidence": {
+    "base": 0.85
+  }
+}
