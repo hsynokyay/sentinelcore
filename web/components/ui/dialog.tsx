@@ -70,24 +70,34 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Popup> & {
   size?: keyof typeof sizeClass
 }) {
+  // Long forms (target, auth-profile) exceed viewport. Cap dialog height to
+  // 90vh and scroll the inner content region. Close button is sticky to the
+  // top-right of the scroll viewport so it stays reachable no matter how
+  // far the user has scrolled. Without this, users get stuck inside a form
+  // taller than the screen with no visible way out.
   return (
     <DialogPortal>
       <DialogBackdrop />
       <DialogPrimitive.Popup
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface-2 p-6 shadow-2xl data-[ending-style]:opacity-0 data-[ending-style]:scale-95 data-[starting-style]:opacity-0 data-[starting-style]:scale-95 transition-all duration-slow ease-[cubic-bezier(0.16,1,0.3,1)]",
+          "fixed left-1/2 top-1/2 z-50 w-full -translate-x-1/2 -translate-y-1/2 max-h-[90vh] rounded-xl border border-border bg-surface-2 shadow-2xl data-[ending-style]:opacity-0 data-[ending-style]:scale-95 data-[starting-style]:opacity-0 data-[starting-style]:scale-95 transition-all duration-slow ease-[cubic-bezier(0.16,1,0.3,1)]",
           sizeClass[size],
           className
         )}
         {...props}
       >
-        {children}
+        {/* Close button is absolutely-positioned within the popup so it
+            never scrolls off-screen, regardless of how tall the form gets. */}
         <DialogPrimitive.Close
-          className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus-ring"
+          className="absolute top-3 right-3 z-10 rounded-sm opacity-70 hover:opacity-100 hover:bg-surface-3 p-1 transition-opacity focus-ring"
+          aria-label="Close"
         >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
+        {/* Scrollable inner content. max-h on the popup + overflow on inner
+            keeps long forms from blowing past the viewport edges. */}
+        <div className="max-h-[90vh] overflow-y-auto p-6">{children}</div>
       </DialogPrimitive.Popup>
     </DialogPortal>
   )
