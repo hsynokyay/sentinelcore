@@ -89,8 +89,15 @@ export function DataTable<T>({
             key={idx}
             data-density={density}
             className={cn(
+              // The brand left-border accent uses an inset box-shadow (not a
+              // ::before pseudo on the <tr>). HTML tables treat <tr> oddly
+              // for positioning — `position: relative` + `::before { absolute }`
+              // can be re-flowed into the row as an anonymous TABLE-CELL by
+              // some browsers, shifting every other cell one column to the
+              // right on hover. Inset shadow stays purely visual and never
+              // affects layout.
               onRowClick &&
-                "cursor-pointer relative hover:before:absolute hover:before:left-0 hover:before:top-0 hover:before:bottom-0 hover:before:w-[2px] hover:before:bg-brand"
+                "cursor-pointer hover:shadow-[inset_2px_0_0_0_var(--brand)]"
             )}
             onClick={() => onRowClick?.(item)}
           >
