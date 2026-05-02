@@ -83,6 +83,7 @@ func NewBroker(logger zerolog.Logger) *Broker {
 	b.RegisterStrategy(&OAuth2CCStrategy{})
 	b.RegisterStrategy(&FormLoginStrategy{})
 	b.RegisterStrategy(&APIKeyStrategy{})
+	b.RegisterStrategy(&BasicStrategy{})
 
 	return b
 }
