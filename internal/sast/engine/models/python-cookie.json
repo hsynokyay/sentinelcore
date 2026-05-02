@@ -1,0 +1,11 @@
+{
+  "language": "python",
+  "framework": "python-cookie",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "flask.Response", "method": "set_cookie", "vuln_class": "cookie_misconfig"},
+    {"kind": "sink", "receiver_fqn": "Response", "method": "set_cookie", "vuln_class": "cookie_misconfig"},
+    {"kind": "sink", "receiver_fqn": "django.http.HttpResponse", "method": "set_cookie", "vuln_class": "cookie_misconfig"},
+    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "set_cookie", "vuln_class": "cookie_misconfig"},
+    {"kind": "sink", "receiver_fqn": "response", "method": "set_cookie", "vuln_class": "cookie_misconfig"}
+  ]
+}
