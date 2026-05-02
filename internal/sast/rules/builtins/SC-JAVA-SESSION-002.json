@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-JAVA-SESSION-002",
+  "name": "Possible session-fixation: login without changeSessionId",
+  "language": "java",
+  "cwe": ["CWE-384"],
+  "owasp": ["A07:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "javax.servlet.http.HttpServletRequest",
+        "callee": "login",
+        "arg_index": 0,
+        "arg_text_missing_any": ["changeSessionId", "invalidate"],
+        "message_template": "request.login without changeSessionId — possible session fixation"
+      }
+    ]
+  },
+  "description": "Calling HttpServletRequest.login without subsequently calling changeSessionId() (or invalidating the existing session) leaves the pre-auth session identifier valid post-login.",
+  "remediation": "Call request.changeSessionId() after a successful login, or invalidate the session and create a new one.",
+  "references": ["https://cwe.mitre.org/data/definitions/384.html"]
+}

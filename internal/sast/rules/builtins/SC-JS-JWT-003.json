@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-JS-JWT-003",
+  "name": "Hardcoded JWT signing secret",
+  "language": "javascript",
+  "cwe": ["CWE-798"],
+  "owasp": ["A07:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.80 },
+  "detection": {
+    "kind": "ast_assign",
+    "assign_patterns": [
+      {
+        "name_matches_any": ["(?i)jwt[_-]?secret", "(?i)jwt[_-]?key", "(?i)jwt[_-]?signing"],
+        "min_value_length": 8,
+        "exclude_values": ["(?i)^(test|change[-_]?me|placeholder|example|<.*>)$"],
+        "require_entropy": false,
+        "message_template": "Hardcoded JWT signing secret in source"
+      }
+    ]
+  },
+  "description": "Variable named like a JWT signing secret is assigned a string literal.",
+  "remediation": "Load from environment variable or secret manager.",
+  "references": ["https://cwe.mitre.org/data/definitions/798.html"]
+}

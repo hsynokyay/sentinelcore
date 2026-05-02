@@ -1,0 +1,32 @@
+{
+  "rule_id": "SC-CSHARP-SESSION-001",
+  "name": "Predictable session/token via System.Random",
+  "language": "csharp",
+  "cwe": ["CWE-330"],
+  "owasp": ["A07:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "System.Random",
+        "callee": "Next",
+        "message_template": "System.Random is not cryptographic — use RandomNumberGenerator"
+      },
+      {
+        "receiver_fqn": "System.Random",
+        "callee": "NextBytes",
+        "message_template": "System.Random.NextBytes is not cryptographic"
+      },
+      {
+        "receiver_fqn": "Random",
+        "callee": "Next",
+        "message_template": "Random.Next is not cryptographic"
+      }
+    ]
+  },
+  "description": "System.Random uses a non-cryptographic PRNG.",
+  "remediation": "Use System.Security.Cryptography.RandomNumberGenerator.GetBytes (or .Create()) for any value that must not be predictable.",
+  "references": ["https://cwe.mitre.org/data/definitions/330.html"]
+}

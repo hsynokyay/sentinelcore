@@ -159,3 +159,47 @@ func ruleIDs(findings []engine.Finding) []string {
 	}
 	return ids
 }
+
+// TestJSArgSourceTextCookieCall verifies that OpCall instructions emitted for
+// res.cookie() carry ArgSourceText[0] equal to the verbatim call-site text,
+// so that cookie-attribute rules can substring-search for "httpOnly" / "secure".
+// Uses a named function declaration (rather than an inline arrow passed to app.post)
+// because top-level expression statements are not walked by the parser — the
+// function body is what matters for this test.
+func TestJSArgSourceTextCookieCall(t *testing.T) {
+	src := []byte(`const express = require("express");
+function handleLogin(req, res) {
+  res.cookie("session", "abc", { httpOnly: true, secure: true });
+  res.send("ok");
+}
+`)
+	mod := ParseSource("test.js", src)
+
+	var cookieCall *ir.Instruction
+	for _, cls := range mod.Classes {
+		for _, fn := range cls.Methods {
+			for _, blk := range fn.Blocks {
+				for _, inst := range blk.Instructions {
+					if inst.Op == ir.OpCall && inst.Callee == "cookie" {
+						cookieCall = inst
+					}
+				}
+			}
+		}
+	}
+
+	if cookieCall == nil {
+		t.Fatal("res.cookie Call instruction not found in IR")
+	}
+	if len(cookieCall.ArgSourceText) == 0 {
+		t.Fatal("ArgSourceText is empty for res.cookie call")
+	}
+	got := cookieCall.ArgSourceText[0]
+	if !strings.Contains(got, "httpOnly") {
+		t.Errorf("ArgSourceText[0] does not contain 'httpOnly': %q", got)
+	}
+	if !strings.Contains(got, "secure") {
+		t.Errorf("ArgSourceText[0] does not contain 'secure': %q", got)
+	}
+	t.Logf("ArgSourceText[0] = %q", got)
+}

@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-CSHARP-COOKIE-002",
+  "name": "Cookie appended without HttpOnly flag",
+  "language": "csharp",
+  "cwe": ["CWE-1004"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.75 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "Microsoft.AspNetCore.Http.IResponseCookies",
+        "callee": "Append",
+        "arg_index": 0,
+        "arg_text_missing_any": ["HttpOnly"],
+        "message_template": "IResponseCookies.Append called with CookieOptions missing HttpOnly"
+      },
+      {
+        "receiver_fqn": "IResponseCookies",
+        "callee": "Append",
+        "arg_index": 0,
+        "arg_text_missing_any": ["HttpOnly"],
+        "message_template": "IResponseCookies.Append missing HttpOnly"
+      }
+    ]
+  },
+  "description": "Cookie appended without CookieOptions.HttpOnly = true.",
+  "remediation": "Set HttpOnly = true on the CookieOptions initializer.",
+  "references": ["https://cwe.mitre.org/data/definitions/1004.html"]
+}

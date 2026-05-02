@@ -118,6 +118,13 @@ type Instruction struct {
 	CalleeFQN    string `json:"callee_fqn,omitempty"`    // fully qualified, e.g. "javax.crypto.Cipher.getInstance"
 
 	Loc Location `json:"loc"`
+
+	// ArgSourceText is the verbatim source-text representation of each
+	// operand at this call site, parallel to Operands. Empty string entries
+	// are allowed for operands whose source text is unavailable. Populated
+	// by the AST frontend; consumed by rule_engine.go's arg_text_* matchers.
+	// Optional — older modules may have empty slices.
+	ArgSourceText []string `json:"arg_source_text,omitempty"`
 }
 
 // OperandKind distinguishes value references from constant literals.

@@ -12,8 +12,10 @@ import (
 func Parse(relPath string, src []byte) *ir.Module {
 	tokens := Tokenize(src)
 	p := &parser{
-		tokens:  tokens,
-		imports: map[string]string{},
+		tokens:     tokens,
+		src:        src,
+		lineStarts: computeLineStarts(src),
+		imports:    map[string]string{},
 		mod: &ir.Module{
 			ID:       moduleID(relPath),
 			Path:     relPath,
@@ -24,17 +26,62 @@ func Parse(relPath string, src []byte) *ir.Module {
 	return p.mod
 }
 
+// computeLineStarts returns the byte offset of the first character of each
+// 1-indexed line. lineStarts[0] is unused so that lineStarts[N] gives the
+// start of line N.
+func computeLineStarts(src []byte) []int {
+	starts := []int{0, 0} // lineStarts[1] = 0
+	for i := 0; i < len(src); i++ {
+		if src[i] == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+
+// srcSpan returns the verbatim source text from (startLine,startCol) to
+// (endLine,endCol), inclusive of the start and exclusive of the end. Lines
+// are 1-indexed; columns are 1-indexed and treated as byte offsets within
+// the line (good enough for ASCII-dominant source). Returns "" on any
+// out-of-range span.
+func (p *parser) srcSpan(startLine, startCol, endLine, endCol int) string {
+	if startLine < 1 || endLine < startLine || endLine >= len(p.lineStarts) {
+		return ""
+	}
+	startByte := p.lineStarts[startLine] + startCol - 1
+	endByte := p.lineStarts[endLine] + endCol - 1
+	if startByte < 0 || endByte > len(p.src) || endByte < startByte {
+		return ""
+	}
+	return string(p.src[startByte:endByte])
+}
+
+// callSiteText reconstructs the verbatim source text of a call expression
+// from the token at startPos through the most recently consumed token
+// (which should be the closing ')'). Returns "" if positions are invalid.
+func (p *parser) callSiteText(startPos int) string {
+	if startPos < 0 || startPos >= len(p.tokens) || p.pos < 1 || p.pos-1 >= len(p.tokens) {
+		return ""
+	}
+	start := p.tokens[startPos]
+	end := p.tokens[p.pos-1]
+	endCol := end.Col + len(end.Val)
+	return p.srcSpan(start.Line, start.Col, end.Line, endCol)
+}
+
 func moduleID(relPath string) string {
 	sum := sha256.Sum256([]byte(relPath))
 	return hex.EncodeToString(sum[:])
 }
 
 type parser struct {
-	tokens    []Token
-	pos       int
-	mod       *ir.Module
-	imports   map[string]string
-	funcStack []*funcCtx
+	tokens     []Token
+	pos        int
+	src        []byte
+	lineStarts []int
+	mod        *ir.Module
+	imports    map[string]string
+	funcStack  []*funcCtx
 }
 
 type funcCtx struct {
@@ -462,13 +509,15 @@ func (p *parser) tryEmitCall(ctx *funcCtx) {
 				Loc: ir.Location{Line: line, Column: col},
 			})
 			args := p.scanArgs(ctx)
+			callText := p.callSiteText(startPos)
 			callResult := ctx.newValue()
 			ctx.emit(&ir.Instruction{
 				Op: ir.OpCall, Result: callResult, ResultType: ir.Unknown(),
 				ReceiverType: srcFQN, Callee: chain[len(chain)-1],
 				CalleeFQN: srcFQN + "." + chain[len(chain)-1],
 				Operands: append([]ir.Operand{ir.ValueRef(srcResult)}, args...),
-				Loc: ir.Location{Line: line, Column: col},
+				Loc:           ir.Location{Line: line, Column: col},
+				ArgSourceText: []string{callText},
 			})
 			p.skipToNewline()
 			return
@@ -492,11 +541,14 @@ func (p *parser) tryEmitCall(ctx *funcCtx) {
 		calleeFQN = mod + "." + callee
 	}
 	args := p.scanArgs(ctx)
+	callText := p.callSiteText(startPos)
 	result := ctx.newValue()
 	ctx.emit(&ir.Instruction{
 		Op: ir.OpCall, Result: result, ResultType: ir.Unknown(),
 		ReceiverType: receiverFQN, Callee: callee, CalleeFQN: calleeFQN,
-		Operands: args, Loc: ir.Location{Line: line, Column: col},
+		Operands:      args,
+		Loc:           ir.Location{Line: line, Column: col},
+		ArgSourceText: []string{callText},
 	})
 	p.skipToNewline()
 }
@@ -530,13 +582,15 @@ func (p *parser) tryEmitCallExpr(ctx *funcCtx) ir.ValueID {
 			})
 			// The .get() call passes through the taint via the receiver.
 			args := p.scanArgs(ctx)
+			callText := p.callSiteText(startPos)
 			callResult := ctx.newValue()
 			ctx.emit(&ir.Instruction{
 				Op: ir.OpCall, Result: callResult, ResultType: ir.Unknown(),
 				ReceiverType: srcFQN, Callee: chain[len(chain)-1],
 				CalleeFQN: srcFQN + "." + chain[len(chain)-1],
 				Operands: append([]ir.Operand{ir.ValueRef(srcResult)}, args...),
-				Loc: ir.Location{Line: p.tokens[startPos].Line, Column: p.tokens[startPos].Col},
+				Loc:           ir.Location{Line: p.tokens[startPos].Line, Column: p.tokens[startPos].Col},
+				ArgSourceText: []string{callText},
 			})
 			return callResult
 		}
@@ -559,11 +613,14 @@ func (p *parser) tryEmitCallExpr(ctx *funcCtx) ir.ValueID {
 		calleeFQN = mod + "." + callee
 	}
 	args := p.scanArgs(ctx)
+	callText := p.callSiteText(startPos)
 	result := ctx.newValue()
 	ctx.emit(&ir.Instruction{
 		Op: ir.OpCall, Result: result, ResultType: ir.Unknown(),
 		ReceiverType: receiverFQN, Callee: callee, CalleeFQN: calleeFQN,
-		Operands: args, Loc: ir.Location{Line: p.tokens[startPos].Line, Column: p.tokens[startPos].Col},
+		Operands:      args,
+		Loc:           ir.Location{Line: p.tokens[startPos].Line, Column: p.tokens[startPos].Col},
+		ArgSourceText: []string{callText},
 	})
 	return result
 }

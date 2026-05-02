@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-JWT-002",
+  "name": "JWT verify accepts alg=none",
+  "language": "javascript",
+  "cwe": ["CWE-327"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.90 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "jwt",
+        "callee": "verify",
+        "arg_index": 0,
+        "arg_text_contains_any": ["'none'", "\"none\""],
+        "message_template": "jwt.verify accepts alg=none"
+      },
+      {
+        "receiver_fqn": "jsonwebtoken",
+        "callee": "verify",
+        "arg_index": 0,
+        "arg_text_contains_any": ["'none'", "\"none\""],
+        "message_template": "jsonwebtoken.verify accepts alg=none"
+      }
+    ]
+  },
+  "description": "jsonwebtoken.verify is configured to accept the unsigned 'none' algorithm. Any attacker can produce a token that passes verification.",
+  "remediation": "Pass algorithms: ['HS256'] (or whatever your real algorithm is) — never include 'none'.",
+  "references": ["https://cwe.mitre.org/data/definitions/327.html"]
+}

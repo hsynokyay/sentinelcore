@@ -333,3 +333,84 @@ namespace App {
 		t.Errorf("File receiver: got %q", call.ReceiverType)
 	}
 }
+
+func TestArgSourceTextCookieAppend(t *testing.T) {
+	src := []byte(`
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Http;
+
+public class CookieController : Controller
+{
+    public IActionResult Login()
+    {
+        Response.Cookies.Append("session", "abc", new CookieOptions { Secure = true, HttpOnly = true });
+        return Ok();
+    }
+}
+`)
+	mod := Parse("test.cs", src)
+	call := findCall(mod, "Append")
+	if call == nil {
+		t.Fatal("did not find Cookies.Append() call")
+	}
+	if len(call.ArgSourceText) == 0 {
+		t.Fatal("ArgSourceText is empty for Cookies.Append call")
+	}
+	text := call.ArgSourceText[0]
+	if !strings.Contains(text, "Secure") {
+		t.Errorf("ArgSourceText[0] should contain 'Secure', got: %q", text)
+	}
+	if !strings.Contains(text, "HttpOnly") {
+		t.Errorf("ArgSourceText[0] should contain 'HttpOnly', got: %q", text)
+	}
+}
+
+func TestArgSourceTextMethodCall(t *testing.T) {
+	src := []byte(`
+using System.Diagnostics;
+
+namespace App {
+    public class Launcher {
+        public void Run() {
+            Process.Start("notepad.exe");
+        }
+    }
+}
+`)
+	mod := Parse("test.cs", src)
+	call := findCall(mod, "Start")
+	if call == nil {
+		t.Fatal("did not find Start() call")
+	}
+	if len(call.ArgSourceText) == 0 {
+		t.Fatal("ArgSourceText is empty for Start call")
+	}
+	if !strings.Contains(call.ArgSourceText[0], "Start") {
+		t.Errorf("ArgSourceText[0] should contain 'Start', got: %q", call.ArgSourceText[0])
+	}
+}
+
+func TestArgSourceTextConstructor(t *testing.T) {
+	src := []byte(`
+using System.Data.SqlClient;
+
+namespace App {
+    public class Repo {
+        public void Exec(string sql) {
+            var cmd = new SqlCommand(sql);
+        }
+    }
+}
+`)
+	mod := Parse("test.cs", src)
+	call := findCall(mod, "<init>")
+	if call == nil {
+		t.Fatal("did not find constructor <init> call")
+	}
+	if len(call.ArgSourceText) == 0 {
+		t.Fatal("ArgSourceText is empty for constructor call")
+	}
+	if !strings.Contains(call.ArgSourceText[0], "SqlCommand") {
+		t.Errorf("ArgSourceText[0] should contain 'SqlCommand', got: %q", call.ArgSourceText[0])
+	}
+}

@@ -74,6 +74,34 @@ func TestPythonImportDetection(t *testing.T) {
 	}
 }
 
+func TestPythonArgSourceTextPopulated(t *testing.T) {
+	src := []byte("from flask import Response\n\ndef handler():\n    resp = Response(\"ok\")\n    resp.set_cookie(\"session\", \"abc\", httponly=True, secure=True)\n    return resp\n")
+	mod := ParseSource("test.py", src)
+	var foundCallText string
+	for _, c := range mod.Classes {
+		for _, m := range c.Methods {
+			for _, b := range m.Blocks {
+				for _, inst := range b.Instructions {
+					if inst.Op == ir.OpCall && inst.Callee == "set_cookie" {
+						if len(inst.ArgSourceText) > 0 {
+							foundCallText = inst.ArgSourceText[0]
+						}
+					}
+				}
+			}
+		}
+	}
+	if foundCallText == "" {
+		t.Fatal("expected ArgSourceText to be populated for set_cookie call")
+	}
+	if !strings.Contains(foundCallText, "httponly") {
+		t.Errorf("expected callsite text to contain 'httponly', got: %q", foundCallText)
+	}
+	if !strings.Contains(foundCallText, "secure") {
+		t.Errorf("expected callsite text to contain 'secure', got: %q", foundCallText)
+	}
+}
+
 // --- Detection tests ---
 
 func TestPyCmdInjection(t *testing.T) {

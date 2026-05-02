@@ -32,7 +32,9 @@ import (
 func Parse(relPath string, src []byte) *ir.Module {
 	tokens := Tokenize(src)
 	p := &parser{
-		tokens: tokens,
+		tokens:     tokens,
+		src:        src,
+		lineStarts: computeLineStarts(src),
 		// java.lang.* is auto-imported in every Java file.
 		imports: map[string]string{
 			"String":         "java.lang.String",
@@ -72,11 +74,58 @@ func moduleID(relPath string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// computeLineStarts returns the byte offset of the first character of each
+// 1-indexed line. lineStarts[0] is unused so that lineStarts[N] gives the
+// start of line N.
+func computeLineStarts(src []byte) []int {
+	starts := []int{0, 0} // lineStarts[1] = 0
+	for i := 0; i < len(src); i++ {
+		if src[i] == '\n' {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+
+// srcSpan returns the verbatim source text from (startLine,startCol) to
+// (endLine,endCol), inclusive of the start and exclusive of the end. Lines
+// are 1-indexed; columns are 1-indexed and treated as byte offsets within
+// the line (good enough for ASCII-dominant source). Returns "" on any
+// out-of-range span.
+func (p *parser) srcSpan(startLine, startCol, endLine, endCol int) string {
+	if startLine < 1 || endLine < startLine || endLine >= len(p.lineStarts) {
+		return ""
+	}
+	startByte := p.lineStarts[startLine] + startCol - 1
+	endByte := p.lineStarts[endLine] + endCol - 1
+	if startByte < 0 || endByte > len(p.src) || endByte < startByte {
+		return ""
+	}
+	return string(p.src[startByte:endByte])
+}
+
+// callSiteTextByTokens reconstructs the verbatim source text of a call
+// expression spanning from the token at startTokIdx through the token at
+// endTokIdx (inclusive). Returns "" if any index is out of range.
+func (p *parser) callSiteTextByTokens(startTokIdx, endTokIdx int) string {
+	if startTokIdx < 0 || startTokIdx >= len(p.tokens) ||
+		endTokIdx < 0 || endTokIdx >= len(p.tokens) ||
+		endTokIdx < startTokIdx {
+		return ""
+	}
+	start := p.tokens[startTokIdx]
+	end := p.tokens[endTokIdx]
+	endCol := end.Col + len(end.Val)
+	return p.srcSpan(start.Line, start.Col, end.Line, endCol)
+}
+
 // parser holds the walker's mutable state. None of it survives outside a
 // Parse call, so the package is safe to use from multiple goroutines.
 type parser struct {
-	tokens []Token
-	pos    int
+	tokens     []Token
+	pos        int
+	src        []byte
+	lineStarts []int
 
 	mod *ir.Module
 
@@ -707,6 +756,7 @@ func (p *parser) parseExpressionAtom() ir.ValueID {
 	// and receiverType = resolved(ClassName). This models File, FileInputStream,
 	// ProcessBuilder constructors as call sites for the taint engine.
 	if t.Kind == TokIdent && t.Val == "new" {
+		newTokIdx := p.pos
 		p.advance() // skip 'new'
 		if p.peek().Kind == TokIdent {
 			className := p.peek().Val
@@ -743,16 +793,18 @@ func (p *parser) parseExpressionAtom() ir.ValueID {
 				} else {
 					p.advance()
 				}
+				callText := p.callSiteTextByTokens(newTokIdx, closeIdx)
 				resultVal := ctx.newValue()
 				ctx.emit(&ir.Instruction{
-					Op:           ir.OpCall,
-					Result:       resultVal,
-					ResultType:   ir.Nominal(fqn),
-					ReceiverType: fqn,
-					Callee:       "<init>",
-					CalleeFQN:    fqn + ".<init>",
-					Operands:     args,
-					Loc:          ir.Location{Line: classLine, Column: classCol},
+					Op:            ir.OpCall,
+					Result:        resultVal,
+					ResultType:    ir.Nominal(fqn),
+					ReceiverType:  fqn,
+					Callee:        "<init>",
+					CalleeFQN:     fqn + ".<init>",
+					Operands:      args,
+					Loc:           ir.Location{Line: classLine, Column: classCol},
+					ArgSourceText: []string{callText},
 				})
 				return resultVal
 			}
@@ -764,9 +816,10 @@ func (p *parser) parseExpressionAtom() ir.ValueID {
 	// (IDENT.IDENT...IDENT '('), or a variable reference.
 	if t.Kind == TokIdent && !isReservedCallKeyword(t.Val) {
 		// Walk forward through dots to find a potential call.
+		chainStartIdx := p.pos
 		callIdx := p.findCallInChain()
 		if callIdx >= 0 {
-			return p.emitCallFromExpression(callIdx)
+			return p.emitCallFromExpression(chainStartIdx, callIdx)
 		}
 		// Variable reference.
 		if v, ok := ctx.locals[t.Val]; ok {
@@ -816,7 +869,9 @@ func (p *parser) findCallInChain() int {
 // context (like the RHS of an assignment). Advances past the entire
 // `receiver.callee(args)` span including the closing `)`. Returns the
 // call's result SSA value.
-func (p *parser) emitCallFromExpression(calleeIdx int) ir.ValueID {
+// chainStartIdx is the token index of the first token in the receiver chain
+// (used to capture the full call-site text including the receiver).
+func (p *parser) emitCallFromExpression(chainStartIdx, calleeIdx int) ir.ValueID {
 	ctx := p.topMethod()
 	if ctx == nil {
 		p.advance()
@@ -843,16 +898,18 @@ func (p *parser) emitCallFromExpression(calleeIdx int) ir.ValueID {
 		p.pos = openParen + 1
 	}
 
+	callText := p.callSiteTextByTokens(chainStartIdx, closeIdx)
 	resultVal := ctx.newValue()
 	inst := &ir.Instruction{
-		Op:           ir.OpCall,
-		Result:       resultVal,
-		ResultType:   ir.Unknown(),
-		ReceiverType: receiverFQN,
-		Callee:       callee,
-		CalleeFQN:    calleeFQN,
-		Operands:     args,
-		Loc:          ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
+		Op:            ir.OpCall,
+		Result:        resultVal,
+		ResultType:    ir.Unknown(),
+		ReceiverType:  receiverFQN,
+		Callee:        callee,
+		CalleeFQN:     calleeFQN,
+		Operands:      args,
+		Loc:           ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
+		ArgSourceText: []string{callText},
 	}
 	ctx.emit(inst)
 	return resultVal
@@ -1084,15 +1141,35 @@ func (p *parser) tryEmitCall() {
 	// Scan arguments without consuming them.
 	args := p.scanCallArgs(calleePos + 2)
 
+	// Determine the start of the receiver chain by walking backward through
+	// `. IDENT` pairs, mirroring the logic in resolveReceiver.
+	chainStartIdx := calleePos
+	back := calleePos - 1
+	for back >= 1 {
+		if p.tokens[back].Kind == TokPunct && p.tokens[back].Val == "." &&
+			p.tokens[back-1].Kind == TokIdent {
+			chainStartIdx = back - 1
+			back -= 2
+		} else {
+			break
+		}
+	}
+
+	// Find the closing ')' for the call (without consuming; the main walker
+	// continues through args to pick up nested calls).
+	closeIdx := p.matchParen(calleePos + 1)
+	callText := p.callSiteTextByTokens(chainStartIdx, closeIdx)
+
 	if len(p.methodStack) > 0 {
 		ctx := p.methodStack[len(p.methodStack)-1]
 		inst := &ir.Instruction{
-			Op:           ir.OpCall,
-			ReceiverType: receiverFQN,
-			Callee:       callee,
-			CalleeFQN:    calleeFQN,
-			Operands:     args,
-			Loc:          ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
+			Op:            ir.OpCall,
+			ReceiverType:  receiverFQN,
+			Callee:        callee,
+			CalleeFQN:     calleeFQN,
+			Operands:      args,
+			Loc:           ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
+			ArgSourceText: []string{callText},
 		}
 		ctx.block.Instructions = append(ctx.block.Instructions, inst)
 	}

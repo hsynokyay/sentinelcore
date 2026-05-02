@@ -1,0 +1,9 @@
+{
+  "language": "java",
+  "framework": "java-jwt",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "io.jsonwebtoken.JwtParser", "method": "parse", "vuln_class": "jwt_unverified"},
+    {"kind": "sink", "receiver_fqn": "io.jsonwebtoken.Jwts", "method": "parser", "vuln_class": "jwt_unverified"},
+    {"kind": "sink", "receiver_fqn": "io.jsonwebtoken.JwtParser", "method": "parseClaimsJwt", "vuln_class": "jwt_unverified"}
+  ]
+}

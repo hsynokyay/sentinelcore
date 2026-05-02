@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-CSRF-001",
+  "name": "CSRF token compared with non-constant-time operator",
+  "language": "javascript",
+  "cwe": ["CWE-208", "CWE-352"],
+  "owasp": ["A01:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "callee": "verifyCsrf",
+        "arg_index": 0,
+        "arg_text_contains_any": ["===", "=="],
+        "arg_text_missing_any": ["timingSafeEqual"],
+        "message_template": "verifyCsrf-style helper compares tokens with === / == — use crypto.timingSafeEqual"
+      },
+      {
+        "callee": "checkCsrfToken",
+        "arg_index": 0,
+        "arg_text_contains_any": ["===", "=="],
+        "arg_text_missing_any": ["timingSafeEqual"],
+        "message_template": "checkCsrfToken compares tokens with === / =="
+      }
+    ]
+  },
+  "description": "CSRF/auth token comparison via === / == leaks the prefix length through timing — easier to recognize as a heuristic when wrapped in a verifyCsrf-named helper. Real fix: use crypto.timingSafeEqual.",
+  "remediation": "Replace `a === b` with `crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b))`.",
+  "references": ["https://cwe.mitre.org/data/definitions/208.html"]
+}

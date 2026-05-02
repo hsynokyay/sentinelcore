@@ -29,6 +29,10 @@
       "method": "getQueryString",
       "taint_kind": "http_input",
       "applies_to": "return"
-    }
+    },
+    {"kind": "sink", "receiver_fqn": "javax.servlet.http.HttpServletResponse", "method": "addHeader", "vuln_class": "auth_header_injection", "args": [1]},
+    {"kind": "sink", "receiver_fqn": "javax.servlet.http.HttpServletResponse", "method": "setHeader", "vuln_class": "auth_header_injection", "args": [1]},
+    {"kind": "sink", "receiver_fqn": "jakarta.servlet.http.HttpServletResponse", "method": "addHeader", "vuln_class": "auth_header_injection", "args": [1]},
+    {"kind": "sink", "receiver_fqn": "jakarta.servlet.http.HttpServletResponse", "method": "setHeader", "vuln_class": "auth_header_injection", "args": [1]}
   ]
 }
