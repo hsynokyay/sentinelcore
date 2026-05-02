@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-JAVA-LOG-001",
+  "version": "1.0.0",
+  "title": "Sensitive Data Logged from HTTP Input in Java",
+  "summary": "User-supplied HTTP input (request parameters, headers, or body) flows into a logging statement via SLF4J or java.util.logging without sanitization. Sensitive data such as passwords, authentication tokens, session identifiers, or personally identifiable information (PII) may be persisted in log files, log aggregation systems, or SIEM platforms where it is accessible to a broader audience than intended.",
+
+  "why_it_matters": "Log files are often treated as low-sensitivity data and are stored with weaker access controls than databases. They are frequently shipped to centralized logging platforms (ELK, Splunk, Datadog) where operations, support, and development teams have broad read access. Logging sensitive data violates the principle of least privilege, can breach regulatory requirements (GDPR, HIPAA, PCI DSS), and expands the attack surface if logs are compromised. The Log4Shell (CVE-2021-44228) incident demonstrated that log injection can also enable remote code execution when the logging framework itself has vulnerabilities.",
+
+  "how_to_fix": "Never log raw HTTP input that may contain sensitive data.\n\n1. Identify fields that are sensitive in your domain (passwords, tokens, SSNs, credit card numbers, API keys) and create a redaction utility that masks these values before logging.\n2. Use structured logging (SLF4J MDC, Logback's StructuredArguments) with an explicit field allowlist rather than logging entire request objects.\n3. Configure your logging framework's pattern layout to apply a regex-based masking converter for known sensitive patterns (e.g., password=****).\n4. In Logback, implement a custom TurboFilter or use the replace() conversion word in the pattern to mask sensitive values.\n5. Audit log statements during code review to ensure no new sensitive data is introduced.",
+
+  "unsafe_example": "// UNSAFE: logging raw HTTP parameter that may contain a password\nString password = request.getParameter(\"password\");\nlogger.info(\"Login attempt for user {} with password {}\", username, password);",
+
+  "safe_example": "// SAFE: log only non-sensitive identifiers, redact sensitive fields\nString username = request.getParameter(\"username\");\nlogger.info(\"Login attempt for user {}\", username);\n// Never log passwords, tokens, or session IDs\n// If debugging is needed, log a hash or masked version:\nlogger.debug(\"Login attempt for user {}, password length={}\", username, password.length());",
+
+  "developer_notes": "This rule uses taint analysis to trace data from HTTP input sources to logging sinks. It may produce false positives when the logged value is non-sensitive (e.g., a page number or sort order). In those cases, add a suppression comment or mark the finding as accepted risk. Be especially cautious with toString() calls on request wrapper objects, as they may dump all parameters including sensitive ones. Consider using a RequestSanitizer utility that strips sensitive fields before any logging.",
+
+  "verification_checklist": [
+    "No raw passwords, tokens, session IDs, or PII are logged from HTTP input",
+    "A redaction or masking utility is applied before logging any user-supplied data",
+    "Structured logging with explicit field allowlists is used instead of logging entire request objects",
+    "Logging configuration includes pattern-based masking for known sensitive field patterns",
+    "Code review checklist includes a log-sensitivity audit step"
+  ],
+
+  "references": [
+    {"title": "CWE-532: Insertion of Sensitive Information into Log File", "url": "https://cwe.mitre.org/data/definitions/532.html"},
+    {"title": "OWASP Top 10 A09:2021 Security Logging and Monitoring Failures", "url": "https://owasp.org/Top10/A09_2021-Security_Logging_and_Monitoring_Failures/"},
+    {"title": "OWASP Logging Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html"}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-PY-XSS-001",
+  "name": "Reflected XSS via flask.Markup / mark_safe",
+  "language": "python",
+  "cwe": ["CWE-79"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.70 },
+  "detection": { "kind": "taint", "vuln_class": "xss" },
+  "description": "User input flows into flask.Markup or django.utils.safestring.mark_safe, which marks the string as safe HTML and disables auto-escaping at render time.",
+  "remediation": "Never call Markup / mark_safe on user input. Trust the template's autoescape; if you need raw HTML, sanitize with bleach.clean first.",
+  "references": ["https://cwe.mitre.org/data/definitions/79.html"]
+}

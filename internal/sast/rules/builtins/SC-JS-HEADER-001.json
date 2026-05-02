@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-JS-HEADER-001",
+  "name": "HTTP response header injection in Express",
+  "language": "javascript",
+  "cwe": ["CWE-113"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.70 },
+  "detection": { "kind": "taint", "vuln_class": "http_header_injection" },
+  "description": "User input flows unchanged into an Express res.setHeader value. CR/LF in the value enables response splitting.",
+  "remediation": "Sanitize header values by stripping CR/LF, or restrict acceptable values via an allowlist.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/113.html"
+  ]
+}

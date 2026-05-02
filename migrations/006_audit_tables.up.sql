@@ -1,5 +1,5 @@
 CREATE TABLE audit.audit_log (
-    id              BIGSERIAL PRIMARY KEY,
+    id              BIGSERIAL,
     event_id        UUID NOT NULL DEFAULT gen_random_uuid(),
     timestamp       TIMESTAMPTZ NOT NULL DEFAULT now(),
     actor_type      TEXT NOT NULL CHECK (actor_type IN ('user', 'service', 'system', 'cicd')),
@@ -15,7 +15,8 @@ CREATE TABLE audit.audit_log (
     result          TEXT NOT NULL CHECK (result IN ('success', 'failure', 'denied')),
     previous_hash   TEXT NOT NULL DEFAULT '',
     entry_hash      TEXT NOT NULL DEFAULT '',
-    hmac_key_version INTEGER
+    hmac_key_version INTEGER,
+    PRIMARY KEY (id, timestamp)
 ) PARTITION BY RANGE (timestamp);
 
 -- Create initial partition for current month and next month

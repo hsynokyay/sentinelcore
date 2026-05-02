@@ -1,0 +1,32 @@
+{
+  "rule_id": "SC-PY-XXE-001",
+  "name": "XXE via lxml etree without disabled DTD",
+  "language": "python",
+  "cwe": ["CWE-611"],
+  "owasp": ["A05:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "lxml.etree",
+        "callee": "parse",
+        "message_template": "lxml.etree.parse without an XMLParser configured to resolve_entities=False is XXE-vulnerable"
+      },
+      {
+        "receiver_fqn": "lxml.etree",
+        "callee": "fromstring",
+        "message_template": "lxml.etree.fromstring without disabled DTD is XXE-vulnerable"
+      },
+      {
+        "receiver_fqn": "xml.etree.ElementTree",
+        "callee": "parse",
+        "message_template": "xml.etree.ElementTree.parse processes external entities by default in older Python; use defusedxml"
+      }
+    ]
+  },
+  "description": "XML parser invoked without disabling external entities allows attacker-controlled XML to read local files (file:///) or perform SSRF via http:// references.",
+  "remediation": "Use defusedxml.ElementTree.parse, or pass a hardened XMLParser(resolve_entities=False, no_network=True) explicitly.",
+  "references": ["https://cwe.mitre.org/data/definitions/611.html"]
+}

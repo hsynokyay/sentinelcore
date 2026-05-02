@@ -1,0 +1,9 @@
+{
+  "language": "javascript",
+  "framework": "node-sql",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "mysql", "method": "query", "vuln_class": "sql_injection", "arg_count_exact": 1},
+    {"kind": "sink", "receiver_fqn": "mysql2", "method": "query", "vuln_class": "sql_injection", "arg_count_exact": 1},
+    {"kind": "sink", "receiver_fqn": "pg", "method": "query", "vuln_class": "sql_injection", "arg_count_exact": 1}
+  ]
+}

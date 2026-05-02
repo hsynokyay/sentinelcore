@@ -1,0 +1,37 @@
+{
+  "rule_id": "SC-CSHARP-CRYPTO-001",
+  "name": "Use of weak cryptographic algorithm (MD5/SHA-1/DES)",
+  "language": "csharp",
+  "cwe": ["CWE-327", "CWE-328"],
+  "owasp": ["A02:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.90 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "System.Security.Cryptography.MD5",
+        "callee": "Create",
+        "message_template": "MD5.Create() — MD5 is broken; use SHA-256 or SHA-3"
+      },
+      {
+        "receiver_fqn": "System.Security.Cryptography.SHA1",
+        "callee": "Create",
+        "message_template": "SHA1.Create() — SHA-1 is collision-vulnerable; use SHA-256 or SHA-3"
+      },
+      {
+        "receiver_fqn": "System.Security.Cryptography.DES",
+        "callee": "Create",
+        "message_template": "DES.Create() — DES is broken; use AES-GCM"
+      },
+      {
+        "receiver_fqn": "System.Security.Cryptography.TripleDES",
+        "callee": "Create",
+        "message_template": "TripleDES.Create() — 3DES is deprecated; use AES-GCM"
+      }
+    ]
+  },
+  "description": "MD5, SHA-1, DES, and 3DES are no longer considered secure for cryptographic purposes. Collision attacks against MD5/SHA-1 are practical; DES/3DES have insufficient key sizes.",
+  "remediation": "Use SHA-256 or SHA-3 for hashing, AES-GCM for symmetric encryption, and Rfc2898DeriveBytes (PBKDF2) or Argon2 for password storage.",
+  "references": ["https://cwe.mitre.org/data/definitions/327.html"]
+}

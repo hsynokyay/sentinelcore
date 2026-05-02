@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-CSHARP-SSRF-001",
+  "version": "1.0.0",
+  "title": "Server-Side Request Forgery via HttpClient / WebRequest",
+  "summary": "User-controlled URLs flow into outbound HTTP APIs without validation. An attacker can force the server to make requests to internal services, cloud metadata endpoints, or arbitrary external hosts.",
+
+  "why_it_matters": "SSRF is particularly dangerous in cloud environments because the metadata service (169.254.169.254 on AWS, EC2; same on Azure; metadata.google.internal on GCP) returns IAM credentials when queried. An SSRF in a cloud application often means full cloud-account takeover. SSRF is also used to reach internal services (databases, admin panels, Redis) that would otherwise be firewalled from the internet.",
+
+  "how_to_fix": "Apply defense in depth to every URL that originates from user input:\n\n1. Parse the URL with `new Uri(input)` before use. Reject relative URLs and URLs without a scheme.\n2. Check the scheme — allow only http and https unless you have a specific reason to allow file, ftp, etc.\n3. Resolve the hostname to IP addresses (Dns.GetHostAddresses) and reject any that fall in private ranges: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 (link-local), 127.0.0.0/8 (loopback), and IPv6 equivalents (::1, fe80::/10, fc00::/7).\n4. For maximum safety, maintain an allowlist of permitted hostnames and reject anything else.\n5. Disable HttpClient.FollowRedirects or verify the redirect target against the same rules. A valid initial URL can redirect to 169.254.169.254.\n\nNote: allowlist checks on the string before parsing can be bypassed by unusual URL forms like http://expected.com@attacker.com, http://attacker.com#expected.com, or URL-encoded hosts. Always parse first, then validate the parsed components.",
+
+  "unsafe_example": "// UNSAFE: raw URL from user\nstring url = Request.Query[\"url\"];\nvar res = await httpClient.GetAsync(url);\n\n// UNSAFE: WebRequest.Create with tainted URL\nvar req = WebRequest.Create(Request.Query[\"target\"]);\nvar resp = req.GetResponse();",
+
+  "safe_example": "// SAFE: parse, scheme check, host allowlist\nstring raw = Request.Query[\"url\"];\nif (!Uri.TryCreate(raw, UriKind.Absolute, out var uri))\n    throw new ArgumentException(\"invalid url\");\nif (uri.Scheme != \"https\")\n    throw new SecurityException(\"only https allowed\");\nif (!AllowedHosts.Contains(uri.Host))\n    throw new SecurityException(\"host not permitted\");\nvar res = await httpClient.GetAsync(uri);",
+
+  "developer_notes": "HttpClient follows redirects by default. A URL like https://allowed.example.com/foo can return a 302 pointing at http://169.254.169.254/latest/meta-data/iam/security-credentials/ and HttpClient will follow it — you will make the metadata request and return the response to the attacker. Either set HttpClientHandler.AllowAutoRedirect = false and handle redirects manually, or re-validate every redirect target.",
+
+  "verification_checklist": [
+    "User URLs are parsed with new Uri() before use",
+    "Only http/https schemes are permitted",
+    "Hostnames are checked against an allowlist OR resolved IPs are checked against private ranges",
+    "HttpClient.AllowAutoRedirect is disabled, or redirect targets are re-validated",
+    "Metadata endpoints (169.254.169.254, metadata.google.internal, etc.) are explicitly blocked"
+  ],
+
+  "references": [
+    {"title": "CWE-918: Server-Side Request Forgery", "url": "https://cwe.mitre.org/data/definitions/918.html"},
+    {"title": "OWASP SSRF Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"},
+    {"title": "OWASP Top 10 A10:2021 SSRF", "url": "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"}
+  ]
+}

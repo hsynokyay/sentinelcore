@@ -1,0 +1,60 @@
+{
+  "language": "java",
+  "framework": "jdk-fileio",
+  "models": [
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.io.FileInputStream",
+      "method": "<init>",
+      "vuln_class": "path_traversal",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.io.FileOutputStream",
+      "method": "<init>",
+      "vuln_class": "path_traversal",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.io.FileReader",
+      "method": "<init>",
+      "vuln_class": "path_traversal",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.io.FileWriter",
+      "method": "<init>",
+      "vuln_class": "path_traversal",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.nio.file.Paths",
+      "method": "get",
+      "vuln_class": "path_traversal",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.nio.file.Path",
+      "method": "resolve",
+      "vuln_class": "path_traversal",
+      "arg_index": 0
+    },
+    {
+      "kind": "sanitizer",
+      "receiver_fqn": "java.nio.file.Path",
+      "method": "normalize",
+      "for_classes": ["path_traversal"]
+    },
+    {
+      "kind": "sanitizer",
+      "receiver_fqn": "java.io.File",
+      "method": "getCanonicalPath",
+      "for_classes": ["path_traversal"]
+    }
+  ]
+}

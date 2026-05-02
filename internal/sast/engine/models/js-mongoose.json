@@ -1,0 +1,14 @@
+{
+  "language": "javascript",
+  "framework": "js-mongoose",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "mongoose.Model", "method": "find", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "mongoose.Model", "method": "findOne", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "mongoose.Model", "method": "where", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "mongoose.Query", "method": "where", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "Model", "method": "find", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "Model", "method": "findOne", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "collection", "method": "find", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "collection", "method": "findOne", "vuln_class": "nosql_injection"}
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-CMD-001",
+  "version": "1.0.0",
+  "title": "Remediate Python Command Injection",
+  "summary": "User-controlled input flows into os.system(), os.popen(), or subprocess functions, allowing arbitrary command execution. Replace with subprocess using shell=False and pass arguments as a list to prevent shell interpretation of user input.",
+  "why_it_matters": "Command injection is one of the most severe vulnerability classes. A successful exploit gives the attacker the ability to execute arbitrary operating system commands with the privileges of the application process. This can lead to full server compromise, data theft, lateral movement within the network, and deployment of persistent backdoors. Real-world incidents involving command injection have resulted in massive data breaches and ransomware deployments.",
+  "how_to_fix": "1. Replace os.system() and os.popen() with subprocess.run().\n2. Always set shell=False (the default) and pass the command and arguments as a list.\n3. Never construct command strings by concatenating user input.\n4. Validate user input against an allowlist of expected values when possible.\n5. If shell features are absolutely required, use shlex.quote() to escape arguments.",
+  "unsafe_example": "from flask import request\nimport os\n\ndef ping_host():\n    user_input = request.args.get(\"host\")\n    # VULNERABLE: user input passed directly to os.system\n    os.system(\"ping \" + user_input)",
+  "safe_example": "from flask import request\nimport subprocess\n\ndef ping_host():\n    host = request.args.get(\"host\")\n    # SAFE: subprocess with explicit argument list, no shell\n    subprocess.run([\"ping\", host], shell=False)",
+  "developer_notes": "The key distinction is between shell=True (dangerous) and shell=False (safe). With shell=False, Python invokes the executable directly without a shell interpreter, so metacharacters like ;, |, &&, and backticks have no special meaning. If you must pass dynamic values, always use a list form: subprocess.run([\"cmd\", arg1, arg2]). Audit existing code for os.system(), os.popen(), and subprocess calls with shell=True.",
+  "verification_checklist": [
+    "Confirm no calls to os.system() or os.popen() remain in the codebase",
+    "Verify all subprocess calls use shell=False (or omit the shell parameter, since False is the default)",
+    "Ensure command arguments are passed as a list, not a single string",
+    "Validate that user input is checked against an allowlist before use in commands",
+    "Run the SAST scanner to confirm SC-PY-CMD-001 no longer triggers"
+  ],
+  "references": [
+    {"title": "CWE-78: Improper Neutralization of Special Elements used in an OS Command", "url": "https://cwe.mitre.org/data/definitions/78.html"},
+    {"title": "OWASP Command Injection", "url": "https://owasp.org/www-community/attacks/Command_Injection"},
+    {"title": "Python subprocess documentation", "url": "https://docs.python.org/3/library/subprocess.html"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"}
+  ]
+}

@@ -138,7 +138,7 @@ func (h *Handlers) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	var u userResponse
 	var createdAt time.Time
 	err := h.pool.QueryRow(r.Context(),
-		`SELECT id, email, full_name, role, org_id, status, created_at FROM core.users WHERE id = $1`,
+		`SELECT id, email, display_name, role, org_id, status, created_at FROM core.users WHERE id = $1`,
 		user.UserID,
 	).Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.OrgID, &u.Status, &createdAt)
 	if err != nil {

@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-XXE-001",
+  "name": "XXE via libxmljs / xml2js with external entities",
+  "language": "javascript",
+  "cwe": ["CWE-611"],
+  "owasp": ["A05:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.70 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "libxmljs",
+        "callee": "parseXmlString",
+        "arg_index": 1,
+        "arg_matches_any": ["noent\\s*:\\s*true", "noEnt\\s*:\\s*true"],
+        "message_template": "libxmljs.parseXmlString with noent:true resolves external entities"
+      },
+      {
+        "receiver_fqn": "libxmljs2",
+        "callee": "parseXml",
+        "arg_index": 1,
+        "arg_matches_any": ["noent\\s*:\\s*true"],
+        "message_template": "libxmljs2 parseXml with noent:true is XXE-vulnerable"
+      }
+    ]
+  },
+  "description": "libxmljs / libxmljs2 expand external entities when the option noent:true is passed. Default behavior is safe; the unsafe option must be explicitly enabled.",
+  "remediation": "Remove the noent option, or use a safer parser (fast-xml-parser).",
+  "references": ["https://cwe.mitre.org/data/definitions/611.html"]
+}

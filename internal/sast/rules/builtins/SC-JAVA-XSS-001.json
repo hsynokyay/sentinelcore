@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-JAVA-XSS-001",
+  "name": "Reflected XSS via servlet PrintWriter",
+  "language": "java",
+  "cwe": ["CWE-79"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.75 },
+  "detection": { "kind": "taint", "vuln_class": "xss" },
+  "description": "User input is written directly to a servlet's PrintWriter without HTML encoding, reflecting attacker-controlled markup back to the browser.",
+  "remediation": "Use a templating engine with autoescape, or call OWASP encoder Encode.forHtml on every untrusted value.",
+  "references": ["https://cwe.mitre.org/data/definitions/79.html"]
+}

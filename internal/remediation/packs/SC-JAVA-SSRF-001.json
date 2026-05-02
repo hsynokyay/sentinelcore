@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JAVA-SSRF-001",
+  "title": "Server-Side Request Forgery (SSRF) in Java",
+  "summary": "User-controlled input is passed directly to a URL or HTTP request constructor, enabling server-side request forgery.",
+  "why_it_matters": "SSRF allows attackers to make the server issue requests to internal services, cloud metadata endpoints (169.254.169.254), or other hosts behind the firewall. This can lead to internal network reconnaissance, exfiltration of cloud credentials (e.g., AWS IAM role tokens from the metadata service), port scanning of internal infrastructure, and access to internal APIs that are not exposed to the internet.",
+  "how_to_fix": "Validate all user-supplied URLs against a strict allowlist of permitted hostnames and schemes (e.g., only https:// to approved domains).\nBlock requests to private and reserved IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16).\nResolve the hostname and validate the resolved IP address before making the request to prevent DNS rebinding attacks.\nUse a dedicated egress proxy that enforces URL allowlists at the network level.\nDisable HTTP redirects or re-validate the target after each redirect.",
+  "unsafe_example": "String target = request.getParameter(\"url\");\nURL url = new URL(target);\nInputStream in = url.openStream();",
+  "safe_example": "private static final Set<String> ALLOWED_HOSTS = Set.of(\"api.example.com\", \"cdn.example.com\");\n\nString target = request.getParameter(\"url\");\nURL url = new URL(target);\nif (!ALLOWED_HOSTS.contains(url.getHost())) {\n    throw new SecurityException(\"Host not allowed: \" + url.getHost());\n}\nInetAddress addr = InetAddress.getByName(url.getHost());\nif (addr.isSiteLocalAddress() || addr.isLoopbackAddress() || addr.isLinkLocalAddress()) {\n    throw new SecurityException(\"Requests to private IPs are blocked\");\n}\nInputStream in = url.openStream();",
+  "developer_notes": "Pay special attention to the cloud metadata IP 169.254.169.254. Attackers frequently target this endpoint to steal cloud IAM credentials. Always resolve DNS and check the resulting IP before opening a connection. Be aware that DNS rebinding attacks can bypass hostname-only checks by returning a public IP first, then switching to a private IP on subsequent lookups.",
+  "verification_checklist": [
+    "Confirm that all user-supplied URLs are validated against a hostname allowlist before use.",
+    "Verify that requests to private and reserved IP ranges (RFC 1918, loopback, link-local) are blocked.",
+    "Check that DNS resolution is performed and the resolved IP is validated before the connection is opened.",
+    "Ensure HTTP redirects are either disabled or re-validated at each hop.",
+    "Test with payloads targeting http://169.254.169.254/latest/meta-data/ to confirm metadata access is blocked."
+  ],
+  "references": [
+    {
+      "title": "CWE-918: Server-Side Request Forgery",
+      "url": "https://cwe.mitre.org/data/definitions/918.html"
+    },
+    {
+      "title": "OWASP SSRF Prevention Cheat Sheet",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+    },
+    {
+      "title": "OWASP Top 10 - A10:2021 Server-Side Request Forgery",
+      "url": "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"
+    }
+  ]
+}

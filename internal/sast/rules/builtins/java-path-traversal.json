@@ -1,0 +1,26 @@
+{
+  "rule_id": "SC-JAVA-PATH-001",
+  "name": "Path Traversal via unsanitized input to file system API",
+  "language": "java",
+  "cwe": ["CWE-22"],
+  "owasp": ["A01:2021"],
+  "severity": "high",
+  "description": "User-controlled input from HTTP request parameters flows into a file system path constructor or resolution API without normalization or containment validation. An attacker can use directory traversal sequences (../) to read, overwrite, or delete files outside the intended directory.",
+  "remediation": "Normalize the user-supplied path component with Path.normalize() or File.getCanonicalPath(), then verify the resolved absolute path starts with the intended base directory. Reject any input that contains '..' after normalization. Never use raw user input as a file path directly.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/22.html",
+    "https://owasp.org/Top10/A01_2021-Broken_Access_Control/",
+    "https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html"
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "path_traversal"
+  },
+  "confidence": {
+    "base": 0.80
+  },
+  "examples": {
+    "vulnerable": "String filename = request.getParameter(\"file\");\nnew FileInputStream(filename);",
+    "fixed": "String filename = request.getParameter(\"file\");\nPath resolved = baseDir.resolve(filename).normalize();\nif (!resolved.startsWith(baseDir)) throw new SecurityException(\"path traversal\");\nnew FileInputStream(resolved.toFile());"
+  }
+}

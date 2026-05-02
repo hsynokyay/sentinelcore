@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-CSHARP-SSTI-001",
+  "name": "Server-side template injection via RazorEngine",
+  "language": "csharp",
+  "cwe": ["CWE-1336"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.80 },
+  "detection": { "kind": "taint", "vuln_class": "ssti" },
+  "description": "RazorEngine.Compile is invoked on a string containing user input. Razor templates compile to C# and execute server-side, so attacker-controlled template source results in remote code execution.",
+  "remediation": "Compile Razor templates from disk only; never compose template strings from request input.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/1336.html"
+  ]
+}

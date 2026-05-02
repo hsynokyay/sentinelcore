@@ -1,0 +1,14 @@
+{
+  "language": "csharp",
+  "framework": "dotnet-sql",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "System.Data.SqlClient.SqlCommand", "method": "<init>", "vuln_class": "sql_injection", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "Microsoft.Data.SqlClient.SqlCommand", "method": "<init>", "vuln_class": "sql_injection", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.Data.SqlClient.SqlCommand", "method": "ExecuteReader", "vuln_class": "sql_injection"},
+    {"kind": "sink", "receiver_fqn": "System.Data.SqlClient.SqlCommand", "method": "ExecuteNonQuery", "vuln_class": "sql_injection"},
+    {"kind": "sink", "receiver_fqn": "System.Data.SqlClient.SqlCommand", "method": "ExecuteScalar", "vuln_class": "sql_injection"},
+    {"kind": "sanitizer", "receiver_fqn": "System.Data.SqlClient.SqlParameterCollection", "method": "AddWithValue", "for_classes": ["sql_injection"]},
+    {"kind": "sanitizer", "receiver_fqn": "System.Data.SqlClient.SqlParameterCollection", "method": "Add", "for_classes": ["sql_injection"]},
+    {"kind": "sanitizer", "receiver_fqn": "", "method": "AddWithValue", "for_classes": ["sql_injection"]}
+  ]
+}

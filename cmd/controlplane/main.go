@@ -7,6 +7,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/redis/go-redis/v9"
 
@@ -21,7 +23,10 @@ import (
 
 func main() {
 	logger := observability.NewLogger("controlplane")
-	ctx := context.Background()
+
+	// Graceful shutdown: context cancelled on SIGINT/SIGTERM.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Database
 	dbCfg := db.Config{
@@ -87,7 +92,7 @@ func main() {
 		MetricsPort: envOrDefault("METRICS_PORT", "9090"),
 	}
 
-	server := controlplane.NewServer(serverCfg, logger, pool, jwtMgr, sessions, emitter, limiter, js)
+	server := controlplane.NewServer(serverCfg, logger, pool, jwtMgr, sessions, emitter, limiter, js, nc, redisClient)
 
 	logger.Info().Str("port", serverCfg.Port).Msg("starting control plane server")
 	if err := server.Start(ctx); err != nil {

@@ -1,0 +1,39 @@
+{
+  "language": "java",
+  "framework": "jdbc",
+  "models": [
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.sql.Statement",
+      "method": "executeQuery",
+      "vuln_class": "sql_injection",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.sql.Statement",
+      "method": "execute",
+      "vuln_class": "sql_injection",
+      "arg_index": 0
+    },
+    {
+      "kind": "sink",
+      "receiver_fqn": "java.sql.Statement",
+      "method": "executeUpdate",
+      "vuln_class": "sql_injection",
+      "arg_index": 0
+    },
+    {
+      "kind": "sanitizer",
+      "receiver_fqn": "java.sql.PreparedStatement",
+      "method": "setString",
+      "for_classes": ["sql_injection"]
+    },
+    {
+      "kind": "sanitizer",
+      "receiver_fqn": "java.sql.PreparedStatement",
+      "method": "setInt",
+      "for_classes": ["sql_injection"]
+    }
+  ]
+}

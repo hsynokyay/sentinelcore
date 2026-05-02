@@ -1,0 +1,14 @@
+{
+  "language": "python",
+  "framework": "python-mongo",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "pymongo.collection.Collection", "method": "find", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "pymongo.collection.Collection", "method": "find_one", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "pymongo.collection.Collection", "method": "update_one", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "pymongo.collection.Collection", "method": "delete_one", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "Collection", "method": "find", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "Collection", "method": "find_one", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "collection", "method": "find", "vuln_class": "nosql_injection"},
+    {"kind": "sink", "receiver_fqn": "collection", "method": "find_one", "vuln_class": "nosql_injection"}
+  ]
+}

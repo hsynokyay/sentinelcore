@@ -1,0 +1,16 @@
+{
+  "rule_id": "SC-PY-SSTI-001",
+  "name": "Server-side template injection via render_template_string",
+  "language": "python",
+  "cwe": ["CWE-1336"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": { "kind": "taint", "vuln_class": "ssti" },
+  "description": "User input flows into a Jinja2 template string at render time, allowing attackers to inject template syntax that executes server-side. Common vector for remote code execution in Flask apps.",
+  "remediation": "Use render_template with a fixed template file and pass user data as context variables. Never concatenate user input into the template source.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/1336.html",
+    "https://owasp.org/Top10/A03_2021-Injection/"
+  ]
+}

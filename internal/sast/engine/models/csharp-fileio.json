@@ -1,0 +1,18 @@
+{
+  "language": "csharp",
+  "framework": "dotnet-fileio",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "ReadAllText", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "ReadAllBytes", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "ReadAllLines", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "WriteAllText", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "WriteAllBytes", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "Open", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "OpenRead", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "OpenWrite", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.File", "method": "Delete", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.FileStream", "method": "<init>", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "System.IO.StreamReader", "method": "<init>", "vuln_class": "path_traversal", "arg_index": 0},
+    {"kind": "sanitizer", "receiver_fqn": "System.IO.Path", "method": "GetFileName", "for_classes": ["path_traversal"]}
+  ]
+}

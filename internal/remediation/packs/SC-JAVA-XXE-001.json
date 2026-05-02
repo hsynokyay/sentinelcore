@@ -1,0 +1,29 @@
+{
+  "rule_id": "SC-JAVA-XXE-001",
+  "version": "1.0.0",
+  "title": "XML External Entity (XXE) Processing in Java",
+  "summary": "DocumentBuilderFactory is instantiated without disabling external entity resolution. When the application parses attacker-controlled XML, the parser may resolve external entities, allowing the attacker to read arbitrary files from the server, perform server-side request forgery (SSRF), or trigger denial of service through recursive entity expansion (Billion Laughs attack).",
+
+  "why_it_matters": "XXE vulnerabilities are part of the OWASP Top 10 (A05:2021 Security Misconfiguration) and have been exploited in high-profile breaches. Java's default XML parser configuration enables external entity processing, which means every DocumentBuilderFactory.newInstance() call is potentially vulnerable unless explicitly hardened. XXE can exfiltrate sensitive files such as /etc/passwd, application.properties, or cloud credentials from metadata endpoints. In containerized environments, XXE-to-SSRF can access the cloud instance metadata service at 169.254.169.254 to steal IAM role credentials.",
+
+  "how_to_fix": "Disable DTDs and external entities on every XML parser instance before parsing any input.\n\n1. Call factory.setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true) to completely block DTD processing. This is the strongest protection and is recommended for most use cases.\n2. If DTDs are required for validation, disable external entities separately: set http://xml.org/sax/features/external-general-entities to false and http://xml.org/sax/features/external-parameter-entities to false.\n3. Set factory.setExpandEntityReferences(false) as an additional layer.\n4. Apply the same hardening to SAXParserFactory, XMLInputFactory (StAX), TransformerFactory, and SchemaFactory if used.\n5. Centralize parser creation in a factory method that enforces secure defaults, so individual call sites cannot forget to set features.",
+
+  "unsafe_example": "// UNSAFE: default DocumentBuilderFactory allows external entities\nDocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();\nDocumentBuilder db = dbf.newDocumentBuilder();\nDocument doc = db.parse(request.getInputStream()); // XXE possible",
+
+  "safe_example": "// SAFE: DTDs and external entities explicitly disabled\nDocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();\ndbf.setFeature(\"http://apache.org/xml/features/disallow-doctype-decl\", true);\ndbf.setFeature(\"http://xml.org/sax/features/external-general-entities\", false);\ndbf.setFeature(\"http://xml.org/sax/features/external-parameter-entities\", false);\ndbf.setExpandEntityReferences(false);\nDocumentBuilder db = dbf.newDocumentBuilder();\nDocument doc = db.parse(request.getInputStream());",
+
+  "developer_notes": "This rule uses a heuristic that flags every DocumentBuilderFactory.newInstance() call because statically verifying that setFeature() is called correctly on the same instance before parse() is used requires inter-procedural analysis that the current engine does not yet support. If your code already sets the recommended features, mark the finding as a false positive with a justification comment. Remember that SAXParser, StAX XMLInputFactory, and TransformerFactory all have similar default-unsafe configurations and need equivalent hardening.",
+
+  "verification_checklist": [
+    "DocumentBuilderFactory instances have disallow-doctype-decl set to true or both external entity features set to false",
+    "SAXParserFactory, XMLInputFactory, and TransformerFactory instances are similarly hardened",
+    "Parser creation is centralized in a factory method with secure defaults",
+    "Integration tests verify that XML payloads containing external entity references are rejected"
+  ],
+
+  "references": [
+    {"title": "CWE-611: Improper Restriction of XML External Entity Reference", "url": "https://cwe.mitre.org/data/definitions/611.html"},
+    {"title": "OWASP Top 10 A05:2021 Security Misconfiguration", "url": "https://owasp.org/Top10/A05_2021-Security_Misconfiguration/"},
+    {"title": "OWASP XXE Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html"}
+  ]
+}

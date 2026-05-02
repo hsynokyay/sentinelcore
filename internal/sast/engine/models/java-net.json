@@ -1,0 +1,10 @@
+{
+  "language": "java",
+  "framework": "jdk-net",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "java.net.URL", "method": "<init>", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "java.net.URI", "method": "create", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "org.apache.http.client.methods.HttpGet", "method": "<init>", "vuln_class": "ssrf", "arg_index": 0},
+    {"kind": "sink", "receiver_fqn": "org.apache.http.client.methods.HttpPost", "method": "<init>", "vuln_class": "ssrf", "arg_index": 0}
+  ]
+}

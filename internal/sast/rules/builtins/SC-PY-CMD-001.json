@@ -1,0 +1,21 @@
+{
+  "rule_id": "SC-PY-CMD-001",
+  "name": "Command Injection via os.system or subprocess",
+  "language": "python",
+  "cwe": ["CWE-78"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "confidence": {
+    "base": 0.85
+  },
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "command_injection"
+  },
+  "description": "User input flows into OS command execution.",
+  "remediation": "Use subprocess with explicit argument lists instead of shell strings.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/78.html",
+    "https://owasp.org/Top10/A03_2021-Injection/"
+  ]
+}

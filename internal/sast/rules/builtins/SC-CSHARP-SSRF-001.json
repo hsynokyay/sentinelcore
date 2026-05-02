@@ -1,0 +1,26 @@
+{
+  "rule_id": "SC-CSHARP-SSRF-001",
+  "name": "Server-Side Request Forgery via HttpClient / WebRequest",
+  "language": "csharp",
+  "cwe": ["CWE-918"],
+  "owasp": ["A10:2021"],
+  "severity": "high",
+  "description": "User-controlled input flows into an outbound HTTP API (HttpClient.GetAsync, WebRequest.Create, WebClient.DownloadString, ...) without validation. An attacker can force the server to make requests to internal services, cloud metadata endpoints (169.254.169.254), or arbitrary external hosts.",
+  "remediation": "Validate the target URL against a strict allowlist of permitted hosts before use. Parse with new Uri(...) and check the Host property. Reject private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, localhost) unless explicitly required. Never trust URLs from request parameters.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/918.html",
+    "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/",
+    "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "ssrf"
+  },
+  "confidence": {
+    "base": 0.80
+  },
+  "examples": {
+    "vulnerable": "string url = Request.Query[\"url\"];\nvar res = await httpClient.GetAsync(url);",
+    "fixed": "string url = Request.Query[\"url\"];\nvar uri = new Uri(url);\nif (!AllowedHosts.Contains(uri.Host)) throw new SecurityException();\nvar res = await httpClient.GetAsync(uri);"
+  }
+}

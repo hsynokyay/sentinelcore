@@ -1,0 +1,21 @@
+{
+  "rule_id": "SC-JS-SSRF-001",
+  "name": "Server-Side Request Forgery via unsanitized HTTP request URL",
+  "language": "javascript",
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "ssrf"
+  },
+  "severity": "high",
+  "confidence": {
+    "base": 0.75
+  },
+  "cwe": [
+    "CWE-918"
+  ],
+  "owasp": [
+    "A10:2021"
+  ],
+  "description": "User-controlled input flows into an HTTP request URL, allowing server-side request forgery.",
+  "remediation": "Validate URLs against a strict allowlist."
+}

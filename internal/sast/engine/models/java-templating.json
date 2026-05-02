@@ -1,0 +1,10 @@
+{
+  "language": "java",
+  "framework": "java-templating",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "org.apache.velocity.app.VelocityEngine", "method": "evaluate", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "org.apache.velocity.app.Velocity", "method": "evaluate", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "org.thymeleaf.TemplateEngine", "method": "process", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "freemarker.template.Template", "method": "process", "vuln_class": "ssti"}
+  ]
+}

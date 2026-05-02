@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-DAST-CSRF-001",
+  "version": "1.0.0",
+  "title": "Missing CSRF protection on state-changing form",
+  "summary": "A form that submits state-changing requests (POST, PUT, DELETE) was observed without a CSRF token or equivalent anti-forgery mechanism. Without CSRF protection, an attacker can craft a malicious page that silently submits requests on behalf of an authenticated user, potentially changing account settings, transferring funds, or modifying data.",
+
+  "why_it_matters": "Cross-Site Request Forgery (CSRF) exploits the trust a web application places in the user's browser. Because browsers automatically attach cookies (including session cookies) to every request to a given origin, an attacker-controlled page can trigger state-changing actions without the user's knowledge. CSRF consistently appears in the OWASP Top 10 (A01:2021 Broken Access Control) and has been used in real-world attacks against banking, email, and social media platforms.",
+
+  "how_to_fix": "Implement one or more of the following CSRF defense mechanisms:\n\n1. **Synchronizer Token Pattern** — Generate a unique, unpredictable token per session (or per request). Embed the token in a hidden form field and validate it server-side on every state-changing request.\n2. **Double-Submit Cookie** — Set a random value in a cookie and require the same value to be submitted as a request parameter or custom header. The server verifies that both values match.\n3. **Framework-native CSRF protection** — Most modern frameworks include built-in CSRF support:\n   - Spring Security: enable CsrfFilter (enabled by default), use `<input type=\"hidden\" name=\"${_csrf.parameterName}\" value=\"${_csrf.token}\"/>`\n   - Django: use `{% csrf_token %}` template tag and ensure CsrfViewMiddleware is active\n   - Express: use the `csurf` middleware (or `csrf-csrf` for double-submit cookie pattern)\n   - Rails: `protect_from_forgery with: :exception` (enabled by default)\n4. **SameSite cookies** — Set `SameSite=Strict` or `SameSite=Lax` on session cookies as a defense-in-depth measure. Note: SameSite alone is not a complete CSRF defense on older browsers.\n5. **Custom request headers** — For AJAX-only endpoints, require a custom header (e.g., `X-Requested-With`) that cannot be sent cross-origin without CORS approval.",
+
+  "unsafe_example": "<!-- UNSAFE: form submits a state-changing POST without any CSRF token -->\n<form action=\"/account/settings\" method=\"POST\">\n  <input type=\"text\" name=\"email\" value=\"user@example.com\">\n  <button type=\"submit\">Update Email</button>\n</form>",
+
+  "safe_example": "<!-- SAFE: form includes a hidden CSRF token validated server-side -->\n<form action=\"/account/settings\" method=\"POST\">\n  <input type=\"hidden\" name=\"csrf_token\" value=\"a1b2c3d4e5f6...\">\n  <input type=\"text\" name=\"email\" value=\"user@example.com\">\n  <button type=\"submit\">Update Email</button>\n</form>\n\n<!-- Server-side validation (Express + csurf example) -->\n// const csrf = require('csurf');\n// app.use(csrf({ cookie: true }));\n// In route handler: if token is missing or invalid, csurf returns 403 automatically.",
+
+  "developer_notes": "If your application is a single-page app (SPA) that communicates via JSON APIs, you can use the custom header pattern (e.g., X-CSRF-Token) since cross-origin requests cannot set custom headers without CORS preflight approval. For server-rendered forms, the synchronizer token pattern remains the most robust approach. Always verify CSRF tokens on the server side — client-side checks alone provide no protection. When migrating a legacy application, audit all POST/PUT/DELETE endpoints to ensure none are unprotected.",
+
+  "verification_checklist": [
+    "Every state-changing form includes a CSRF token in a hidden field or custom header",
+    "The server validates the CSRF token on every POST, PUT, and DELETE request and rejects requests with missing or invalid tokens",
+    "Session cookies have SameSite=Lax or SameSite=Strict set as a defense-in-depth measure",
+    "AJAX endpoints require a custom header (e.g., X-CSRF-Token) that is validated server-side",
+    "Framework-native CSRF middleware is enabled and has not been globally disabled"
+  ],
+
+  "references": [
+    {"title": "CWE-352: Cross-Site Request Forgery (CSRF)", "url": "https://cwe.mitre.org/data/definitions/352.html"},
+    {"title": "OWASP Cross-Site Request Forgery Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"},
+    {"title": "OWASP Top 10 A01:2021 Broken Access Control", "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/"}
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "rule_id": "SC-CSHARP-DESER-001",
+  "version": "1.0.0",
+  "title": "Unsafe deserialization via BinaryFormatter",
+  "summary": "BinaryFormatter.Deserialize, SoapFormatter.Deserialize, NetDataContractSerializer.Deserialize, or JsonConvert.DeserializeObject with TypeNameHandling is invoked on untrusted input. These APIs instantiate arbitrary types, enabling reliable remote code execution.",
+
+  "why_it_matters": "Unsafe deserialization sinks in .NET are weaponized routinely via public gadget chains (ysoserial.net ships dozens). A single untrusted input point reaching BinaryFormatter.Deserialize is effectively a remote code execution primitive — attackers can construct payloads that spawn shells, exfiltrate data, or pivot across the network. Microsoft marked BinaryFormatter obsolete as of .NET 5 for this exact reason.",
+
+  "how_to_fix": "Replace legacy serializers with safe, strongly-typed alternatives:\n\n1. Prefer System.Text.Json.JsonSerializer for all new code. It is type-safe, fast, and does NOT instantiate arbitrary types.\n2. If you need XML, use DataContractSerializer or XmlSerializer with a fixed known type (pass typeof(MyDto) to the constructor).\n3. If you must use Newtonsoft.Json, ensure TypeNameHandling = TypeNameHandling.None (the default). Never set it to All, Auto, or Objects for untrusted input.\n4. Delete all uses of BinaryFormatter, SoapFormatter, NetDataContractSerializer, LosFormatter, and ObjectStateFormatter — these APIs cannot be used safely on untrusted data.\n5. If you're maintaining legacy code that cannot be rewritten, isolate deserialization in a sandboxed process with restricted permissions and network egress blocked.",
+
+  "unsafe_example": "// UNSAFE: BinaryFormatter is never safe on untrusted input\nvar formatter = new BinaryFormatter();\nobject obj = formatter.Deserialize(Request.Body);\n\n// UNSAFE: TypeNameHandling.All enables type confusion attacks\nvar settings = new JsonSerializerSettings\n{\n    TypeNameHandling = TypeNameHandling.All\n};\nvar obj2 = JsonConvert.DeserializeObject<object>(json, settings);",
+
+  "safe_example": "// SAFE: strongly-typed deserialization via System.Text.Json\nvar dto = JsonSerializer.Deserialize<UserDto>(requestJson);\n\n// SAFE: Newtonsoft.Json with default (safe) type handling\nvar settings = new JsonSerializerSettings\n{\n    TypeNameHandling = TypeNameHandling.None\n};\nvar dto2 = JsonConvert.DeserializeObject<UserDto>(json, settings);",
+
+  "developer_notes": "If you see BinaryFormatter being used to persist objects to disk or cache them in Redis, the fix usually involves defining a DTO class, serializing with System.Text.Json, and storing the JSON string. This is safer and more portable across .NET versions. The tradeoff is that System.Text.Json cannot round-trip arbitrary object graphs the way BinaryFormatter can — this is a feature, not a limitation.",
+
+  "verification_checklist": [
+    "No references to BinaryFormatter, SoapFormatter, NetDataContractSerializer, LosFormatter, or ObjectStateFormatter anywhere in the codebase",
+    "JsonConvert.DeserializeObject calls do not enable TypeNameHandling.All / Auto / Objects",
+    "System.Text.Json.JsonSerializer is used with concrete DTO types, not object or dynamic",
+    "XmlSerializer and DataContractSerializer are constructed with a fixed known type, not a type loaded from user input"
+  ],
+
+  "references": [
+    {"title": "CWE-502: Deserialization of Untrusted Data", "url": "https://cwe.mitre.org/data/definitions/502.html"},
+    {"title": "Microsoft: BinaryFormatter security guide", "url": "https://learn.microsoft.com/en-us/dotnet/standard/serialization/binaryformatter-security-guide"},
+    {"title": "OWASP Deserialization Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html"},
+    {"title": "ysoserial.net", "url": "https://github.com/pwntester/ysoserial.net"}
+  ]
+}

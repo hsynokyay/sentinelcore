@@ -1,0 +1,35 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "architectures": [
+    "SCMP_ARCH_X86_64",
+    "SCMP_ARCH_AARCH64"
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "read", "write", "close", "fstat", "lseek",
+        "mmap", "mprotect", "munmap", "brk",
+        "pread64", "pwrite64",
+        "openat", "readlinkat", "newfstatat",
+        "access", "getpid", "getuid", "getgid",
+        "geteuid", "getegid", "gettid",
+        "futex", "nanosleep", "clock_gettime", "clock_nanosleep",
+        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+        "sigaltstack", "tgkill",
+        "exit", "exit_group",
+        "getrandom",
+        "pipe2", "dup", "dup2", "dup3",
+        "fcntl",
+        "epoll_create1", "epoll_ctl", "epoll_wait",
+        "sched_yield", "sched_getaffinity",
+        "set_robust_list", "get_robust_list",
+        "arch_prctl", "set_tid_address",
+        "madvise", "mincore",
+        "clone3", "rseq",
+        "execve"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ],
+  "_comment": "SAST worker seccomp profile: NO network syscalls (socket, connect, bind are blocked). Allows execve for git clone. Blocks mount, ptrace, and privilege escalation."
+}

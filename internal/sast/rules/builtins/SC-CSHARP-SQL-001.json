@@ -1,0 +1,26 @@
+{
+  "rule_id": "SC-CSHARP-SQL-001",
+  "name": "SQL Injection via SqlCommand with string concatenation",
+  "language": "csharp",
+  "cwe": ["CWE-89"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "description": "User input flows into a SqlCommand constructor or ExecuteReader call as part of a concatenated or interpolated SQL string, without the use of parameterized queries. An attacker can inject arbitrary SQL, reading or modifying database contents.",
+  "remediation": "Always use parameterized queries with SqlParameter or cmd.Parameters.AddWithValue. Never concatenate or interpolate user input directly into SQL strings. Treat $\"SELECT ... {value}\" as unsafe unless `value` is an untainted constant.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/89.html",
+    "https://owasp.org/Top10/A03_2021-Injection/",
+    "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "sql_injection"
+  },
+  "confidence": {
+    "base": 0.85
+  },
+  "examples": {
+    "vulnerable": "string id = Request.Query[\"id\"];\nvar cmd = new SqlCommand(\"SELECT * FROM users WHERE id = \" + id, conn);\ncmd.ExecuteReader();",
+    "fixed": "string id = Request.Query[\"id\"];\nvar cmd = new SqlCommand(\"SELECT * FROM users WHERE id = @id\", conn);\ncmd.Parameters.AddWithValue(\"@id\", id);\ncmd.ExecuteReader();"
+  }
+}

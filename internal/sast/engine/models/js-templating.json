@@ -1,0 +1,12 @@
+{
+  "language": "javascript",
+  "framework": "js-templating",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "handlebars", "method": "compile", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "Handlebars", "method": "compile", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "ejs", "method": "render", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "ejs", "method": "compile", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "pug", "method": "compile", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "pug", "method": "render", "vuln_class": "ssti"}
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-PY-SSRF-002",
+  "version": "1.0.0",
+  "title": "Server-Side Request Forgery via urllib or httpx in Python",
+  "summary": "User-controlled input flows into urllib.request.urlopen(), httpx.get(), or httpx.post() without URL validation. An attacker can manipulate the target URL to make the server send HTTP requests to internal services, cloud metadata endpoints, or other network resources that should not be accessible from the internet, leading to data exfiltration, internal service abuse, or credential theft from cloud IAM roles.",
+
+  "why_it_matters": "SSRF is ranked in the OWASP Top 10 (A10:2021) and has been responsible for some of the largest cloud data breaches. In AWS, GCP, and Azure environments, the instance metadata service at 169.254.169.254 provides temporary credentials that grant access to cloud APIs. Kubernetes clusters expose the kubelet API, service account tokens, and internal DNS discovery. Python web applications that use urllib or httpx to fetch user-specified URLs without validation provide a direct path to these sensitive internal endpoints. The impact can range from reading internal configuration to full cloud account takeover.",
+
+  "how_to_fix": "Validate and restrict all outbound HTTP requests that use user-supplied URLs.\n\n1. Parse the user-supplied URL with urllib.parse.urlparse() and validate that the scheme is http or https.\n2. Resolve the hostname to an IP address using socket.getaddrinfo() before making the request, and reject any IP in private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) or link-local (169.254.0.0/16).\n3. Maintain an allowlist of permitted external hostnames or domains and reject any hostname not in the list.\n4. Create a centralized HTTP client wrapper that enforces these validations so individual endpoints cannot bypass them.\n5. If the application must fetch arbitrary URLs (e.g., webhook delivery), route outbound requests through an egress proxy that enforces network-level restrictions.",
+
+  "unsafe_example": "# UNSAFE: user-controlled URL passed directly to urlopen\nimport urllib.request\nfrom flask import request\n\n@app.route('/fetch')\ndef fetch():\n    url = request.args.get('url')\n    response = urllib.request.urlopen(url)  # SSRF: attacker sets url=http://169.254.169.254/\n    return response.read()",
+
+  "safe_example": "# SAFE: validate URL scheme, resolve hostname, block private IPs\nimport urllib.parse\nimport socket\nimport ipaddress\nimport httpx\nfrom flask import request\n\nBLOCKED_NETWORKS = [\n    ipaddress.ip_network('10.0.0.0/8'),\n    ipaddress.ip_network('172.16.0.0/12'),\n    ipaddress.ip_network('192.168.0.0/16'),\n    ipaddress.ip_network('169.254.0.0/16'),\n    ipaddress.ip_network('127.0.0.0/8'),\n]\n\n@app.route('/fetch')\ndef fetch():\n    url = request.args.get('url')\n    parsed = urllib.parse.urlparse(url)\n    if parsed.scheme not in ('http', 'https'):\n        return 'Invalid scheme', 400\n    addr_info = socket.getaddrinfo(parsed.hostname, parsed.port or 443)\n    ip = ipaddress.ip_address(addr_info[0][4][0])\n    if any(ip in net for net in BLOCKED_NETWORKS):\n        return 'Blocked destination', 403\n    response = httpx.get(url)\n    return response.text",
+
+  "developer_notes": "DNS rebinding attacks can bypass hostname-based validation by returning a public IP during validation and a private IP when the HTTP client makes the actual connection. To mitigate this, resolve the hostname once, check the IP, and make the request using the resolved IP directly (setting the Host header manually). Be aware that urllib follows redirects by default, so even if the initial URL passes validation, a redirect to an internal URL can bypass the check. Use httpx with follow_redirects=False or validate each redirect target. The taint analysis traces data from Flask request sources to HTTP client sinks.",
+
+  "verification_checklist": [
+    "No urllib.request.urlopen(), httpx.get(), or httpx.post() call accepts unvalidated user input as the URL",
+    "URLs are parsed and the scheme is restricted to http/https",
+    "Hostnames are resolved to IP addresses and checked against private, loopback, and link-local ranges",
+    "HTTP client redirects are either disabled or each redirect target is validated",
+    "A centralized HTTP client wrapper enforces URL validation for all outbound requests"
+  ],
+
+  "references": [
+    {"title": "CWE-918: Server-Side Request Forgery (SSRF)", "url": "https://cwe.mitre.org/data/definitions/918.html"},
+    {"title": "OWASP Top 10 A10:2021 Server-Side Request Forgery", "url": "https://owasp.org/Top10/A10_2021-Server-Side_Request_Forgery_%28SSRF%29/"},
+    {"title": "OWASP SSRF Prevention Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"},
+    {"title": "Python urllib documentation", "url": "https://docs.python.org/3/library/urllib.request.html"}
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "rule_id": "SC-JAVA-CRYPTO-001",
+  "version": "1.0.0",
+  "title": "Use of weak or broken cryptographic algorithm",
+  "summary": "This code uses a cryptographic algorithm or mode that is known to be broken or insufficient by modern standards. DES, 3DES, RC2, RC4, Blowfish, and ECB mode no longer provide meaningful confidentiality. MD2, MD4, MD5, and SHA-1 are collision-vulnerable and unsuitable for security contexts.",
+
+  "why_it_matters": "Weak cryptographic algorithms can be broken with readily available tools and modest compute. DES can be brute-forced in hours. MD5 collisions can be generated in seconds. ECB mode leaks plaintext structure. Using these algorithms in production means encrypted data is effectively unprotected, hashed passwords can be reversed, and digital signatures can be forged. Regulatory frameworks (PCI DSS, HIPAA, SOC 2) explicitly require modern algorithm choices.",
+
+  "how_to_fix": "Replace the deprecated algorithm with a modern alternative:\n\n**Symmetric encryption:**\n- Replace DES, 3DES, RC2, RC4, Blowfish → AES-256\n- Replace ECB mode → GCM mode (authenticated encryption) or CBC with HMAC\n- Use a random, unique IV per encryption operation\n- Prefer AES/GCM/NoPadding for authenticated encryption\n\n**Hashing:**\n- Replace MD5, SHA-1 → SHA-256 or SHA-512\n- For password storage: use Argon2, bcrypt, or scrypt — never raw SHA\n\n**Key management:**\n- Use 256-bit keys for AES\n- Generate keys with SecureRandom, never with predictable seeds\n- Store keys in a KMS or HSM, not in source code",
+
+  "unsafe_example": "// UNSAFE: DES is a broken 56-bit cipher\nCipher c = Cipher.getInstance(\"DES\");\n\n// UNSAFE: MD5 has known collision attacks\nMessageDigest md = MessageDigest.getInstance(\"MD5\");\n\n// UNSAFE: ECB mode leaks plaintext structure\nCipher c = Cipher.getInstance(\"AES/ECB/PKCS5Padding\");",
+
+  "safe_example": "// SAFE: AES-256 with GCM authenticated encryption\nCipher c = Cipher.getInstance(\"AES/GCM/NoPadding\");\nSecretKeySpec key = new SecretKeySpec(keyBytes, \"AES\");\nbyte[] iv = new byte[12];\nSecureRandom.getInstanceStrong().nextBytes(iv);\nc.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));\n\n// SAFE: SHA-256 for integrity hashing\nMessageDigest md = MessageDigest.getInstance(\"SHA-256\");",
+
+  "developer_notes": "If you're encrypting data at rest, consider using a high-level library like Google Tink or AWS Encryption SDK rather than raw JCA. These libraries enforce safe defaults (authenticated encryption, proper IV management, key rotation) and are harder to misuse. For password hashing, never use MessageDigest — use BCrypt (via Spring Security's BCryptPasswordEncoder) or Argon2.",
+
+  "verification_checklist": [
+    "All Cipher.getInstance calls use AES/GCM/NoPadding or AES/CBC/PKCS5Padding (never DES/3DES/RC4/ECB)",
+    "All MessageDigest.getInstance calls use SHA-256 or stronger (never MD5/SHA-1)",
+    "IV/nonce is random and unique per encryption operation",
+    "Key length is 256 bits for AES",
+    "Password hashing uses bcrypt, scrypt, or Argon2 — not raw SHA"
+  ],
+
+  "references": [
+    {"title": "CWE-327: Use of a Broken or Risky Cryptographic Algorithm", "url": "https://cwe.mitre.org/data/definitions/327.html"},
+    {"title": "CWE-328: Use of Weak Hash", "url": "https://cwe.mitre.org/data/definitions/328.html"},
+    {"title": "OWASP Top 10 A02:2021 Cryptographic Failures", "url": "https://owasp.org/Top10/A02_2021-Cryptographic_Failures/"},
+    {"title": "OWASP Cryptographic Storage Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html"},
+    {"title": "OWASP Password Storage Cheat Sheet", "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"}
+  ]
+}

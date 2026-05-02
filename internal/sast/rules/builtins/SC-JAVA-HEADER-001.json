@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-JAVA-HEADER-001",
+  "name": "HTTP response header injection in servlet",
+  "language": "java",
+  "cwe": ["CWE-113"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.70 },
+  "detection": { "kind": "taint", "vuln_class": "http_header_injection" },
+  "description": "Servlet HttpServletResponse.addHeader / setHeader receives an unsanitized request value, enabling HTTP response splitting.",
+  "remediation": "Strip CR/LF from header values before adding them.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/113.html"
+  ]
+}
