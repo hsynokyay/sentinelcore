@@ -68,12 +68,6 @@ export default function FindingDetailPage({
                   <dt className="text-muted-foreground shrink-0">Reported</dt>
                   <dd className="tabular-nums">{formatDate(f.created_at)}</dd>
                 </div>
-                {f.cwe_id && (
-                  <div className="flex items-center justify-between gap-2">
-                    <dt className="text-muted-foreground shrink-0">CWE</dt>
-                    <dd className="font-mono text-mono">CWE-{f.cwe_id}</dd>
-                  </div>
-                )}
                 {f.rule_id && (
                   <div className="flex items-start justify-between gap-2">
                     <dt className="text-muted-foreground shrink-0">Rule</dt>
