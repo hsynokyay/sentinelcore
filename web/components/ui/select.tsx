@@ -58,17 +58,22 @@ function SelectContent({
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Popup>) {
+  // Base UI Select requires Select.List around items — the popup looks up
+  // a `listElement` from the store to wire keyboard navigation and item
+  // selection. Without it, the popup never opens (or opens and immediately
+  // closes because no items are registered). Symptom in production:
+  // "cannot select project, cannot select scan type".
   return (
     <SelectPrimitive.Portal>
-      <SelectPrimitive.Positioner>
+      <SelectPrimitive.Positioner sideOffset={4}>
         <SelectPrimitive.Popup
           className={cn(
-            "z-50 min-w-[var(--anchor-width)] overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-md data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity",
+            "z-50 min-w-[var(--anchor-width)] overflow-hidden rounded-lg border border-border bg-surface-2 p-1 text-popover-foreground shadow-xl data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity",
             className
           )}
           {...props}
         >
-          {children}
+          <SelectPrimitive.List>{children}</SelectPrimitive.List>
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>
     </SelectPrimitive.Portal>
