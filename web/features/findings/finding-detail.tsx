@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Globe, FileCode, Hash } from "lucide-react";
 import { SeverityBadge } from "@/components/badges/severity-badge";
 import { StatusBadge } from "@/components/badges/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -8,9 +9,12 @@ import { Button } from "@/components/ui/button";
 import { useTriageFinding } from "./hooks";
 import { AnalysisTrace } from "./analysis-trace";
 import { RemediationPanel } from "./remediation-panel";
-import { DeveloperHandoff } from "./developer-handoff";
 import { ExportFindingButton } from "@/features/export/export-finding-button";
 import { ExportFindingSarifButton } from "@/features/export/export-sarif-buttons";
+import { CVSSPanel } from "./cvss-panel";
+import { ClassificationPanel, TagList } from "./classification-panel";
+import { MarkdownDescription } from "./markdown-description";
+import { EvidenceViewer } from "./evidence-viewer";
 import type { Finding } from "@/lib/types";
 
 const triageStatuses = [
@@ -37,15 +41,13 @@ export function FindingDetail({ finding }: FindingDetailProps) {
     triage.mutate({ id: finding.id, status: selectedStatus, reason });
   };
 
-  const location = finding.file_path
-    ? `${finding.file_path}${finding.line_number ? `:${finding.line_number}` : ""}`
-    : finding.url
-      ? `${finding.method || "GET"} ${finding.url}${finding.parameter ? ` (param: ${finding.parameter})` : ""}`
-      : "Unknown";
+  const httpMethod = finding.http_method || finding.method;
+  const isDast = finding.finding_type === "dast" || !!finding.url;
+  const hasCvss = typeof finding.cvss_score === "number" && finding.cvss_score > 0;
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
+    <div className="space-y-6">
+      {/* ------- Header ------- */}
       <div>
         <h2 className="text-xl font-semibold tracking-tight mb-3">{finding.title}</h2>
         <div className="flex items-center gap-2 flex-wrap">
@@ -61,47 +63,71 @@ export function FindingDetail({ finding }: FindingDetailProps) {
         </div>
       </div>
 
-      {/* Description */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Description</h3>
-        <p className="text-sm text-foreground leading-relaxed">
-          {finding.description || "No description available."}
-        </p>
+      {/* ------- CVSS + Classification side by side ------- */}
+      <div className={`grid gap-4 ${hasCvss ? "lg:grid-cols-[minmax(0,300px)_1fr]" : "grid-cols-1"}`}>
+        {hasCvss && (
+          <CVSSPanel score={finding.cvss_score!} vector={finding.cvss_vector} />
+        )}
+        <ClassificationPanel
+          cweId={finding.cwe_id}
+          owaspCategory={finding.owasp_category}
+          riskScore={finding.risk_score}
+          confidence={finding.confidence}
+          ruleId={finding.rule_id}
+        />
+      </div>
+
+      {/* ------- Location ------- */}
+      <LocationPanel
+        isDast={isDast}
+        url={finding.url}
+        method={httpMethod}
+        parameter={finding.parameter}
+        filePath={finding.file_path}
+        lineNumber={finding.line_number}
+      />
+
+      {/* ------- Tags ------- */}
+      {finding.tags && finding.tags.length > 0 && <TagList tags={finding.tags} />}
+
+      {/* ------- Description (markdown sections) ------- */}
+      <section className="rounded-lg border bg-card p-5 space-y-1">
+        <MarkdownDescription source={finding.description} />
       </section>
 
-      {/* Location */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Location</h3>
-        <code className="text-sm bg-muted px-2 py-1 rounded font-mono">{location}</code>
-      </section>
-
-      {/* Analysis Trace — SAST evidence chain */}
+      {/* ------- SAST taint trace ------- */}
       {finding.taint_paths && finding.taint_paths.length > 0 && (
         <AnalysisTrace steps={finding.taint_paths} />
       )}
 
-      {/* Evidence placeholder for findings without a trace */}
-      {(!finding.taint_paths || finding.taint_paths.length === 0) && (
+      {/* ------- DAST HTTP evidence ------- */}
+      {isDast && (
         <section>
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">Evidence</h3>
-          <div className="border rounded-lg p-4 bg-muted/30">
-            <p className="text-sm text-muted-foreground italic">
-              Evidence details will appear here when the finding has an
-              analysis trace.
-            </p>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-medium text-muted-foreground">
+              HTTP Evidence
+            </h3>
+            {finding.evidence_size !== undefined && (
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                captured · {formatBytes(finding.evidence_size)}
+              </span>
+            )}
           </div>
+          <EvidenceViewer
+            rawJSON={finding.evidence}
+            size={finding.evidence_size}
+            hash={finding.evidence_hash}
+          />
         </section>
       )}
 
-      {/* Remediation guidance */}
-      {finding.remediation && (
-        <RemediationPanel remediation={finding.remediation} />
-      )}
+      {/* ------- Remediation pack (separate from description) ------- */}
+      {finding.remediation && <RemediationPanel remediation={finding.remediation} />}
 
-      {/* Timeline */}
+      {/* ------- Timeline ------- */}
       <section>
         <h3 className="text-sm font-medium text-muted-foreground mb-2">Timeline</h3>
-        <div className="border rounded-lg p-4 bg-muted/30">
+        <div className="rounded-lg border p-4 bg-muted/20">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">Created:</span>
             <span>{new Date(finding.created_at).toLocaleString()}</span>
@@ -109,17 +135,7 @@ export function FindingDetail({ finding }: FindingDetailProps) {
         </div>
       </section>
 
-      {/* Correlation */}
-      <section>
-        <h3 className="text-sm font-medium text-muted-foreground mb-2">Correlation</h3>
-        <div className="border rounded-lg p-4 bg-muted/30">
-          <p className="text-sm text-muted-foreground italic">
-            Related findings and correlations will appear here.
-          </p>
-        </div>
-      </section>
-
-      {/* Triage Actions */}
+      {/* ------- Triage ------- */}
       <section className="border-t pt-6">
         <h3 className="text-sm font-medium text-muted-foreground mb-3">Triage</h3>
         <div className="space-y-3">
@@ -161,4 +177,71 @@ export function FindingDetail({ finding }: FindingDetailProps) {
       </section>
     </div>
   );
+}
+
+interface LocationPanelProps {
+  isDast: boolean;
+  url?: string;
+  method?: string;
+  parameter?: string;
+  filePath?: string;
+  lineNumber?: number;
+}
+
+function LocationPanel({ isDast, url, method, parameter, filePath, lineNumber }: LocationPanelProps) {
+  if (isDast && url) {
+    return (
+      <div className="rounded-lg border bg-card p-4">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
+          <Globe className="h-3 w-3" />
+          Location
+        </h4>
+        <div className="flex items-center gap-2 text-sm font-mono">
+          <span className="px-2 py-0.5 rounded bg-muted text-foreground font-semibold text-xs">
+            {(method || "GET").toUpperCase()}
+          </span>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-primary hover:underline break-all"
+          >
+            {url}
+          </a>
+        </div>
+        {parameter && (
+          <div className="flex items-center gap-2 mt-2.5 text-xs">
+            <span className="text-muted-foreground inline-flex items-center gap-1">
+              <Hash className="h-3 w-3" />
+              Parameter
+            </span>
+            <code className="px-1.5 py-0.5 rounded bg-muted border font-mono">{parameter}</code>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (filePath) {
+    return (
+      <div className="rounded-lg border bg-card p-4">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-1.5">
+          <FileCode className="h-3 w-3" />
+          Location
+        </h4>
+        <code className="text-sm font-mono break-all">
+          {filePath}
+          {lineNumber ? `:${lineNumber}` : ""}
+        </code>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

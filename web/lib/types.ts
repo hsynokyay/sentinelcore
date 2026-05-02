@@ -51,6 +51,7 @@ export interface Finding {
   scan_id: string;
   finding_type: string;
   severity: "critical" | "high" | "medium" | "low" | "info";
+  confidence?: "high" | "medium" | "low";
   status: string;
   title: string;
   description: string;
@@ -58,11 +59,47 @@ export interface Finding {
   line_number?: number;
   url?: string;
   method?: string;
+  http_method?: string;
   parameter?: string;
+  // Enterprise enrichment populated by the DAST worker via rule metadata.
+  cwe_id?: number;
+  owasp_category?: string;
+  cvss_score?: number;
+  cvss_vector?: string;
+  risk_score?: number;
+  tags?: string[];
+  // Evidence: hash + size always present for DAST findings; the full JSON
+  // request/response body is only on the GetFinding (detail) response.
+  evidence_hash?: string;
+  evidence_size?: number;
+  evidence?: string;
   created_at: string;
   taint_paths?: TaintPathStep[];
   rule_id?: string;
   remediation?: RemediationBlock;
+}
+
+// HTTP evidence as captured by the DAST scheduler. JSON-serialized into
+// findings.evidence; parsed client-side for the evidence viewer.
+export interface HTTPEvidence {
+  id?: string;
+  scan_job_id?: string;
+  rule_id?: string;
+  request: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: string;
+  };
+  response: {
+    status_code: number;
+    headers: Record<string, string>;
+    body?: string;
+    body_size?: number;
+  };
+  timing_ms?: number;
+  sha256?: string;
+  captured_at?: string;
 }
 
 export interface RemediationBlock {
