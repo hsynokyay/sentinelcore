@@ -88,6 +88,43 @@ func callMatchesPattern(inst *ir.Instruction, p rules.CompiledPattern) bool {
 			return false
 		}
 	}
+	// arg_text_contains_any / arg_text_missing_any: operate on the source-text
+	// representation of operands. ArgIndex is required; if absent or out of
+	// range we fail closed (no match).
+	if len(src.ArgTextContainsAny) > 0 || len(src.ArgTextMissingAny) > 0 {
+		if src.ArgIndex == nil {
+			return false
+		}
+		idx := *src.ArgIndex
+		if idx < 0 || idx >= len(inst.ArgSourceText) {
+			return false
+		}
+		text := inst.ArgSourceText[idx]
+		if len(src.ArgTextContainsAny) > 0 {
+			any := false
+			for _, needle := range src.ArgTextContainsAny {
+				if needle != "" && strings.Contains(text, needle) {
+					any = true
+					break
+				}
+			}
+			if !any {
+				return false
+			}
+		}
+		if len(src.ArgTextMissingAny) > 0 {
+			missing := false
+			for _, needle := range src.ArgTextMissingAny {
+				if needle != "" && !strings.Contains(text, needle) {
+					missing = true
+					break
+				}
+			}
+			if !missing {
+				return false
+			}
+		}
+	}
 	return true
 }
 
