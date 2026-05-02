@@ -58,13 +58,20 @@ function SelectContent({
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Popup>) {
-  // Base UI Select requires Select.List around items — the popup looks up
-  // a `listElement` from the store to wire keyboard navigation and item
-  // selection. Without it, the popup never opens (or opens and immediately
-  // closes because no items are registered). Symptom in production:
-  // "cannot select project, cannot select scan type".
+  // `container={document.body}` is load-bearing here. Without it, the
+  // SelectPortal nests inside the Dialog's portal tree, and the
+  // Positioner's `position: fixed` becomes relative to the Dialog
+  // (which uses `transform: translate(-50%, -50%)` for centering — a
+  // transformed ancestor establishes a new containing block for fixed
+  // descendants). The popup then renders at the wrong screen coords and
+  // sits visually behind the trigger button. Forcing portal to body
+  // escapes the transform's containing block so the positioner's fixed
+  // coordinates resolve to the actual viewport.
+  //
+  // `Select.List` wrapper is required so the popup can register items
+  // for keyboard navigation and pointer selection.
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={typeof document !== "undefined" ? document.body : undefined}>
       <SelectPrimitive.Positioner sideOffset={4}>
         <SelectPrimitive.Popup
           className={cn(
