@@ -91,6 +91,10 @@ export default function TargetsPage() {
             value={projectId}
             onValueChange={setProjectId}
             disabled={loadingProjects}
+            itemToStringLabel={(v) => {
+              const p = projects.find((p) => p.id === v);
+              return p ? (p.display_name || p.name) : "";
+            }}
           >
             <SelectTrigger className="w-48">
               <SelectValue
