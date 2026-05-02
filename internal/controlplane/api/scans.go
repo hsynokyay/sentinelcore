@@ -397,14 +397,20 @@ func (h *Handlers) CreateScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dispatch scan via NATS — include auth_config_id so the worker can
-	// resolve credentials via the control plane's auth profile API.
+	// Dispatch scan via NATS. The envelope is intentionally thin — workers
+	// resolve target/auth/scope from the database using scan_job_id rather
+	// than carrying duplicated state on the wire (which goes stale fast).
+	//
+	// Both `scan_id` and `scan_job_id` are emitted for the same UUID so
+	// SAST (reads scan_id) and DAST (reads scan_job_id) both work without a
+	// coordinated rollout.
 	subject := fmt.Sprintf("scan.%s.dispatch", req.ScanType)
 	dispatchMsg := map[string]any{
-		"scan_id":    id,
-		"project_id": projectID,
-		"scan_type":  req.ScanType,
-		"parameters": req.Parameters,
+		"scan_id":     id,
+		"scan_job_id": id,
+		"project_id":  projectID,
+		"scan_type":   req.ScanType,
+		"parameters":  req.Parameters,
 	}
 	if req.TargetID != "" {
 		dispatchMsg["target_id"] = req.TargetID
