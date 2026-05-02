@@ -155,3 +155,32 @@ func TestLoadBuiltins_CookieRulesPR(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadBuiltins_CSRFRulesPR(t *testing.T) {
+	rs, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	idIndex := make(map[string]*Rule, len(rs))
+	for _, r := range rs {
+		idIndex[r.RuleID] = r
+	}
+	expected := []string{"SC-JS-CSRF-001", "SC-PY-CSRF-001", "SC-JAVA-CSRF-001"}
+	for _, id := range expected {
+		t.Run(id, func(t *testing.T) {
+			if _, ok := idIndex[id]; !ok {
+				t.Fatalf("rule %s missing", id)
+			}
+		})
+	}
+}
+
+func TestLoadBuiltins_TotalRuleCount(t *testing.T) {
+	rs, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(rs) < 60 {
+		t.Errorf("expected at least 60 rules after Faz 8, got %d", len(rs))
+	}
+}
