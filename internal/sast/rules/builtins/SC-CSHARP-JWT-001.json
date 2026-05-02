@@ -1,0 +1,27 @@
+{
+  "rule_id": "SC-CSHARP-JWT-001",
+  "name": "JWT read without signature validation (ReadJwtToken)",
+  "language": "csharp",
+  "cwe": ["CWE-347"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler",
+        "callee": "ReadJwtToken",
+        "message_template": "ReadJwtToken parses without validating — use ValidateToken"
+      },
+      {
+        "receiver_fqn": "JwtSecurityTokenHandler",
+        "callee": "ReadJwtToken",
+        "message_template": "ReadJwtToken parses without validating"
+      }
+    ]
+  },
+  "description": "JwtSecurityTokenHandler.ReadJwtToken parses a token but performs no signature validation.",
+  "remediation": "Use ValidateToken with a configured TokenValidationParameters (IssuerSigningKey, ValidIssuer, ValidAudience).",
+  "references": ["https://cwe.mitre.org/data/definitions/347.html"]
+}
