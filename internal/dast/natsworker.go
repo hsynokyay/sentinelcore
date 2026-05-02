@@ -384,6 +384,15 @@ func surfaceFingerprint(scanJobID string, ep Endpoint) string {
 // upsertFinding writes a finding row, deduplicating by fingerprint so re-scans
 // don't pile up duplicates. New rows get last_seen_at = first_seen_at;
 // existing rows just bump last_seen_at + scan_count.
+//
+// Enrichment: the rule's metadata (CWE, OWASP category, CVSS score+vector,
+// risk score, tags, remediation guidance) is looked up and persisted. The
+// description is rendered with What/Impact/Remediation/References sections
+// so the UI can present an actionable finding instead of a one-liner.
+//
+// Evidence (the captured request/response pair) is serialized to JSON,
+// hashed, and written into evidence_ref/_hash/_size so the UI can render
+// the exact HTTP exchange that proved the finding.
 func (nw *NATSWorker) upsertFinding(ctx context.Context, projectID, scanJobID string, f Finding) {
 	fingerprint := dastFingerprint(f)
 	findingID := uuid.New().String()
@@ -403,22 +412,93 @@ func (nw *NATSWorker) upsertFinding(ctx context.Context, projectID, scanJobID st
 		return
 	}
 
-	desc := f.MatchDetail
+	meta := LookupRuleMetadata(f.RuleID)
+	desc := meta.RenderDescription(f.MatchDetail)
 	if desc == "" {
+		// Truly unmapped rule with no match detail — fall back to title so the
+		// NOT NULL description column doesn't refuse the insert.
 		desc = f.Title
 	}
+
+	evidenceJSON, evidenceHash, evidenceSize := serializeEvidence(f.Evidence)
+
+	// Optional columns get nil-or-value via helpers so the SQL stays one shape.
 	_, err = nw.pool.Exec(ctx, `
 		INSERT INTO findings.findings
-		   (id, project_id, scan_job_id, finding_type, fingerprint, title, description,
-		    severity, confidence, url, http_method, parameter, status, rule_id,
+		   (id, project_id, scan_job_id, finding_type, fingerprint,
+		    title, description,
+		    severity, confidence, status,
+		    url, http_method, parameter, rule_id,
+		    cwe_id, owasp_category, cvss_score, cvss_vector, risk_score,
+		    tags,
+		    evidence_ref, evidence_hash, evidence_size,
 		    first_seen_at, last_seen_at, scan_count)
-		 VALUES ($1, $2, $3, 'dast', $4, $5, $6, $7, $8, $9, $10, $11, 'new', $12, now(), now(), 1)`,
-		findingID, projectID, scanJobID, fingerprint, f.Title, desc,
-		strings.ToLower(f.Severity), strings.ToLower(f.Confidence), f.URL, f.Method, f.Parameter, f.RuleID,
+		 VALUES ($1, $2, $3, 'dast', $4,
+		         $5, $6,
+		         $7, $8, 'new',
+		         $9, $10, $11, $12,
+		         $13, $14, $15, $16, $17,
+		         $18,
+		         $19, $20, $21,
+		         now(), now(), 1)`,
+		findingID, projectID, scanJobID, fingerprint,
+		f.Title, desc,
+		strings.ToLower(f.Severity), strings.ToLower(f.Confidence),
+		f.URL, f.Method, f.Parameter, f.RuleID,
+		nullIntZero(meta.CWEID), nullStringEmpty(meta.OWASPCategory),
+		nullFloatZero(meta.CVSSScore), nullStringEmpty(meta.CVSSVector), nullFloatZero(meta.RiskScore),
+		meta.Tags,
+		nullStringEmpty(evidenceJSON), nullStringEmpty(evidenceHash), nullInt64Zero(evidenceSize),
 	)
 	if err != nil {
 		nw.logger.Error().Err(err).Str("rule_id", f.RuleID).Msg("dast finding insert failed")
 	}
+}
+
+// serializeEvidence produces the (json, sha256, size) tuple that goes into
+// findings.findings.evidence_*. Returns ("", "", 0) when no evidence was
+// captured (e.g. the matcher fired without an HTTP exchange).
+func serializeEvidence(ev *Evidence) (string, string, int64) {
+	if ev == nil {
+		return "", "", 0
+	}
+	b, err := json.Marshal(ev)
+	if err != nil {
+		return "", "", 0
+	}
+	return string(b), ev.SHA256, int64(len(b))
+}
+
+// nullIntZero, nullInt64Zero, nullFloatZero, nullStringEmpty turn a
+// zero-valued primitive into a SQL NULL so optional columns stay NULL
+// instead of being bound as "0" / "" — which would fail CHECK constraints
+// and pollute filters.
+func nullIntZero(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+func nullInt64Zero(n int64) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+func nullFloatZero(f float64) any {
+	if f == 0 {
+		return nil
+	}
+	return f
+}
+
+func nullStringEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 func dastFingerprint(f Finding) string {
