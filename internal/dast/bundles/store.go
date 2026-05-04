@@ -42,6 +42,13 @@ type BundleStore interface {
 	AddACL(ctx context.Context, bundleID, projectID string, scopeID *string) error
 	// CheckACL returns true if the project (and optional scope) has ACL access.
 	CheckACL(ctx context.Context, bundleID, projectID string, scopeID *string) (bool, error)
+	// Approve transitions a bundle from pending_review to approved.
+	// The Postgres 4-eyes trigger rejects approval by the recorder.
+	Approve(ctx context.Context, id, reviewerUserID string, ttlSeconds int) error
+	// Reject transitions a bundle from pending_review to revoked.
+	Reject(ctx context.Context, id, reviewerUserID, reason string) error
+	// ListPending returns BundleSummary for bundles in pending_review status.
+	ListPending(ctx context.Context, customerID string, offset, limit int) ([]*BundleSummary, error)
 }
 
 // ObjectStore is the interface for out-of-band ciphertext blob storage. For
