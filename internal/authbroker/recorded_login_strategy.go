@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sentinelcore/sentinelcore/internal/authbroker/replay"
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
 )
 
@@ -14,7 +15,8 @@ import (
 // directly. Plan #4 adds automatable refresh that replays the recorded
 // action list to obtain a fresh session.
 type RecordedLoginStrategy struct {
-	Bundles bundles.BundleStore
+	Bundles  bundles.BundleStore
+	Replayer *replay.Engine // optional; nil disables automatable refresh
 }
 
 func (s *RecordedLoginStrategy) Name() string { return "recorded_login" }
@@ -78,8 +80,38 @@ func (s *RecordedLoginStrategy) Authenticate(ctx context.Context, cfg AuthConfig
 	}, nil
 }
 
-func (s *RecordedLoginStrategy) Refresh(_ context.Context, _ *Session, _ AuthConfig) (*Session, error) {
-	return nil, fmt.Errorf("recorded_login: automatable refresh requires Plan #4 replay engine; use one-shot mode")
+func (s *RecordedLoginStrategy) Refresh(ctx context.Context, _ *Session, cfg AuthConfig) (*Session, error) {
+	if cfg.BundleID == "" {
+		return nil, fmt.Errorf("recorded_login: bundle_id required")
+	}
+	if cfg.CustomerID == "" {
+		return nil, fmt.Errorf("recorded_login: customer_id required")
+	}
+	if s.Bundles == nil {
+		return nil, fmt.Errorf("recorded_login: bundle store not configured")
+	}
+
+	b, err := s.Bundles.Load(ctx, cfg.BundleID, cfg.CustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("recorded_login: load: %w", err)
+	}
+	if !b.AutomatableRefresh {
+		return nil, fmt.Errorf("recorded_login: bundle is one-shot only (re-record required)")
+	}
+	if s.Replayer == nil {
+		return nil, fmt.Errorf("recorded_login: replay engine not configured")
+	}
+
+	res, err := s.Replayer.Replay(ctx, b)
+	if err != nil {
+		return nil, fmt.Errorf("recorded_login: replay: %w", err)
+	}
+
+	return &Session{
+		Cookies:   res.Cookies,
+		Headers:   res.Headers,
+		ExpiresAt: time.Now().Add(time.Duration(b.TTLSeconds) * time.Second),
+	}, nil
 }
 
 func (s *RecordedLoginStrategy) Validate(_ context.Context, session *Session) (bool, error) {
