@@ -11,10 +11,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+
+	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
 )
 
 // RecordedSession captures the state of a logged-in browser session at the
@@ -27,6 +31,7 @@ type RecordedSession struct {
 	StartedAt        time.Time
 	StoppedAt        time.Time
 	CaptchaDetected  bool
+	Actions          []bundles.Action
 }
 
 // Options control recording behavior.
@@ -44,6 +49,15 @@ type Recorder struct {
 	capturedHeaders map[string]string
 	captchaDetected bool
 	startedAt       time.Time
+	actionsMu       sync.Mutex
+	actions         []bundles.Action
+}
+
+// recordAction appends a to the recorder's action list in a thread-safe manner.
+func (r *Recorder) recordAction(a bundles.Action) {
+	r.actionsMu.Lock()
+	defer r.actionsMu.Unlock()
+	r.actions = append(r.actions, a)
 }
 
 // New returns a Recorder ready to Run.
@@ -80,10 +94,19 @@ func (r *Recorder) Run(ctx context.Context) (*RecordedSession, error) {
 	r.startedAt = time.Now()
 
 	chromedp.ListenTarget(timeoutCtx, func(ev interface{}) {
-		if e, ok := ev.(*network.EventResponseReceived); ok {
+		switch e := ev.(type) {
+		case *network.EventResponseReceived:
 			r.captureHeaders(e.Response)
 			if r.opts.StopWhenURL != "" && strings.HasPrefix(e.Response.URL, r.opts.StopWhenURL) {
 				bcancel()
+			}
+		case *page.EventFrameNavigated:
+			if e.Frame != nil && e.Frame.URL != "" {
+				r.recordAction(bundles.Action{
+					Kind:      bundles.ActionNavigate,
+					URL:       e.Frame.URL,
+					Timestamp: time.Now().UTC(),
+				})
 			}
 		}
 	})
@@ -126,6 +149,7 @@ func (r *Recorder) Run(ctx context.Context) (*RecordedSession, error) {
 		StartedAt:        r.startedAt,
 		StoppedAt:        time.Now(),
 		CaptchaDetected:  r.captchaDetected,
+		Actions:          r.actions,
 	}, nil
 }
 
@@ -154,6 +178,7 @@ func (r *Recorder) captureHeaders(resp *network.Response) {
 	for _, marker := range captchaMarkers {
 		if strings.Contains(resp.URL, marker) {
 			r.captchaDetected = true
+			r.recordAction(bundles.Action{Kind: bundles.ActionCaptchaMark, Timestamp: time.Now().UTC()})
 			break
 		}
 	}
