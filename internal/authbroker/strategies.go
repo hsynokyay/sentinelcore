@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
 	"github.com/sentinelcore/sentinelcore/pkg/scope"
 )
 
@@ -325,4 +326,96 @@ func validateEndpointNotInternal(endpoint string) error {
 	}
 
 	return nil
+}
+
+// SessionImportStrategy authenticates by loading a pre-captured session bundle
+// from the BundleStore. It does not perform any live authentication flow —
+// credentials were captured out-of-band and stored encrypted in the DB.
+//
+// NOTE: This strategy is NOT registered in NewBroker. Wiring requires a live
+// BundleStore at startup; PR D will wire it in the controlplane. Instantiate
+// via &SessionImportStrategy{Bundles: store} and call RegisterStrategy.
+type SessionImportStrategy struct {
+	Bundles bundles.BundleStore
+}
+
+// Name returns the strategy identifier "session_import".
+func (s *SessionImportStrategy) Name() string { return "session_import" }
+
+// Authenticate loads the bundle identified by cfg.BundleID/CustomerID, checks
+// the ACL for cfg.ProjectID/ScopeID, and returns a Session from the stored
+// cookies and headers.
+func (s *SessionImportStrategy) Authenticate(ctx context.Context, cfg AuthConfig) (*Session, error) {
+	if cfg.BundleID == "" {
+		return nil, fmt.Errorf("session_import: bundle_id required")
+	}
+	if cfg.CustomerID == "" {
+		return nil, fmt.Errorf("session_import: customer_id required")
+	}
+	if cfg.ProjectID == "" {
+		return nil, fmt.Errorf("session_import: project_id required")
+	}
+	if s.Bundles == nil {
+		return nil, fmt.Errorf("session_import: bundle store not configured")
+	}
+
+	b, err := s.Bundles.Load(ctx, cfg.BundleID, cfg.CustomerID)
+	if err != nil {
+		return nil, fmt.Errorf("session_import: load: %w", err)
+	}
+	if b.Type != "session_import" {
+		return nil, fmt.Errorf("session_import: wrong bundle type %q", b.Type)
+	}
+	if b.ExpiresAt.Before(time.Now()) {
+		return nil, fmt.Errorf("session_import: expired")
+	}
+
+	var scopeID *string
+	if cfg.ScopeID != "" {
+		v := cfg.ScopeID
+		scopeID = &v
+	}
+	ok, err := s.Bundles.CheckACL(ctx, b.ID, cfg.ProjectID, scopeID)
+	if err != nil {
+		return nil, fmt.Errorf("session_import: acl: %w", err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("session_import: bundle not authorized for project")
+	}
+
+	httpCookies := make([]*http.Cookie, 0, len(b.CapturedSession.Cookies))
+	for _, c := range b.CapturedSession.Cookies {
+		httpCookies = append(httpCookies, &http.Cookie{
+			Name:     c.Name,
+			Value:    c.Value,
+			Domain:   c.Domain,
+			Path:     c.Path,
+			HttpOnly: c.HttpOnly,
+			Secure:   c.Secure,
+		})
+	}
+	headers := make(map[string]string, len(b.CapturedSession.Headers))
+	for k, v := range b.CapturedSession.Headers {
+		headers[k] = v
+	}
+
+	_ = s.Bundles.IncUseCount(ctx, b.ID)
+
+	return &Session{
+		Cookies:   httpCookies,
+		Headers:   headers,
+		ExpiresAt: b.ExpiresAt,
+	}, nil
+}
+
+// Refresh is not supported for session_import bundles; the operator must
+// re-upload a fresh session capture.
+func (s *SessionImportStrategy) Refresh(_ context.Context, _ *Session, _ AuthConfig) (*Session, error) {
+	return nil, fmt.Errorf("session_import: manual re-upload required")
+}
+
+// Validate returns true if the session is not expired and has at least one
+// cookie or header.
+func (s *SessionImportStrategy) Validate(_ context.Context, session *Session) (bool, error) {
+	return !session.IsExpired() && (len(session.Cookies) > 0 || len(session.Headers) > 0), nil
 }
