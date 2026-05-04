@@ -73,3 +73,110 @@ func TestRegistry_GetUnknown(t *testing.T) {
 		t.Fatalf("err = %v, want errors.Is(err, ErrUnknownProvider) == true", err)
 	}
 }
+
+// newTestLocalProvider returns a LocalProvider with a fixed 32-byte master key
+// for deterministic tests.
+func newTestLocalProvider() *kms.LocalProvider {
+	master := make([]byte, 32)
+	for i := range master {
+		master[i] = byte(i + 1)
+	}
+	return kms.NewLocalProvider(master)
+}
+
+// TestLocalProvider_RoundTrip generates a DEK, decrypts it, verifies equality,
+// then Zeroizes and confirms the plaintext is cleared.
+func TestLocalProvider_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	p := newTestLocalProvider()
+
+	dk, err := p.GenerateDataKey(ctx, "test-purpose")
+	if err != nil {
+		t.Fatalf("GenerateDataKey: %v", err)
+	}
+
+	// Save a copy of plaintext before decryption for comparison.
+	original := make([]byte, len(dk.Plaintext))
+	copy(original, dk.Plaintext)
+
+	decrypted, err := p.Decrypt(ctx, dk.Wrapped, dk.KeyVersion)
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if len(decrypted) != len(original) {
+		t.Fatalf("decrypted len = %d, want %d", len(decrypted), len(original))
+	}
+	for i := range original {
+		if decrypted[i] != original[i] {
+			t.Fatalf("decrypted[%d] = %x, want %x", i, decrypted[i], original[i])
+		}
+	}
+
+	// Zeroize and verify plaintext is cleared.
+	dk.Zeroize()
+	for i, b := range dk.Plaintext {
+		if b != 0 {
+			t.Fatalf("Plaintext[%d] = %d after Zeroize, want 0", i, b)
+		}
+	}
+}
+
+// TestLocalProvider_TamperedWrappedKeyFails flips a bit in the wrapped key and
+// verifies that Decrypt returns an error.
+func TestLocalProvider_TamperedWrappedKeyFails(t *testing.T) {
+	ctx := context.Background()
+	p := newTestLocalProvider()
+
+	dk, err := p.GenerateDataKey(ctx, "tamper-test")
+	if err != nil {
+		t.Fatalf("GenerateDataKey: %v", err)
+	}
+
+	// Flip a bit in the middle of the wrapped key.
+	tampered := make([]byte, len(dk.Wrapped))
+	copy(tampered, dk.Wrapped)
+	tampered[len(tampered)/2] ^= 0xFF
+
+	_, err = p.Decrypt(ctx, tampered, dk.KeyVersion)
+	if err == nil {
+		t.Fatal("expected error decrypting tampered wrapped key, got nil")
+	}
+}
+
+// TestLocalProvider_HMAC verifies HMAC computation, successful verification,
+// and detection of a tampered MAC.
+func TestLocalProvider_HMAC(t *testing.T) {
+	ctx := context.Background()
+	p := newTestLocalProvider()
+	msg := []byte("hello, sentinel")
+
+	mac, err := p.HMAC(ctx, "auth/signing-key", msg)
+	if err != nil {
+		t.Fatalf("HMAC: %v", err)
+	}
+	if len(mac) == 0 {
+		t.Fatal("HMAC returned empty MAC")
+	}
+
+	// Verify the correct MAC.
+	ok, err := p.HMACVerify(ctx, "auth/signing-key", msg, mac)
+	if err != nil {
+		t.Fatalf("HMACVerify: %v", err)
+	}
+	if !ok {
+		t.Fatal("HMACVerify returned false for a valid MAC")
+	}
+
+	// Tamper with the MAC and verify it fails.
+	tampered := make([]byte, len(mac))
+	copy(tampered, mac)
+	tampered[0] ^= 0xFF
+
+	ok, err = p.HMACVerify(ctx, "auth/signing-key", msg, tampered)
+	if err != nil {
+		t.Fatalf("HMACVerify (tampered): %v", err)
+	}
+	if ok {
+		t.Fatal("HMACVerify returned true for a tampered MAC")
+	}
+}
