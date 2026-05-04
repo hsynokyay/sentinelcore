@@ -125,6 +125,16 @@ type Instruction struct {
 	// by the AST frontend; consumed by rule_engine.go's arg_text_* matchers.
 	// Optional — older modules may have empty slices.
 	ArgSourceText []string `json:"arg_source_text,omitempty"`
+
+	// EnclosingFunctionText is the verbatim source text of the entire
+	// function/method body containing this call site. Used by
+	// func_text_contains_any / func_text_missing_any matchers for rules that
+	// need to assert the presence/absence of a sibling statement in the same
+	// scope (e.g. "Cookie addCookie called without setSecure() in the same
+	// method"). Frontends populate this once per function body and replicate
+	// the same string on every Call instruction within. Optional — empty when
+	// the frontend doesn't capture function-scope text.
+	EnclosingFunctionText string `json:"enclosing_function_text,omitempty"`
 }
 
 // OperandKind distinguishes value references from constant literals.
