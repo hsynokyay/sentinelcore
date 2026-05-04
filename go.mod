@@ -4,6 +4,8 @@ go 1.26.1
 
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
+	github.com/aws/aws-sdk-go-v2 v1.41.7
+	github.com/aws/aws-sdk-go-v2/service/kms v1.51.1
 	github.com/chromedp/cdproto v0.0.0-20260328224638-b7b298a31867
 	github.com/chromedp/chromedp v0.15.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -20,6 +22,9 @@ require (
 
 require (
 	github.com/antithesishq/antithesis-sdk-go v0.6.0-default-no-op // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.23 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.23 // indirect
+	github.com/aws/smithy-go v1.25.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
