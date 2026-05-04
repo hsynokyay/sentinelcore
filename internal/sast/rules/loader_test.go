@@ -184,3 +184,44 @@ func TestLoadBuiltins_TotalRuleCount(t *testing.T) {
 		t.Errorf("expected at least 60 rules after Faz 8, got %d", len(rs))
 	}
 }
+
+func TestLoadBuiltins_JavaCookieRulesFollowup(t *testing.T) {
+	rs, err := LoadBuiltins()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	idIndex := make(map[string]*Rule, len(rs))
+	for _, r := range rs {
+		idIndex[r.RuleID] = r
+	}
+	expected := []string{"SC-JAVA-COOKIE-001", "SC-JAVA-COOKIE-002", "SC-JAVA-COOKIE-003"}
+	for _, id := range expected {
+		t.Run(id, func(t *testing.T) {
+			r, ok := idIndex[id]
+			if !ok {
+				t.Fatalf("rule %s missing", id)
+			}
+			if r.Severity == "" {
+				t.Errorf("severity empty")
+			}
+			if r.Description == "" {
+				t.Errorf("description empty")
+			}
+			if r.Remediation == "" {
+				t.Errorf("remediation empty")
+			}
+			if r.Detection.Kind != DetectionASTCall {
+				t.Errorf("expected ast_call, got %q", r.Detection.Kind)
+			}
+			hasFuncText := false
+			for _, p := range r.Detection.Patterns {
+				if len(p.FuncTextMissingAny) > 0 {
+					hasFuncText = true
+				}
+			}
+			if !hasFuncText {
+				t.Errorf("expected at least one pattern with func_text_missing_any")
+			}
+		})
+	}
+}

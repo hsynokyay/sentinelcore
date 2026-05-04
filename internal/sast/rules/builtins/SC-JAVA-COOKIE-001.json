@@ -1,0 +1,29 @@
+{
+  "rule_id": "SC-JAVA-COOKIE-001",
+  "name": "Cookie added without setSecure(true)",
+  "language": "java",
+  "cwe": ["CWE-614"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.65 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "javax.servlet.http.HttpServletResponse",
+        "callee": "addCookie",
+        "func_text_missing_any": ["setSecure(true)", ".secure(true)"],
+        "message_template": "addCookie called without setSecure(true) in the same method — cookie may be sent over plain HTTP"
+      },
+      {
+        "receiver_fqn": "jakarta.servlet.http.HttpServletResponse",
+        "callee": "addCookie",
+        "func_text_missing_any": ["setSecure(true)", ".secure(true)"],
+        "message_template": "addCookie called without setSecure(true) in the same method"
+      }
+    ]
+  },
+  "description": "A servlet Cookie is added to the response without a sibling setSecure(true) call in the same method. The cookie will be transmitted over plaintext HTTP, leaking session identifiers to network observers.",
+  "remediation": "Call cookie.setSecure(true) before response.addCookie(cookie). For Spring's ResponseCookie.builder, use .secure(true).",
+  "references": ["https://cwe.mitre.org/data/definitions/614.html"]
+}
