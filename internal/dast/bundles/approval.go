@@ -35,6 +35,10 @@ func (s *PostgresStore) Approve(ctx context.Context, id, reviewerUserID string, 
 	if tag.RowsAffected() == 0 {
 		return ErrBundleNotFound
 	}
+	_ = s.audit.Write(ctx, "dast.recording.approved", id, map[string]any{
+		"reviewer_user_id": reviewerUserID,
+		"ttl_seconds":      ttlSeconds,
+	})
 	return nil
 }
 
@@ -56,6 +60,10 @@ func (s *PostgresStore) Reject(ctx context.Context, id, reviewerUserID, reason s
 	if tag.RowsAffected() == 0 {
 		return ErrBundleNotFound
 	}
+	_ = s.audit.Write(ctx, "dast.recording.rejected", id, map[string]any{
+		"reviewer_user_id": reviewerUserID,
+		"reason":           reason,
+	})
 	return nil
 }
 
