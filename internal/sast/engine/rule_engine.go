@@ -129,6 +129,42 @@ func callMatchesPattern(inst *ir.Instruction, p rules.CompiledPattern) bool {
 			}
 		}
 	}
+	// func_text_contains_any / func_text_missing_any: operate on the source
+	// text of the entire enclosing function body. Used for patterns that need
+	// to assert the presence/absence of a sibling statement (e.g. "addCookie
+	// without setSecure in the same method"). If EnclosingFunctionText is
+	// empty we fail closed for both matchers — frontends that don't capture
+	// function-scope text won't trigger these rules.
+	if len(src.FuncTextContainsAny) > 0 || len(src.FuncTextMissingAny) > 0 {
+		funcText := inst.EnclosingFunctionText
+		if funcText == "" {
+			return false
+		}
+		if len(src.FuncTextContainsAny) > 0 {
+			any := false
+			for _, needle := range src.FuncTextContainsAny {
+				if needle != "" && strings.Contains(funcText, needle) {
+					any = true
+					break
+				}
+			}
+			if !any {
+				return false
+			}
+		}
+		if len(src.FuncTextMissingAny) > 0 {
+			anyPresent := false
+			for _, needle := range src.FuncTextMissingAny {
+				if needle != "" && strings.Contains(funcText, needle) {
+					anyPresent = true
+					break
+				}
+			}
+			if anyPresent {
+				return false
+			}
+		}
+	}
 	return true
 }
 
