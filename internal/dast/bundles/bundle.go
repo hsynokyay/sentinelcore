@@ -68,6 +68,7 @@ type Bundle struct {
 	Type            string `json:"type"`
 
 	CapturedSession SessionCapture `json:"captured_session"`
+	Actions         []Action       `json:"actions,omitempty"`
 
 	CreatedByUserID string    `json:"created_by_user_id"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -78,6 +79,17 @@ type Bundle struct {
 	TTLSeconds          int  `json:"ttl_seconds"`
 
 	RecordingMetadata *RecordingMetadata `json:"recording_metadata,omitempty"`
+}
+
+// canonicalAction mirrors Action but serializes Timestamp as RFC3339Nano UTC
+// for determinism.
+type canonicalAction struct {
+	Kind      ActionKind `json:"kind"`
+	URL       string     `json:"url,omitempty"`
+	Selector  string     `json:"selector,omitempty"`
+	MinWaitMs int        `json:"min_wait_ms,omitempty"`
+	MaxWaitMs int        `json:"max_wait_ms,omitempty"`
+	Timestamp string     `json:"timestamp"`
 }
 
 // canonicalBundle mirrors Bundle but uses canonicalSessionCapture so the
@@ -91,6 +103,7 @@ type canonicalBundle struct {
 	TargetPrincipal string                  `json:"target_principal,omitempty"`
 	Type            string                  `json:"type"`
 	CapturedSession canonicalSessionCapture `json:"captured_session"`
+	Actions         []canonicalAction       `json:"actions,omitempty"`
 	CreatedByUserID string                  `json:"created_by_user_id"`
 	CreatedAt       string                  `json:"created_at"`
 	ExpiresAt       string                  `json:"expires_at"`
@@ -115,6 +128,22 @@ func (b *Bundle) CanonicalJSON() ([]byte, error) {
 		return hdrs[i].Key < hdrs[j].Key
 	})
 
+	// Build canonical actions slice with RFC3339Nano UTC timestamps.
+	var canonActions []canonicalAction
+	if len(b.Actions) > 0 {
+		canonActions = make([]canonicalAction, len(b.Actions))
+		for i, a := range b.Actions {
+			canonActions[i] = canonicalAction{
+				Kind:      a.Kind,
+				URL:       a.URL,
+				Selector:  a.Selector,
+				MinWaitMs: a.MinWaitMs,
+				MaxWaitMs: a.MaxWaitMs,
+				Timestamp: a.Timestamp.UTC().Format(time.RFC3339Nano),
+			}
+		}
+	}
+
 	cb := canonicalBundle{
 		ID:            b.ID,
 		SchemaVersion: b.SchemaVersion,
@@ -127,6 +156,7 @@ func (b *Bundle) CanonicalJSON() ([]byte, error) {
 			Cookies: b.CapturedSession.Cookies,
 			Headers: hdrs,
 		},
+		Actions:            canonActions,
 		CreatedByUserID:    b.CreatedByUserID,
 		CreatedAt:          b.CreatedAt.UTC().Format(time.RFC3339Nano),
 		ExpiresAt:          b.ExpiresAt.UTC().Format(time.RFC3339Nano),
