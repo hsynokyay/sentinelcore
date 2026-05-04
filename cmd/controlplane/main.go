@@ -13,6 +13,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane"
+	"github.com/sentinelcore/sentinelcore/internal/dast/authz"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
@@ -93,6 +94,10 @@ func main() {
 	}
 
 	server := controlplane.NewServer(serverCfg, logger, pool, jwtMgr, sessions, emitter, limiter, js, nc, redisClient)
+
+	// Wire DAST role store for approval/reject/list-pending role-gated endpoints.
+	roleStore := authz.NewPostgresRoleStore(pool)
+	server.SetRoleStore(roleStore)
 
 	logger.Info().Str("port", serverCfg.Port).Msg("starting control plane server")
 	if err := server.Start(ctx); err != nil {

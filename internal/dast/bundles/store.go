@@ -24,6 +24,17 @@ var (
 	ErrIntegrityFailure = errors.New("bundles: integrity HMAC mismatch")
 )
 
+// AuditWriter writes a single audit event. We avoid importing internal/audit
+// directly to keep this package decoupled — controlplane wires the real
+// writer at startup.
+type AuditWriter interface {
+	Write(ctx context.Context, eventType string, resourceID string, details map[string]any) error
+}
+
+type noopAudit struct{}
+
+func (noopAudit) Write(_ context.Context, _ string, _ string, _ map[string]any) error { return nil }
+
 // BundleStore defines the persistence and lifecycle operations for auth bundles.
 type BundleStore interface {
 	// Save encrypts and persists b for the given customer. Returns the bundle ID.
@@ -42,6 +53,13 @@ type BundleStore interface {
 	AddACL(ctx context.Context, bundleID, projectID string, scopeID *string) error
 	// CheckACL returns true if the project (and optional scope) has ACL access.
 	CheckACL(ctx context.Context, bundleID, projectID string, scopeID *string) (bool, error)
+	// Approve transitions a bundle from pending_review to approved.
+	// The Postgres 4-eyes trigger rejects approval by the recorder.
+	Approve(ctx context.Context, id, reviewerUserID string, ttlSeconds int) error
+	// Reject transitions a bundle from pending_review to revoked.
+	Reject(ctx context.Context, id, reviewerUserID, reason string) error
+	// ListPending returns BundleSummary for bundles in pending_review status.
+	ListPending(ctx context.Context, customerID string, offset, limit int) ([]*BundleSummary, error)
 }
 
 // ObjectStore is the interface for out-of-band ciphertext blob storage. For
@@ -74,6 +92,7 @@ type PostgresStore struct {
 	masterKeyID string
 	objectStore ObjectStore
 	now         func() time.Time
+	audit       AuditWriter
 }
 
 // NewPostgresStore creates a PostgresStore ready for use.
@@ -85,7 +104,17 @@ func NewPostgresStore(pool *pgxpool.Pool, k kms.Provider, hmacKeyPath, masterKey
 		masterKeyID: masterKeyID,
 		objectStore: obj,
 		now:         time.Now,
+		audit:       noopAudit{},
 	}
+}
+
+// SetAuditWriter wires an AuditWriter for recording lifecycle events.
+// Passing nil resets to the no-op implementation.
+func (s *PostgresStore) SetAuditWriter(w AuditWriter) {
+	if w == nil {
+		w = noopAudit{}
+	}
+	s.audit = w
 }
 
 // Save encrypts b and inserts it into dast_auth_bundles. Returns the assigned bundle ID.
@@ -167,7 +196,15 @@ INSERT INTO dast_auth_bundles (
 		return "", fmt.Errorf("bundles/save: insert: %w", err)
 	}
 
-	// 11. Return bundle ID.
+	// 11. Emit audit event (best-effort; ignore error).
+	_ = s.audit.Write(ctx, "dast.recording.created", b.ID, map[string]any{
+		"target_host": b.TargetHost,
+		"type":        b.Type,
+		"customer_id": customerID,
+		"project_id":  b.ProjectID,
+	})
+
+	// 12. Return bundle ID.
 	return b.ID, nil
 }
 
@@ -244,6 +281,9 @@ WHERE id = $1 AND customer_id = $2`
 		return nil, fmt.Errorf("bundles/load: HMAC verify: %w", err)
 	}
 	if !ok {
+		_ = s.audit.Write(ctx, "dast.recording.integrity_failed", id, map[string]any{
+			"customer_id": customerID,
+		})
 		return nil, ErrIntegrityFailure
 	}
 
@@ -274,7 +314,12 @@ WHERE id = $1 AND customer_id = $2`
 		b.TargetPrincipal = *bTargetPrincipal
 	}
 
-	// 8. Return.
+	// 8. Emit audit event (best-effort; ignore error).
+	_ = s.audit.Write(ctx, "dast.recording.accessed", id, map[string]any{
+		"customer_id": customerID,
+	})
+
+	// 9. Return.
 	return &b, nil
 }
 
@@ -311,6 +356,9 @@ WHERE id = $1`
 	if tag.RowsAffected() == 0 {
 		return ErrBundleNotFound
 	}
+	_ = s.audit.Write(ctx, "dast.recording.revoked", id, map[string]any{
+		"reason": reason,
+	})
 	return nil
 }
 
@@ -341,6 +389,7 @@ func (s *PostgresStore) IncUseCount(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("bundles/inc-use-count: %w", err)
 	}
+	_ = s.audit.Write(ctx, "dast.recording.used", id, nil)
 	return nil
 }
 

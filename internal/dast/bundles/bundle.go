@@ -146,6 +146,23 @@ func (b *Bundle) ComputeIntegrityHMAC(key []byte) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
+// BundleSummary is a lightweight projection of dast_auth_bundles used for
+// listing operations (e.g., pending review queue) without loading encrypted
+// payload columns.
+type BundleSummary struct {
+	ID              string
+	CustomerID      string
+	ProjectID       string
+	TargetHost      string
+	Type            string
+	Status          string
+	CreatedByUserID string
+	CreatedAt       time.Time
+	ExpiresAt       time.Time
+	UseCount        int64
+	MetadataJSONB   []byte
+}
+
 // VerifyIntegrityHMAC verifies that mac is a valid HMAC-SHA-256 over the
 // canonical JSON of b under key. The comparison is constant-time.
 func (b *Bundle) VerifyIntegrityHMAC(key, mac []byte) (bool, error) {

@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
+	"github.com/sentinelcore/sentinelcore/internal/dast/authz"
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
@@ -44,9 +45,10 @@ type Server struct {
 	emitter     *audit.Emitter
 	limiter     *ratelimit.Limiter
 	js          jetstream.JetStream
-	nc          *nats.Conn      // for health checks
-	redis       *redis.Client   // for health checks
+	nc          *nats.Conn         // for health checks
+	redis       *redis.Client      // for health checks
 	bundleStore bundles.BundleStore // nil until SetBundleStore is called
+	roleStore   authz.RoleStore    // nil until SetRoleStore is called
 }
 
 // SetBundleStore configures the DAST bundle store used by the bundles CRUD
@@ -54,6 +56,13 @@ type Server struct {
 // without it the endpoints return 503 Service Unavailable.
 func (s *Server) SetBundleStore(store bundles.BundleStore) {
 	s.bundleStore = store
+}
+
+// SetRoleStore configures the DAST role store used by the approval/reject/list
+// endpoints for role-gated access control. Must be called before Start if DAST
+// approval endpoints are needed; without it the role gate returns 403.
+func (s *Server) SetRoleStore(store authz.RoleStore) {
+	s.roleStore = store
 }
 
 // NewServer creates a new control plane server.
@@ -339,6 +348,21 @@ func (s *Server) Start(ctx context.Context) error {
 		bundlesHandler.Revoke(w, r)
 	})
 
+	// Approval routes — role-gated. Auth (JWT/session) is provided by the
+	// global conditionalAuthMiddleware; DAST role check is layered on top.
+	// If roleStore is nil the middleware returns 503 to avoid a nil-pointer
+	// panic while still providing a clear operational signal.
+	effectiveRoleStore := s.roleStore
+	if effectiveRoleStore == nil {
+		effectiveRoleStore = unavailableRoleStore{}
+	}
+	mux.Handle("POST /api/v1/dast/bundles/{id}/approve",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleReviewer)(http.HandlerFunc(bundlesHandler.Approve)))
+	mux.Handle("POST /api/v1/dast/bundles/{id}/reject",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleReviewer)(http.HandlerFunc(bundlesHandler.Reject)))
+	mux.Handle("GET /api/v1/dast/bundles",
+		authz.RequireAnyDASTRole(effectiveRoleStore, authz.RoleReviewer, authz.RoleRecordingAdmin)(http.HandlerFunc(bundlesHandler.ListPending)))
+
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
 
@@ -424,4 +448,25 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 // WriteError writes a JSON error response.
 func WriteError(w http.ResponseWriter, status int, message, code string) {
 	WriteJSON(w, status, map[string]string{"error": message, "code": code})
+}
+
+// unavailableRoleStore is a sentinel RoleStore used when the real store has not
+// been configured. Every method returns an error so the role-gate middleware
+// responds 500 instead of panicking on a nil interface.
+type unavailableRoleStore struct{}
+
+func (unavailableRoleStore) Grant(_ context.Context, _, _ string, _ authz.Role) error {
+	return fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) Revoke(_ context.Context, _ string, _ authz.Role) error {
+	return fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) HasRole(_ context.Context, _ string, _ authz.Role) (bool, error) {
+	return false, fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) ListUserRoles(_ context.Context, _ string) ([]authz.Role, error) {
+	return nil, fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) ListUsersWithRole(_ context.Context, _ authz.Role) ([]string, error) {
+	return nil, fmt.Errorf("role store not configured")
 }
