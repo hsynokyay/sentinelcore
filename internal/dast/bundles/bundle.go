@@ -45,6 +45,18 @@ type canonicalSessionCapture struct {
 	Headers []canonicalHeader `json:"headers"`
 }
 
+// RecordingMetadata holds browser-recorder-specific metadata captured during
+// a recorded_login session. This is nil for session_import bundles.
+type RecordingMetadata struct {
+	BrowserUserAgent  string    `json:"browser_user_agent,omitempty"`
+	BrowserVersion    string    `json:"browser_version,omitempty"`
+	RecordedAt        time.Time `json:"recorded_at,omitempty"`
+	RecordingDuration int64     `json:"recording_duration_ms,omitempty"`
+	CaptchaDetected   bool      `json:"captcha_detected,omitempty"`
+	FinalURL          string    `json:"final_url,omitempty"`
+	ActionCount       int       `json:"action_count,omitempty"`
+}
+
 // Bundle represents a DAST authentication bundle stored in the platform.
 type Bundle struct {
 	ID              string `json:"id"`
@@ -64,6 +76,8 @@ type Bundle struct {
 	CaptchaInFlow       bool `json:"captcha_in_flow,omitempty"`
 	AutomatableRefresh  bool `json:"automatable_refresh,omitempty"`
 	TTLSeconds          int  `json:"ttl_seconds"`
+
+	RecordingMetadata *RecordingMetadata `json:"recording_metadata,omitempty"`
 }
 
 // canonicalBundle mirrors Bundle but uses canonicalSessionCapture so the
@@ -80,9 +94,10 @@ type canonicalBundle struct {
 	CreatedByUserID string                  `json:"created_by_user_id"`
 	CreatedAt       string                  `json:"created_at"`
 	ExpiresAt       string                  `json:"expires_at"`
-	CaptchaInFlow   bool                    `json:"captcha_in_flow,omitempty"`
-	AutomatableRefresh bool                 `json:"automatable_refresh,omitempty"`
-	TTLSeconds      int                     `json:"ttl_seconds"`
+	CaptchaInFlow      bool                `json:"captcha_in_flow,omitempty"`
+	AutomatableRefresh bool                `json:"automatable_refresh,omitempty"`
+	TTLSeconds         int                 `json:"ttl_seconds"`
+	RecordingMetadata  *RecordingMetadata  `json:"recording_metadata,omitempty"`
 }
 
 // CanonicalJSON returns a deterministic JSON encoding of b suitable for HMAC
@@ -118,6 +133,7 @@ func (b *Bundle) CanonicalJSON() ([]byte, error) {
 		CaptchaInFlow:      b.CaptchaInFlow,
 		AutomatableRefresh: b.AutomatableRefresh,
 		TTLSeconds:         b.TTLSeconds,
+		RecordingMetadata:  b.RecordingMetadata,
 	}
 
 	var buf bytes.Buffer

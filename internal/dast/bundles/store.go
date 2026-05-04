@@ -167,7 +167,16 @@ func (s *PostgresStore) Save(ctx context.Context, b *Bundle, customerID string) 
 	// 9. Inline storage: ciphertext_ref = "inline:" + base64(ciphertext).
 	ctRef := "inline:" + base64.StdEncoding.EncodeToString(env.Ciphertext)
 
-	// 10. Insert row.
+	// 10. Marshal recording_metadata for DB column (NULL for session_import).
+	var recordingMetadataJSON []byte
+	if b.RecordingMetadata != nil {
+		recordingMetadataJSON, err = json.Marshal(b.RecordingMetadata)
+		if err != nil {
+			return "", fmt.Errorf("bundles/save: marshal recording_metadata: %w", err)
+		}
+	}
+
+	// 11. Insert row.
 	const q = `
 INSERT INTO dast_auth_bundles (
     id, customer_id, project_id, target_host, target_principal,
@@ -175,14 +184,16 @@ INSERT INTO dast_auth_bundles (
     iv, ciphertext_ref, wrapped_dek, kms_key_id, kms_key_version,
     integrity_hmac, schema_version,
     created_by_user_id, created_at, expires_at,
-    captcha_in_flow, automatable_refresh, ttl_seconds
+    captcha_in_flow, automatable_refresh, ttl_seconds,
+    recording_metadata
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, 'pending_review',
     $7, $8, $9, $10, $11,
     $12, $13,
     $14, $15, $16,
-    $17, $18, $19
+    $17, $18, $19,
+    $20
 )`
 	_, err = s.pool.Exec(ctx, q,
 		b.ID, b.CustomerID, b.ProjectID, b.TargetHost, nullableString(b.TargetPrincipal),
@@ -191,6 +202,7 @@ INSERT INTO dast_auth_bundles (
 		integrityHMAC, b.SchemaVersion,
 		b.CreatedByUserID, b.CreatedAt, b.ExpiresAt,
 		b.CaptchaInFlow, b.AutomatableRefresh, b.TTLSeconds,
+		nullableBytes(recordingMetadataJSON),
 	)
 	if err != nil {
 		return "", fmt.Errorf("bundles/save: insert: %w", err)
@@ -218,7 +230,8 @@ SELECT
     iv, ciphertext_ref, wrapped_dek, kms_key_version,
     integrity_hmac,
     created_by_user_id, created_at, expires_at,
-    captcha_in_flow, automatable_refresh, ttl_seconds
+    captcha_in_flow, automatable_refresh, ttl_seconds,
+    recording_metadata
 FROM dast_auth_bundles
 WHERE id = $1 AND customer_id = $2`
 
@@ -235,6 +248,7 @@ WHERE id = $1 AND customer_id = $2`
 		createdAt, expiresAt                       time.Time
 		captchaInFlow, automatableRefresh          bool
 		ttlSeconds                                 int
+		recordingMetadataRaw                       []byte
 	)
 
 	err := row.Scan(
@@ -244,6 +258,7 @@ WHERE id = $1 AND customer_id = $2`
 		&integrityHMAC,
 		&createdByUserID, &createdAt, &expiresAt,
 		&captchaInFlow, &automatableRefresh, &ttlSeconds,
+		&recordingMetadataRaw,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -312,6 +327,16 @@ WHERE id = $1 AND customer_id = $2`
 	b.CustomerID = bCustomerID
 	if bTargetPrincipal != nil {
 		b.TargetPrincipal = *bTargetPrincipal
+	}
+
+	// recording_metadata: prefer the decrypted blob's value (already in b if
+	// it was serialized there). If the blob predates the field, fall back to
+	// the DB column.
+	if b.RecordingMetadata == nil && len(recordingMetadataRaw) > 0 {
+		var rm RecordingMetadata
+		if err := json.Unmarshal(recordingMetadataRaw, &rm); err == nil {
+			b.RecordingMetadata = &rm
+		}
 	}
 
 	// 8. Emit audit event (best-effort; ignore error).
@@ -445,6 +470,14 @@ func nullableString(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// nullableBytes returns nil (SQL NULL) for an empty/nil slice, otherwise the slice.
+func nullableBytes(b []byte) []byte {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 // Ensure compile-time interface satisfaction.
