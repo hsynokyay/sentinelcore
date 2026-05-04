@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
+	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
@@ -35,16 +36,24 @@ type ServerConfig struct {
 
 // Server is the control plane HTTP server.
 type Server struct {
-	cfg      ServerConfig
-	logger   zerolog.Logger
-	pool     *pgxpool.Pool
-	jwtMgr   *auth.JWTManager
-	sessions *auth.SessionStore
-	emitter  *audit.Emitter
-	limiter  *ratelimit.Limiter
-	js       jetstream.JetStream
-	nc       *nats.Conn      // for health checks
-	redis    *redis.Client   // for health checks
+	cfg         ServerConfig
+	logger      zerolog.Logger
+	pool        *pgxpool.Pool
+	jwtMgr      *auth.JWTManager
+	sessions    *auth.SessionStore
+	emitter     *audit.Emitter
+	limiter     *ratelimit.Limiter
+	js          jetstream.JetStream
+	nc          *nats.Conn      // for health checks
+	redis       *redis.Client   // for health checks
+	bundleStore bundles.BundleStore // nil until SetBundleStore is called
+}
+
+// SetBundleStore configures the DAST bundle store used by the bundles CRUD
+// endpoints. Must be called before Start if bundle endpoints are needed;
+// without it the endpoints return 503 Service Unavailable.
+func (s *Server) SetBundleStore(store bundles.BundleStore) {
+	s.bundleStore = store
 }
 
 // NewServer creates a new control plane server.
@@ -310,6 +319,25 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Audit log
 	mux.HandleFunc("GET /api/v1/audit", handlers.ListAuditEvents)
+
+	// DAST auth bundles. The store is set via SetBundleStore; if nil the handler
+	// returns 503 so the rest of the server stays functional during incremental
+	// rollout. Auth is enforced by the global conditionalAuthMiddleware above.
+	bundlesHandler := NewBundlesHandler(s.bundleStore)
+	mux.HandleFunc("POST /api/v1/dast/bundles", func(w http.ResponseWriter, r *http.Request) {
+		if s.bundleStore == nil {
+			http.Error(w, "bundle store not configured", http.StatusServiceUnavailable)
+			return
+		}
+		bundlesHandler.Create(w, r)
+	})
+	mux.HandleFunc("POST /api/v1/dast/bundles/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+		if s.bundleStore == nil {
+			http.Error(w, "bundle store not configured", http.StatusServiceUnavailable)
+			return
+		}
+		bundlesHandler.Revoke(w, r)
+	})
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
