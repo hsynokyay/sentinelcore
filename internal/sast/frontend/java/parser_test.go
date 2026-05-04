@@ -328,6 +328,52 @@ public class CookiePos extends HttpServlet {
 	}
 }
 
+// TestJavaEnclosingFunctionTextPopulated verifies that every Call instruction
+// emitted inside a method body has EnclosingFunctionText set to the verbatim
+// source text of that method body, and that the text contains sibling calls
+// visible in the same scope. This is required by cookie security rules that
+// need to detect addCookie calls where setSecure was NOT called in the same
+// method.
+func TestJavaEnclosingFunctionTextPopulated(t *testing.T) {
+	src := []byte(`
+import javax.servlet.http.*;
+
+public class Demo extends HttpServlet {
+    public void doGet(HttpServletRequest req, HttpServletResponse resp) {
+        Cookie c = new Cookie("session", "abc");
+        c.setSecure(true);
+        c.setHttpOnly(true);
+        resp.addCookie(c);
+    }
+}
+`)
+	mod := ParseSource("test.java", src)
+	var found *ir.Instruction
+	for _, c := range mod.Classes {
+		for _, m := range c.Methods {
+			for _, b := range m.Blocks {
+				for _, inst := range b.Instructions {
+					if inst.Op == ir.OpCall && inst.Callee == "addCookie" {
+						found = inst
+					}
+				}
+			}
+		}
+	}
+	if found == nil {
+		t.Fatal("addCookie call not found")
+	}
+	if found.EnclosingFunctionText == "" {
+		t.Fatal("EnclosingFunctionText not populated")
+	}
+	if !containsSubstr(found.EnclosingFunctionText, "setSecure(true)") {
+		t.Errorf("expected EnclosingFunctionText to contain 'setSecure(true)', got: %q", found.EnclosingFunctionText)
+	}
+	if !containsSubstr(found.EnclosingFunctionText, "addCookie(c)") {
+		t.Errorf("expected EnclosingFunctionText to contain 'addCookie(c)', got: %q", found.EnclosingFunctionText)
+	}
+}
+
 func containsSubstr(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
 		func() bool {

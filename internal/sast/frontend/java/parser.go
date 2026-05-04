@@ -154,6 +154,13 @@ type parser struct {
 	// fieldTypes maps class-level field names to their resolved FQN types,
 	// used by the receiver resolver for calls like `log.info(...)`.
 	fieldTypes map[string]string
+
+	// currentFuncText holds the verbatim source text of the innermost method
+	// body currently being parsed (from the opening '{' to the closing '}',
+	// inclusive). It is set in beginMethod and cleared in popBrace when the
+	// kindMethodBody brace is popped. Every Call instruction emitted while
+	// inside a method body copies this value into EnclosingFunctionText.
+	currentFuncText string
 }
 
 // methodCtx bundles the ir.Function being populated with its current basic
@@ -499,6 +506,24 @@ func (p *parser) matchParen(openIdx int) int {
 	return -1
 }
 
+// matchBrace returns the index of the '}' that matches the '{' at openIdx,
+// or -1 if no match is found before EOF.
+func (p *parser) matchBrace(openIdx int) int {
+	depth := 0
+	for i := openIdx; i < len(p.tokens); i++ {
+		t := p.tokens[i]
+		if t.Kind == TokPunct && t.Val == "{" {
+			depth++
+		} else if t.Kind == TokPunct && t.Val == "}" {
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
 // beginMethod creates a Function and enters its body.
 // parenOpen/parenClose are the indices of the parameter list parens.
 // braceIdx is the index of the '{' token that starts the body.
@@ -531,6 +556,23 @@ func (p *parser) beginMethod(name string, line, col, parenOpen, parenClose, brac
 	// receiver resolver match `request.getParameter(...)` when `request` is
 	// declared as `HttpServletRequest`.
 	p.seedParamTypes(mctx, parenOpen, parenClose)
+
+	// Capture the verbatim source text of the method body (from '{' to the
+	// matching '}', inclusive) so that every Call instruction emitted inside
+	// this method can carry EnclosingFunctionText. We scan ahead for the
+	// matching '}' now while all tokens are available; the walk then proceeds
+	// token-by-token from braceIdx+1 as normal.
+	closeIdx := p.matchBrace(braceIdx)
+	if closeIdx >= 0 {
+		openTok := p.tokens[braceIdx]
+		closeTok := p.tokens[closeIdx]
+		p.currentFuncText = p.srcSpan(
+			openTok.Line, openTok.Col,
+			closeTok.Line, closeTok.Col+len(closeTok.Val),
+		)
+	} else {
+		p.currentFuncText = ""
+	}
 
 	p.methodStack = append(p.methodStack, mctx)
 	p.braceStack = append(p.braceStack, kindMethodBody)
@@ -796,15 +838,16 @@ func (p *parser) parseExpressionAtom() ir.ValueID {
 				callText := p.callSiteTextByTokens(newTokIdx, closeIdx)
 				resultVal := ctx.newValue()
 				ctx.emit(&ir.Instruction{
-					Op:            ir.OpCall,
-					Result:        resultVal,
-					ResultType:    ir.Nominal(fqn),
-					ReceiverType:  fqn,
-					Callee:        "<init>",
-					CalleeFQN:     fqn + ".<init>",
-					Operands:      args,
-					Loc:           ir.Location{Line: classLine, Column: classCol},
-					ArgSourceText: []string{callText},
+					Op:                    ir.OpCall,
+					Result:                resultVal,
+					ResultType:            ir.Nominal(fqn),
+					ReceiverType:          fqn,
+					Callee:                "<init>",
+					CalleeFQN:             fqn + ".<init>",
+					Operands:              args,
+					Loc:                   ir.Location{Line: classLine, Column: classCol},
+					ArgSourceText:         []string{callText},
+					EnclosingFunctionText: p.currentFuncText,
 				})
 				return resultVal
 			}
@@ -901,15 +944,16 @@ func (p *parser) emitCallFromExpression(chainStartIdx, calleeIdx int) ir.ValueID
 	callText := p.callSiteTextByTokens(chainStartIdx, closeIdx)
 	resultVal := ctx.newValue()
 	inst := &ir.Instruction{
-		Op:            ir.OpCall,
-		Result:        resultVal,
-		ResultType:    ir.Unknown(),
-		ReceiverType:  receiverFQN,
-		Callee:        callee,
-		CalleeFQN:     calleeFQN,
-		Operands:      args,
-		Loc:           ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
-		ArgSourceText: []string{callText},
+		Op:                    ir.OpCall,
+		Result:                resultVal,
+		ResultType:            ir.Unknown(),
+		ReceiverType:          receiverFQN,
+		Callee:                callee,
+		CalleeFQN:             calleeFQN,
+		Operands:              args,
+		Loc:                   ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
+		ArgSourceText:         []string{callText},
+		EnclosingFunctionText: p.currentFuncText,
 	}
 	ctx.emit(inst)
 	return resultVal
@@ -1163,13 +1207,14 @@ func (p *parser) tryEmitCall() {
 	if len(p.methodStack) > 0 {
 		ctx := p.methodStack[len(p.methodStack)-1]
 		inst := &ir.Instruction{
-			Op:            ir.OpCall,
-			ReceiverType:  receiverFQN,
-			Callee:        callee,
-			CalleeFQN:     calleeFQN,
-			Operands:      args,
-			Loc:           ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
-			ArgSourceText: []string{callText},
+			Op:                    ir.OpCall,
+			ReceiverType:          receiverFQN,
+			Callee:                callee,
+			CalleeFQN:             calleeFQN,
+			Operands:              args,
+			Loc:                   ir.Location{Line: calleeTok.Line, Column: calleeTok.Col},
+			ArgSourceText:         []string{callText},
+			EnclosingFunctionText: p.currentFuncText,
 		}
 		ctx.block.Instructions = append(ctx.block.Instructions, inst)
 	}
@@ -1355,6 +1400,7 @@ func (p *parser) popBrace() {
 		if len(p.methodStack) > 0 {
 			p.methodStack = p.methodStack[:len(p.methodStack)-1]
 		}
+		p.currentFuncText = ""
 	}
 }
 
