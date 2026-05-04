@@ -25,6 +25,11 @@ func main() {
 		}
 	case "version":
 		cli.PrintVersion()
+	case "dast":
+		if err := runDastCommand(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -39,6 +44,7 @@ func printUsage() {
 	fmt.Println("  bootstrap  Initialize the system with default org, team, and admin user")
 	fmt.Println("  update     Manage secure updates (verify-bundle, trust-status, lockdown)")
 	fmt.Println("  version    Show version information")
+	fmt.Println("  dast       DAST commands (record, ...)")
 	fmt.Println()
 	fmt.Println("Bootstrap options:")
 	fmt.Println("  --admin-email <email>       Admin email address")
