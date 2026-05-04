@@ -21,12 +21,13 @@ func NewBundlesHandler(store bundles.BundleStore) *BundlesHandler {
 }
 
 type createBundleRequest struct {
-	ProjectID       string                 `json:"project_id"`
-	TargetHost      string                 `json:"target_host"`
-	Type            string                 `json:"type"`
-	CapturedSession bundles.SessionCapture `json:"captured_session"`
-	TTLSeconds      int                    `json:"ttl_seconds"`
-	ACL             []aclEntry             `json:"acl"`
+	ProjectID         string                     `json:"project_id"`
+	TargetHost        string                     `json:"target_host"`
+	Type              string                     `json:"type"`
+	CapturedSession   bundles.SessionCapture     `json:"captured_session"`
+	TTLSeconds        int                        `json:"ttl_seconds"`
+	ACL               []aclEntry                 `json:"acl"`
+	RecordingMetadata *bundles.RecordingMetadata `json:"recording_metadata,omitempty"`
 }
 
 type aclEntry struct {
@@ -56,8 +57,12 @@ func (h *BundlesHandler) Create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.ProjectID == "" || req.TargetHost == "" || req.Type != "session_import" {
-		http.Error(w, "invalid request: project_id, target_host, type=session_import required", http.StatusBadRequest)
+	if req.ProjectID == "" || req.TargetHost == "" {
+		http.Error(w, "invalid request: project_id and target_host are required", http.StatusBadRequest)
+		return
+	}
+	if req.Type != "session_import" && req.Type != "recorded_login" {
+		http.Error(w, "invalid type: must be session_import or recorded_login", http.StatusBadRequest)
 		return
 	}
 	if req.TTLSeconds <= 0 {
@@ -69,13 +74,14 @@ func (h *BundlesHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	b := &bundles.Bundle{
-		ProjectID:       req.ProjectID,
-		TargetHost:      req.TargetHost,
-		Type:            req.Type,
-		CapturedSession: req.CapturedSession,
-		CreatedByUserID: userID,
-		TTLSeconds:      req.TTLSeconds,
-		CreatedAt:       time.Now(),
+		ProjectID:         req.ProjectID,
+		TargetHost:        req.TargetHost,
+		Type:              req.Type,
+		CapturedSession:   req.CapturedSession,
+		CreatedByUserID:   userID,
+		TTLSeconds:        req.TTLSeconds,
+		CreatedAt:         time.Now(),
+		RecordingMetadata: req.RecordingMetadata,
 	}
 	id, err := h.store.Save(r.Context(), b, customerID)
 	if err != nil {
