@@ -16,6 +16,7 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
@@ -108,11 +109,30 @@ func (r *Recorder) Run(ctx context.Context) (*RecordedSession, error) {
 					Timestamp: time.Now().UTC(),
 				})
 			}
+		case *runtime.EventBindingCalled:
+			if e.Name != "__sentinel_emit" {
+				return
+			}
+			a, err := ParseAndValidate(e.Payload)
+			if err != nil {
+				// Drop invalid events — they are not fatal.
+				return
+			}
+			r.recordAction(a)
 		}
 	})
 
 	if err := chromedp.Run(timeoutCtx,
 		network.Enable(),
+		chromedp.ActionFunc(func(c context.Context) error {
+			if err := runtime.AddBinding("__sentinel_emit").Do(c); err != nil {
+				return fmt.Errorf("recording: add binding: %w", err)
+			}
+			if _, err := page.AddScriptToEvaluateOnNewDocument(captureScript).Do(c); err != nil {
+				return fmt.Errorf("recording: install capture script: %w", err)
+			}
+			return nil
+		}),
 		chromedp.Navigate(r.opts.TargetURL),
 	); err != nil {
 		return nil, fmt.Errorf("recording: initial navigate: %w", err)
