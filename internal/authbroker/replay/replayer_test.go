@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,4 +103,53 @@ func TestEngine_NoActions(t *testing.T) {
 
 func TestEngine_LiveBrowserSkipped(t *testing.T) {
 	t.Skip("live chromedp run requires Chrome binary")
+}
+
+func TestEngine_Replay_PrincipalMismatch(t *testing.T) {
+	e := NewEngine()
+	b := &bundles.Bundle{
+		ID:              "11111111-1111-1111-1111-111111111111",
+		Type:            "recorded_login",
+		TargetHost:      "app.bank.tld",
+		TargetPrincipal: "alice",
+		ExpiresAt:       time.Now().Add(time.Hour),
+		Actions: []bundles.Action{
+			{Kind: bundles.ActionNavigate, URL: "https://app.bank.tld/x"},
+		},
+	}
+	ctx := ContextWithExpectedPrincipal(context.Background(), "bob")
+	_, err := e.Replay(ctx, b)
+	if err == nil || !strings.Contains(err.Error(), "principal") {
+		t.Fatalf("expected principal mismatch, got %v", err)
+	}
+}
+
+func TestEngine_Replay_PrincipalNoBindingPasses(t *testing.T) {
+	// When the scan didn't supply an expected principal, replay must not
+	// fail on principal grounds (it'll fail later trying to launch chromedp,
+	// which is fine — we only assert the *order*: principal check is a no-op).
+	e := NewEngine()
+	b := &bundles.Bundle{
+		ID:              "11111111-1111-1111-1111-111111111111",
+		Type:            "recorded_login",
+		TargetHost:      "app.bank.tld",
+		TargetPrincipal: "alice",
+		ExpiresAt:       time.Now().Add(time.Hour),
+		Actions: []bundles.Action{
+			{Kind: bundles.ActionNavigate, URL: "https://app.bank.tld/x"},
+		},
+	}
+	// No ContextWithExpectedPrincipal call — scan didn't supply one.
+	_, err := e.Replay(context.Background(), b)
+	if err != nil && strings.Contains(err.Error(), "principal") {
+		t.Fatalf("principal must not error when scan-expected is empty, got %v", err)
+	}
+}
+
+func TestContextWithExpectedPrincipal_RoundTrip(t *testing.T) {
+	ctx := ContextWithExpectedPrincipal(context.Background(), "carol")
+	got, _ := ctx.Value(scanPrincipalKey{}).(string)
+	if got != "carol" {
+		t.Fatalf("got=%q want=carol", got)
+	}
 }
