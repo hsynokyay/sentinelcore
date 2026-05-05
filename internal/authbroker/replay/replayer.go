@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
+	"github.com/sentinelcore/sentinelcore/internal/dast/credentials"
 )
 
 // Engine drives recorded-login replay through chromedp with hardening checks
@@ -20,7 +21,8 @@ import (
 // per-action anomaly detection, and post-state verification).
 type Engine struct {
 	rateLimit *RateLimit
-	circuit   CircuitStore // optional; nil disables circuit checks
+	circuit   CircuitStore      // optional; nil disables circuit checks
+	creds     credentials.Store // optional; required only for bundles with ActionFill
 }
 
 // NewEngine returns an Engine with default rate limiting and no circuit.
@@ -33,6 +35,15 @@ func NewEngine() *Engine {
 // short-circuiting. Returns the receiver for chaining.
 func (e *Engine) WithCircuit(c CircuitStore) *Engine {
 	e.circuit = c
+	return e
+}
+
+// WithCredentials attaches a credentials.Store used by the action walker to
+// resolve ActionFill secrets. Returns the receiver for chaining. A nil store
+// means the engine will refuse to replay any bundle that contains an
+// ActionFill step.
+func (e *Engine) WithCredentials(s credentials.Store) *Engine {
+	e.creds = s
 	return e
 }
 
@@ -206,6 +217,13 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 			return nil, fmt.Errorf("replay: action %d is captcha_mark — automatable replay not possible", i)
 		case bundles.ActionClick:
 			// Click capture deferred; treat as no-op.
+		case bundles.ActionFill:
+			if e.creds == nil {
+				return nil, fmt.Errorf("replay: action %d is fill but no credential store configured", i)
+			}
+			if err := InjectFill(timeoutCtx, e.creds, bundleID, a); err != nil {
+				return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d: %w", i, err))
+			}
 		}
 
 		// NEW: per-action duration anomaly check.

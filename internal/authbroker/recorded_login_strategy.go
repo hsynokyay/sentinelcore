@@ -8,15 +8,19 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/internal/authbroker/replay"
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
+	"github.com/sentinelcore/sentinelcore/internal/dast/credentials"
 )
 
 // RecordedLoginStrategy authenticates by loading a bundle of type
 // 'recorded_login'. In v1 (one-shot mode), it returns the captured session
 // directly. Plan #4 adds automatable refresh that replays the recorded
-// action list to obtain a fresh session.
+// action list to obtain a fresh session. Plan #5 (PR C) adds a
+// credentials.Store so the replayer can resolve ActionFill secrets at
+// refresh time.
 type RecordedLoginStrategy struct {
 	Bundles  bundles.BundleStore
-	Replayer *replay.Engine // optional; nil disables automatable refresh
+	Replayer *replay.Engine    // optional; nil disables automatable refresh
+	Creds    credentials.Store // optional; required for bundles with ActionFill steps
 }
 
 func (s *RecordedLoginStrategy) Name() string { return "recorded_login" }
@@ -102,7 +106,11 @@ func (s *RecordedLoginStrategy) Refresh(ctx context.Context, _ *Session, cfg Aut
 		return nil, fmt.Errorf("recorded_login: replay engine not configured")
 	}
 
-	res, err := s.Replayer.Replay(ctx, b)
+	// Wire the credential store onto the engine so ActionFill steps can
+	// resolve secrets. Nil is permitted and simply means the replayer will
+	// refuse any bundle that has fill actions.
+	eng := s.Replayer.WithCredentials(s.Creds)
+	res, err := eng.Replay(ctx, b)
 	if err != nil {
 		return nil, fmt.Errorf("recorded_login: replay: %w", err)
 	}

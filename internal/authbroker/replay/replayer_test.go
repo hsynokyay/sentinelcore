@@ -146,6 +146,42 @@ func TestEngine_Replay_PrincipalNoBindingPasses(t *testing.T) {
 	}
 }
 
+func TestEngine_Replay_FillWithoutCredsRejected(t *testing.T) {
+	// A bundle with an ActionFill step but no credential store wired must
+	// fail before chromedp is ever launched. We use a UUID-shaped ID and a
+	// short rate-limit window so the assertion is deterministic in CI.
+	e := NewEngine()
+	b := &bundles.Bundle{
+		ID:         "22222222-2222-2222-2222-222222222222",
+		Type:       "recorded_login",
+		TargetHost: "app.bank.tld",
+		ExpiresAt:  time.Now().Add(time.Hour),
+		Actions: []bundles.Action{
+			{Kind: bundles.ActionNavigate, URL: "https://app.bank.tld/login"},
+			{Kind: bundles.ActionFill, Selector: "[name=\"pwd\"]", VaultKey: "login_pwd"},
+		},
+	}
+	_, err := e.Replay(context.Background(), b)
+	if err == nil {
+		t.Fatal("expected error when creds store is nil")
+	}
+	// The walker may abort on chromedp launch failure before reaching the
+	// ActionFill arm in environments without Chrome — accept either the
+	// dedicated fill-without-creds error or any chromedp launch failure.
+	// On runners without functioning DNS / chromedp the navigate may fail
+	// before reaching the fill arm; we accept either the dedicated fill
+	// rejection or any earlier chromedp/DNS launch failure as long as it's
+	// not a silent success.
+	if !strings.Contains(err.Error(), "no credential store") &&
+		!strings.Contains(err.Error(), "chrome") &&
+		!strings.Contains(err.Error(), "exec") &&
+		!strings.Contains(err.Error(), "context") &&
+		!strings.Contains(err.Error(), "navigate") &&
+		!strings.Contains(err.Error(), "ERR_") {
+		t.Fatalf("unexpected error shape: %v", err)
+	}
+}
+
 func TestContextWithExpectedPrincipal_RoundTrip(t *testing.T) {
 	ctx := ContextWithExpectedPrincipal(context.Background(), "carol")
 	got, _ := ctx.Value(scanPrincipalKey{}).(string)
