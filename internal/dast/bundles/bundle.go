@@ -65,6 +65,7 @@ type Bundle struct {
 	ProjectID       string `json:"project_id"`
 	TargetHost      string `json:"target_host"`
 	TargetPrincipal string `json:"target_principal,omitempty"`
+	PrincipalClaim  string `json:"principal_claim,omitempty"`
 	Type            string `json:"type"`
 
 	CapturedSession SessionCapture `json:"captured_session"`
@@ -84,12 +85,15 @@ type Bundle struct {
 // canonicalAction mirrors Action but serializes Timestamp as RFC3339Nano UTC
 // for determinism.
 type canonicalAction struct {
-	Kind      ActionKind `json:"kind"`
-	URL       string     `json:"url,omitempty"`
-	Selector  string     `json:"selector,omitempty"`
-	MinWaitMs int        `json:"min_wait_ms,omitempty"`
-	MaxWaitMs int        `json:"max_wait_ms,omitempty"`
-	Timestamp string     `json:"timestamp"`
+	Kind                  ActionKind `json:"kind"`
+	URL                   string     `json:"url,omitempty"`
+	Selector              string     `json:"selector,omitempty"`
+	VaultKey              string     `json:"vault_key,omitempty"`
+	ExpectedPostStateHash string     `json:"expected_post_state_hash,omitempty"`
+	DurationMs            int        `json:"duration_ms,omitempty"`
+	MinWaitMs             int        `json:"min_wait_ms,omitempty"`
+	MaxWaitMs             int        `json:"max_wait_ms,omitempty"`
+	Timestamp             string     `json:"timestamp"`
 }
 
 // canonicalBundle mirrors Bundle but uses canonicalSessionCapture so the
@@ -101,6 +105,7 @@ type canonicalBundle struct {
 	ProjectID       string                  `json:"project_id"`
 	TargetHost      string                  `json:"target_host"`
 	TargetPrincipal string                  `json:"target_principal,omitempty"`
+	PrincipalClaim  string                  `json:"principal_claim,omitempty"`
 	Type            string                  `json:"type"`
 	CapturedSession canonicalSessionCapture `json:"captured_session"`
 	Actions         []canonicalAction       `json:"actions,omitempty"`
@@ -134,12 +139,15 @@ func (b *Bundle) CanonicalJSON() ([]byte, error) {
 		canonActions = make([]canonicalAction, len(b.Actions))
 		for i, a := range b.Actions {
 			canonActions[i] = canonicalAction{
-				Kind:      a.Kind,
-				URL:       a.URL,
-				Selector:  a.Selector,
-				MinWaitMs: a.MinWaitMs,
-				MaxWaitMs: a.MaxWaitMs,
-				Timestamp: a.Timestamp.UTC().Format(time.RFC3339Nano),
+				Kind:                  a.Kind,
+				URL:                   a.URL,
+				Selector:              a.Selector,
+				VaultKey:              a.VaultKey,
+				ExpectedPostStateHash: a.ExpectedPostStateHash,
+				DurationMs:            a.DurationMs,
+				MinWaitMs:             a.MinWaitMs,
+				MaxWaitMs:             a.MaxWaitMs,
+				Timestamp:             a.Timestamp.UTC().Format(time.RFC3339Nano),
 			}
 		}
 	}
@@ -151,6 +159,7 @@ func (b *Bundle) CanonicalJSON() ([]byte, error) {
 		ProjectID:     b.ProjectID,
 		TargetHost:    b.TargetHost,
 		TargetPrincipal: b.TargetPrincipal,
+		PrincipalClaim:  b.PrincipalClaim,
 		Type:          b.Type,
 		CapturedSession: canonicalSessionCapture{
 			Cookies: b.CapturedSession.Cookies,
