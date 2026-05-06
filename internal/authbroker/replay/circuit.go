@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/sentinelcore/sentinelcore/internal/metrics"
 )
 
 // CircuitFailureThreshold is the number of consecutive replay failures after
@@ -50,11 +52,18 @@ func (s *PostgresCircuitStore) IsOpen(ctx context.Context, bundleID uuid.UUID) (
 	).Scan(&n)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			metrics.CircuitState.WithLabelValues(bundleID.String()).Set(0)
 			return false, nil
 		}
 		return false, fmt.Errorf("circuit: query: %w", err)
 	}
-	return n >= CircuitFailureThreshold, nil
+	open := n >= CircuitFailureThreshold
+	if open {
+		metrics.CircuitState.WithLabelValues(bundleID.String()).Set(1)
+	} else {
+		metrics.CircuitState.WithLabelValues(bundleID.String()).Set(0)
+	}
+	return open, nil
 }
 
 // RecordFailure increments the failure counter, creating the row if absent.

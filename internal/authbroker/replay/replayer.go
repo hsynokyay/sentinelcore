@@ -14,6 +14,7 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
 	"github.com/sentinelcore/sentinelcore/internal/dast/credentials"
+	"github.com/sentinelcore/sentinelcore/internal/metrics"
 )
 
 // Engine drives recorded-login replay through chromedp with hardening checks
@@ -75,15 +76,19 @@ type Result struct {
 func (e *Engine) Replay(ctx context.Context, b *bundles.Bundle) (*Result, error) {
 	// 1. Existing nil/type/expired/no-actions guards.
 	if b == nil {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: nil bundle")
 	}
 	if b.Type != "recorded_login" {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: wrong bundle type %q", b.Type)
 	}
 	if b.ExpiresAt.Before(time.Now()) {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: bundle expired")
 	}
 	if len(b.Actions) == 0 {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: bundle has no recorded actions")
 	}
 
@@ -100,26 +105,32 @@ func (e *Engine) Replay(ctx context.Context, b *bundles.Bundle) (*Result, error)
 		bid := mustParseUUID(b.ID)
 		open, err := e.circuit.IsOpen(ctx, bid)
 		if err != nil {
+			metrics.ReplayTotal.WithLabelValues("failure_circuit").Inc()
 			return nil, fmt.Errorf("replay: circuit check: %w", err)
 		}
 		if open {
+			metrics.ReplayTotal.WithLabelValues("failure_circuit").Inc()
 			return nil, fmt.Errorf("replay: circuit open for bundle %s (refresh_required)", b.ID)
 		}
 	}
 
 	// 4. Existing rate limit.
 	if err := e.rateLimit.Allow(b.ID, targetHost); err != nil {
+		metrics.ReplayTotal.WithLabelValues("failure_ratelimit").Inc()
 		return nil, err
 	}
 
 	// 5. Existing pre-flight host match.
 	if err := preflightHostMatch(b, targetHost); err != nil {
+		metrics.ReplayTotal.WithLabelValues("failure_host").Inc()
 		return nil, err
 	}
 
 	// 6. NEW: principal binding (only when a scan-expected principal is set).
 	if exp, _ := ctx.Value(scanPrincipalKey{}).(string); exp != "" {
 		if err := VerifyPrincipal(b.TargetPrincipal, exp); err != nil {
+			metrics.PrincipalMismatchTotal.Inc()
+			metrics.ReplayTotal.WithLabelValues("failure_principal").Inc()
 			return nil, fmt.Errorf("replay: %w", err)
 		}
 	}
@@ -134,6 +145,10 @@ func (e *Engine) Replay(ctx context.Context, b *bundles.Bundle) (*Result, error)
 
 	res, err := e.run(bctx, b, targetHost)
 	if err != nil {
+		// e.run is responsible for tagging the specific failure label
+		// (failure_action / failure_anomaly / failure_postate) before
+		// returning. The fall-through "failure_other" guard exists so any
+		// untagged path still ticks ReplayTotal.
 		return nil, err
 	}
 
@@ -141,6 +156,7 @@ func (e *Engine) Replay(ctx context.Context, b *bundles.Bundle) (*Result, error)
 	if e.circuit != nil {
 		_ = e.circuit.Reset(bctx, mustParseUUID(b.ID))
 	}
+	metrics.ReplayTotal.WithLabelValues("success").Inc()
 	return res, nil
 }
 
@@ -186,6 +202,7 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 	defer timeoutCancel()
 
 	if err := chromedp.Run(timeoutCtx, network.Enable()); err != nil {
+		metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
 		return nil, fmt.Errorf("replay: enable network: %w", err)
 	}
 
@@ -198,6 +215,7 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 		if err := chromedp.Run(timeoutCtx, chromedp.ActionFunc(func(ctx context.Context) error {
 			return expr.Do(ctx)
 		})); err != nil {
+			metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
 			return nil, fmt.Errorf("replay: set cookie %s: %w", cookie.Name, err)
 		}
 	}
@@ -209,30 +227,38 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 		switch a.Kind {
 		case bundles.ActionNavigate:
 			if err := chromedp.Run(timeoutCtx, chromedp.Navigate(a.URL)); err != nil {
+				metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
 				return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d navigate: %w", i, err))
 			}
 		case bundles.ActionWaitForLoad:
 			// chromedp.Navigate already waits.
 		case bundles.ActionCaptchaMark:
+			metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
 			return nil, fmt.Errorf("replay: action %d is captcha_mark — automatable replay not possible", i)
 		case bundles.ActionClick:
 			// Click capture deferred; treat as no-op.
 		case bundles.ActionFill:
 			if e.creds == nil {
+				metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
 				return nil, fmt.Errorf("replay: action %d is fill but no credential store configured", i)
 			}
 			if err := InjectFill(timeoutCtx, e.creds, bundleID, a); err != nil {
+				metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
 				return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d: %w", i, err))
 			}
 		}
 
 		// NEW: per-action duration anomaly check.
 		if err := CheckActionDuration(time.Since(actStart), a.DurationMs); err != nil {
+			metrics.AnomalyTotal.Inc()
+			metrics.ReplayTotal.WithLabelValues("failure_anomaly").Inc()
 			return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d: %w", i, err))
 		}
 
 		// NEW: post-state hash check (skipped when ExpectedPostStateHash is empty).
 		if err := VerifyPostState(timeoutCtx, a.ExpectedPostStateHash); err != nil {
+			metrics.PostStateMismatchTotal.Inc()
+			metrics.ReplayTotal.WithLabelValues("failure_postate").Inc()
 			return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d: %w", i, err))
 		}
 	}
@@ -240,6 +266,7 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 	var ua, finalURL string
 	cookies, err := fetchAllCookies(allocCtx)
 	if err != nil {
+		metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
 		return nil, fmt.Errorf("replay: fetch cookies: %w", err)
 	}
 	_ = chromedp.Run(allocCtx,
