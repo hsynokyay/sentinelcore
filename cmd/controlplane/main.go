@@ -10,10 +10,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/sentinelcore/sentinelcore/internal/controlplane"
 	"github.com/sentinelcore/sentinelcore/internal/dast/authz"
+	dastmetrics "github.com/sentinelcore/sentinelcore/internal/metrics"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
@@ -24,6 +26,15 @@ import (
 
 func main() {
 	logger := observability.NewLogger("controlplane")
+
+	// Register DAST replay + credential prometheus collectors against the
+	// default registry so they are exposed by the existing /metrics endpoint
+	// served on the metrics port. Register is idempotent (tolerates
+	// AlreadyRegisteredError) so a hot-reload or test re-init is safe.
+	// See internal/metrics/dast.go for the metric catalog.
+	if err := dastmetrics.Register(prometheus.DefaultRegisterer); err != nil {
+		logger.Fatal().Err(err).Msg("failed to register DAST metrics")
+	}
 
 	// Graceful shutdown: context cancelled on SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
