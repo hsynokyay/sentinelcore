@@ -7,7 +7,10 @@ import {
   activateEmergencyStop,
   liftEmergencyStop,
   listActiveEmergencyStops,
+  createApprovalRequest,
+  submitApprovalDecision,
   type ApprovalFilters,
+  type CreateApprovalRequestBody,
 } from "./api";
 import type { OrgSettings } from "@/lib/types";
 
@@ -23,6 +26,24 @@ export function useDecideApproval() {
   return useMutation({
     mutationFn: ({ id, decision, reason }: { id: string; decision: "approved" | "rejected"; reason: string }) =>
       decideApproval(id, decision, reason),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
+  });
+}
+
+// Phase-5 two-person rule mutations.
+export function useCreateApprovalRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateApprovalRequestBody) => createApprovalRequest(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
+  });
+}
+
+export function useSubmitApprovalDecision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, decision, reason }: { id: string; decision: "approve" | "reject"; reason: string }) =>
+      submitApprovalDecision(id, decision, reason),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["approvals"] }),
   });
 }

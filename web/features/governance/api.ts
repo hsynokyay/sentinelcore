@@ -25,6 +25,32 @@ export async function decideApproval(id: string, decision: "approved" | "rejecte
   return api.post(`/api/v1/governance/approvals/${id}/decide`, { decision, reason });
 }
 
+// Phase-5 two-person approval endpoint. Records a per-approver decision against
+// governance.approval_decisions; the controlplane auto-executes the gated
+// transition when the approval threshold is met.
+export interface CreateApprovalRequestBody {
+  request_type: string;
+  resource_type: string;
+  resource_id: string;
+  reason: string;
+  required_approvals: number;
+  target_transition: string;
+  project_id?: string;
+  team_id?: string;
+}
+
+export async function createApprovalRequest(body: CreateApprovalRequestBody): Promise<ApprovalRequest> {
+  return api.post<ApprovalRequest>("/api/v1/governance/approvals", body);
+}
+
+export async function submitApprovalDecision(
+  id: string,
+  decision: "approve" | "reject",
+  reason: string,
+): Promise<ApprovalRequest> {
+  return api.post<ApprovalRequest>(`/api/v1/governance/approvals/${id}/decisions`, { decision, reason });
+}
+
 export async function getSettings(): Promise<OrgSettings> {
   return api.get<OrgSettings>("/api/v1/governance/settings");
 }

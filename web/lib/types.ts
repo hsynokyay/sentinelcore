@@ -232,12 +232,19 @@ export interface ApprovalRequest {
   resource_id: string;
   requested_by: string;
   reason: string;
-  status: "pending" | "approved" | "rejected" | "expired";
+  // 'executed' = Phase-5 terminal state after governance auto-applies the gated transition.
+  status: "pending" | "approved" | "rejected" | "expired" | "executed";
   decided_by?: string;
   decision_reason?: string;
   decided_at?: string;
   expires_at?: string;
   created_at: string;
+  // Phase-5 two-person rule fields. Optional because legacy single-shot
+  // approvals don't populate them.
+  required_approvals?: number;
+  current_approvals?: number;
+  target_transition?: string;
+  project_id?: string;
 }
 
 export interface EmergencyStop {
