@@ -45,7 +45,7 @@ func TriageFinding(
 			ResourceID:   findingID,
 			Reason:       reason,
 		}
-		if err := CreateApprovalRequest(ctx, pool, userID, orgID, ar); err != nil {
+		if err := LegacyCreateApprovalRequest(ctx, pool, userID, orgID, ar); err != nil {
 			return nil, fmt.Errorf("governance: triage: create approval: %w", err)
 		}
 		return &TriageResult{

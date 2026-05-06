@@ -153,7 +153,7 @@ func (h *Handlers) DecideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := governance.DecideApproval(r.Context(), h.pool, user.UserID, user.OrgID, id, req.Decision, req.Reason); err != nil {
+	if err := governance.LegacyDecideApproval(r.Context(), h.pool, user.UserID, user.OrgID, id, req.Decision, req.Reason); err != nil {
 		h.logger.Error().Err(err).Str("id", id).Msg("failed to decide approval")
 		writeError(w, http.StatusUnprocessableEntity, err.Error(), "UNPROCESSABLE")
 		return
