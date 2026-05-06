@@ -298,6 +298,16 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("PUT /api/v1/governance/sla/policies/{project_id}", handlers.PutProjectSLAPolicyHandler)
 	mux.HandleFunc("DELETE /api/v1/governance/sla/policies/{project_id}", handlers.DeleteProjectSLAPolicyHandler)
 
+	// Phase 5 governance-ops: compliance catalogs + mappings.
+	mux.HandleFunc("GET /api/v1/compliance/catalogs", handlers.ListComplianceCatalogs)
+	mux.HandleFunc("POST /api/v1/compliance/catalogs", handlers.CreateComplianceCatalog)
+	mux.HandleFunc("GET /api/v1/compliance/catalogs/{catalog_id}/items", handlers.ListComplianceCatalogItems)
+	mux.HandleFunc("POST /api/v1/compliance/catalogs/{catalog_id}/items", handlers.CreateComplianceItem)
+	mux.HandleFunc("GET /api/v1/compliance/mappings", handlers.ListComplianceMappings)
+	mux.HandleFunc("POST /api/v1/compliance/mappings", handlers.CreateComplianceMapping)
+	mux.HandleFunc("DELETE /api/v1/compliance/mappings/{id}", handlers.DeleteComplianceMapping)
+	mux.HandleFunc("GET /api/v1/compliance/resolve", handlers.ResolveComplianceControls)
+
 	// Finding extensions
 	mux.HandleFunc("POST /api/v1/findings/{id}/assign", handlers.AssignFinding)
 	mux.HandleFunc("POST /api/v1/findings/{id}/legal-hold", handlers.SetLegalHold)
