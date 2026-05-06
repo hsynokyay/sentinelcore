@@ -285,6 +285,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/governance/approvals", handlers.ListApprovals)
 	mux.HandleFunc("GET /api/v1/governance/approvals/{id}", handlers.GetApproval)
 	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decide", handlers.DecideApproval)
+	// Phase 5 governance-ops: two-person approvals.
+	mux.HandleFunc("POST /api/v1/governance/approvals", handlers.CreateApprovalRequestHandler)
+	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decisions", handlers.SubmitApprovalDecision)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop", handlers.ActivateEmergencyStop)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop/lift", handlers.LiftEmergencyStop)
 	mux.HandleFunc("GET /api/v1/governance/emergency-stop/active", handlers.ListActiveEmergencyStops)
