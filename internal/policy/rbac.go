@@ -25,6 +25,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		"governance.settings.read": true, "governance.settings.write": true,
 		"governance.approvals.read": true, "governance.approvals.decide": true,
 		"governance.emergency_stop.activate": true, "governance.emergency_stop.lift": true,
+		// Phase 5 governance-ops: SLA dashboard + per-project policies.
+		"governance.sla.read": true, "governance.sla.write": true,
 		"webhooks.read": true, "webhooks.manage": true,
 		"retention.read": true, "retention.manage": true,
 		"reports.read": true,
@@ -41,6 +43,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		"governance.settings.read": true, "governance.settings.write": true,
 		"governance.approvals.read": true, "governance.approvals.decide": true,
 		"governance.emergency_stop.activate": true,
+		// Phase 5 governance-ops: SLA dashboard + per-project policies.
+		"governance.sla.read": true, "governance.sla.write": true,
 		"webhooks.read": true, "webhooks.manage": true,
 		"retention.read": true,
 		"reports.read": true,
@@ -54,6 +58,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		"artifacts.read": true, "artifacts.create": true,
 		// Phase 4: governance
 		"governance.approvals.read": true,
+		// Phase 5 governance-ops: analysts read but don't write SLA policies.
+		"governance.sla.read": true,
 		"webhooks.read": true,
 		"reports.read": true,
 	},
@@ -65,6 +71,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		// Phase 4: governance
 		"governance.settings.read": true,
 		"governance.approvals.read": true,
+		// Phase 5 governance-ops: auditor reads SLA dashboard, no write.
+		"governance.sla.read": true,
 		"webhooks.read": true,
 		"retention.read": true,
 		"reports.read": true,

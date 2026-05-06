@@ -291,6 +291,12 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop", handlers.ActivateEmergencyStop)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop/lift", handlers.LiftEmergencyStop)
 	mux.HandleFunc("GET /api/v1/governance/emergency-stop/active", handlers.ListActiveEmergencyStops)
+	// Phase 5 governance-ops: SLA dashboard + per-project policies.
+	mux.HandleFunc("GET /api/v1/governance/sla/dashboard", handlers.SLADashboard)
+	mux.HandleFunc("GET /api/v1/governance/sla/violations", handlers.ListSLAViolationsHandler)
+	mux.HandleFunc("GET /api/v1/governance/sla/policies/{project_id}", handlers.GetProjectSLAPolicyHandler)
+	mux.HandleFunc("PUT /api/v1/governance/sla/policies/{project_id}", handlers.PutProjectSLAPolicyHandler)
+	mux.HandleFunc("DELETE /api/v1/governance/sla/policies/{project_id}", handlers.DeleteProjectSLAPolicyHandler)
 
 	// Finding extensions
 	mux.HandleFunc("POST /api/v1/findings/{id}/assign", handlers.AssignFinding)
