@@ -147,7 +147,7 @@ func TestSec07_CircuitOpensAfter3(t *testing.T) {
 	sec07MustInsertBundle(t, pool, id)
 
 	for i := 0; i < 3; i++ {
-		if err := s.RecordFailure(ctx, id, "boom"); err != nil {
+		if err := s.RecordFailure(ctx, id, "boom", ""); err != nil {
 			t.Fatalf("RecordFailure %d: %v", i+1, err)
 		}
 	}

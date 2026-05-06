@@ -65,7 +65,7 @@ func TestCircuit_OpensAfter3Failures(t *testing.T) {
 	mustInsertBundle(t, pool, id)
 
 	for i := 0; i < 2; i++ {
-		if err := s.RecordFailure(ctx, id, "boom"); err != nil {
+		if err := s.RecordFailure(ctx, id, "boom", ""); err != nil {
 			t.Fatal(err)
 		}
 		open, err := s.IsOpen(ctx, id)
@@ -76,7 +76,7 @@ func TestCircuit_OpensAfter3Failures(t *testing.T) {
 			t.Fatalf("opened too early after %d failures", i+1)
 		}
 	}
-	if err := s.RecordFailure(ctx, id, "boom"); err != nil {
+	if err := s.RecordFailure(ctx, id, "boom", ""); err != nil {
 		t.Fatal(err)
 	}
 	open, err := s.IsOpen(ctx, id)
@@ -97,7 +97,7 @@ func TestCircuit_ResetClosesIt(t *testing.T) {
 	mustInsertBundle(t, pool, id)
 
 	for i := 0; i < 3; i++ {
-		if err := s.RecordFailure(ctx, id, "boom"); err != nil {
+		if err := s.RecordFailure(ctx, id, "boom", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
