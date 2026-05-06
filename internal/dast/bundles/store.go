@@ -234,7 +234,8 @@ SELECT
     integrity_hmac,
     created_by_user_id, created_at, expires_at,
     captcha_in_flow, automatable_refresh, ttl_seconds,
-    recording_metadata
+    recording_metadata,
+    superseded_by
 FROM dast_auth_bundles
 WHERE id = $1 AND customer_id = $2`
 
@@ -252,6 +253,7 @@ WHERE id = $1 AND customer_id = $2`
 		captchaInFlow, automatableRefresh          bool
 		ttlSeconds                                 int
 		recordingMetadataRaw                       []byte
+		supersededBy                               *string
 	)
 
 	err := row.Scan(
@@ -262,6 +264,7 @@ WHERE id = $1 AND customer_id = $2`
 		&createdByUserID, &createdAt, &expiresAt,
 		&captchaInFlow, &automatableRefresh, &ttlSeconds,
 		&recordingMetadataRaw,
+		&supersededBy,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -330,6 +333,10 @@ WHERE id = $1 AND customer_id = $2`
 	b.CustomerID = bCustomerID
 	if bTargetPrincipal != nil {
 		b.TargetPrincipal = *bTargetPrincipal
+	}
+	b.Status = bStatus
+	if supersededBy != nil {
+		b.SupersededBy = *supersededBy
 	}
 
 	// recording_metadata: prefer the decrypted blob's value (already in b if
@@ -465,6 +472,49 @@ func (s *PostgresStore) CheckACL(ctx context.Context, bundleID, projectID string
 		return false, fmt.Errorf("bundles/check-acl: %w", err)
 	}
 	return count > 0, nil
+}
+
+// MarkSupersededBy atomically transitions the source bundle to status
+// 'superseded' and stores the new bundle ID in the superseded_by column.
+// The update is gated on the current row NOT already being superseded so
+// concurrent re-records cannot lose a link.
+//
+// Returns ErrBundleNotFound if no row matches (id, customerID); returns
+// ErrAlreadySuperseded if the row exists but is already superseded.
+func (s *PostgresStore) MarkSupersededBy(ctx context.Context, srcID, newID, customerID string) error {
+	const q = `
+UPDATE dast_auth_bundles
+   SET status        = 'superseded',
+       superseded_by = $2,
+       metadata_jsonb = metadata_jsonb || jsonb_build_object('superseded_at', $3::text)
+ WHERE id = $1
+   AND customer_id = $4
+   AND status <> 'superseded'`
+	tag, err := s.pool.Exec(ctx, q, srcID, newID, s.now().UTC().Format(time.RFC3339Nano), customerID)
+	if err != nil {
+		return fmt.Errorf("bundles/mark-superseded: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Distinguish "missing" from "already superseded" with a follow-up
+		// SELECT. This is best-effort; if the SELECT fails we report the
+		// most-likely case (not found).
+		var existingStatus string
+		row := s.pool.QueryRow(ctx,
+			`SELECT status FROM dast_auth_bundles WHERE id = $1 AND customer_id = $2`,
+			srcID, customerID)
+		if err := row.Scan(&existingStatus); err != nil {
+			return ErrBundleNotFound
+		}
+		if existingStatus == "superseded" {
+			return ErrAlreadySuperseded
+		}
+		return ErrBundleNotFound
+	}
+	_ = s.audit.Write(ctx, "dast.recording.superseded", srcID, map[string]any{
+		"new_bundle_id": newID,
+		"customer_id":   customerID,
+	})
+	return nil
 }
 
 // nullableString converts an empty Go string to a typed nil (SQL NULL).

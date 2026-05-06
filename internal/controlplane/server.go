@@ -376,6 +376,17 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("POST /api/v1/dast/bundles/{id}/circuit/reset",
 		authz.RequireDASTRole(effectiveRoleStore, authz.RoleRecordingAdmin)(CircuitResetHandler(s.circuitStore)))
 
+	// Bundle re-record — recording_admin only. Supersedes the source bundle
+	// and returns a fresh pending_review draft id for the operator to record
+	// against. Wired via the BundleStore (PostgresStore satisfies the
+	// narrower bundles.ReRecordStore interface that ReRecord requires).
+	var reRecordStore bundles.ReRecordStore
+	if rrs, ok := s.bundleStore.(bundles.ReRecordStore); ok {
+		reRecordStore = rrs
+	}
+	mux.Handle("POST /api/v1/dast/bundles/{id}/re-record",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleRecordingAdmin)(ReRecordHandler(reRecordStore)))
+
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
 

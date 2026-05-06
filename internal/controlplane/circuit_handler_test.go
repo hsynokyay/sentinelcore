@@ -19,7 +19,7 @@ type fakeCircuit struct {
 func (f *fakeCircuit) IsOpen(_ context.Context, _ uuid.UUID) (bool, error) {
 	return false, nil
 }
-func (f *fakeCircuit) RecordFailure(_ context.Context, _ uuid.UUID, _ string) error {
+func (f *fakeCircuit) RecordFailure(_ context.Context, _ uuid.UUID, _, _ string) error {
 	return nil
 }
 func (f *fakeCircuit) Reset(_ context.Context, _ uuid.UUID) error {

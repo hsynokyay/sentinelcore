@@ -23,6 +23,8 @@ func runDastCommand(args []string) error {
 		return runDastRecord(args[1:])
 	case "credentials":
 		return runDastCredentials(args[1:])
+	case "bundles":
+		return cli.RunBundlesCommand(args[1:], cli.NewBundlesDeps())
 	default:
 		printDastUsage()
 		return fmt.Errorf("dast: unknown subcommand %q", args[0])
@@ -35,6 +37,7 @@ func printDastUsage() {
 	fmt.Fprintln(os.Stderr, "Subcommands:")
 	fmt.Fprintln(os.Stderr, "  record         Record an authenticated session for DAST scanning")
 	fmt.Fprintln(os.Stderr, "  credentials    Manage replay credentials (add|list|remove)")
+	fmt.Fprintln(os.Stderr, "  bundles        List bundles or re-record an existing one")
 }
 
 // runDastCredentials wires a credentials.PostgresStore from env settings and
