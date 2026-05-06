@@ -35,7 +35,7 @@ func TriageFinding(
 	}
 
 	// Step 2: check if approval is required.
-	if NeedsApproval(toStatus, settings) {
+	if NeedsApprovalForSettings(toStatus, settings) {
 		ar := &ApprovalRequest{
 			ID:           uuid.New().String(),
 			OrgID:        orgID,
