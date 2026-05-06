@@ -4,13 +4,17 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/sentinelcore/sentinelcore/internal/compliance"
 	"github.com/sentinelcore/sentinelcore/internal/export"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
+	"github.com/sentinelcore/sentinelcore/internal/remediation"
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
@@ -140,7 +144,70 @@ func (h *Handlers) loadFindingForExport(w http.ResponseWriter, r *http.Request) 
 		f.Remediation = h.remediation.Get(f.RuleID)
 	}
 
+	// Resolve compliance controls so SARIF / Markdown exports surface
+	// OWASP / PCI / NIST tags. Failures are non-fatal — a finding with
+	// no resolved CWE simply ships without compliance metadata.
+	if orgID, perr := uuid.Parse(user.OrgID); perr == nil {
+		f.ControlRefs = resolveControlRefsForFinding(r.Context(), h.pool, orgID, f.Remediation)
+	}
+
 	return f, true
+}
+
+// cweIDsFromRemediation returns the integer CWE ids referenced in a
+// remediation pack (its References slice carries titles like "CWE-79").
+// Returns nil when the pack is nil or has no CWE entries.
+func cweIDsFromRemediation(pack *remediation.Pack) []int {
+	if pack == nil {
+		return nil
+	}
+	var out []int
+	for _, ref := range pack.References {
+		title := strings.TrimSpace(ref.Title)
+		if !strings.HasPrefix(title, "CWE-") {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimPrefix(title, "CWE-"))
+		if err != nil || n <= 0 {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// resolveControlRefsForFinding walks the pack's CWE references,
+// resolves each via compliance.ResolveControls, and returns a deduped
+// deterministic slice for the exporter. Resolution failures are
+// silent — a missing built-in catalog should not break the export.
+func resolveControlRefsForFinding(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID, pack *remediation.Pack) []export.ControlRef {
+	cwes := cweIDsFromRemediation(pack)
+	if len(cwes) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []export.ControlRef
+	for _, cwe := range cwes {
+		refs, err := compliance.ResolveControls(ctx, pool, orgID, cwe)
+		if err != nil {
+			continue
+		}
+		for _, r := range refs {
+			key := r.CatalogCode + "/" + r.ControlID
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, export.ControlRef{
+				CatalogCode: r.CatalogCode,
+				CatalogName: r.CatalogName,
+				ControlID:   r.ControlID,
+				Title:       r.Title,
+				Confidence:  r.Confidence,
+			})
+		}
+	}
+	return out
 }
 
 func (h *Handlers) loadScanForExport(w http.ResponseWriter, r *http.Request) (export.ScanData, bool) {
@@ -204,6 +271,9 @@ func (h *Handlers) loadScanForExport(w http.ResponseWriter, r *http.Request) (ex
 			}
 			if f.RuleID != "" && h.remediation != nil {
 				f.Remediation = h.remediation.Get(f.RuleID)
+			}
+			if orgID, perr := uuid.Parse(user.OrgID); perr == nil {
+				f.ControlRefs = resolveControlRefsForFinding(ctx, h.pool, orgID, f.Remediation)
 			}
 			d.Findings = append(d.Findings, f)
 		}

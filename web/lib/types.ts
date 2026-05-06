@@ -483,3 +483,42 @@ export interface RiskListFilters {
   limit?: number;
   offset?: number;
 }
+
+// Phase-5 governance ops: compliance catalogs + mappings.
+export interface ComplianceCatalog {
+  id: string;
+  org_id?: string | null;
+  code: string;
+  name: string;
+  version: string;
+  description?: string;
+  is_builtin: boolean;
+}
+
+export interface ComplianceItem {
+  id: string;
+  catalog_id: string;
+  control_id: string;
+  title: string;
+  description?: string;
+}
+
+export interface ComplianceMapping {
+  id: string;
+  org_id?: string | null;
+  source_kind: "cwe" | "owasp" | "internal";
+  source_code: string;
+  target_control_id: string;
+  confidence: "normative" | "derived" | "custom";
+  source_version?: string;
+}
+
+export interface ComplianceControlRef {
+  catalog_code: string;
+  catalog_name: string;
+  control_id: string;
+  title: string;
+  confidence: string;
+  source_kind: string;
+  source_code: string;
+}
