@@ -258,6 +258,30 @@ services:
       nats:
         condition: service_started
 
+  forensics-cleanup-worker:
+    # Plan #6 PR C — enforces a 7-day retention window on the envelope-
+    # encrypted screenshots that the replay engine captures into MinIO when
+    # a replay fails. See cmd/forensics-cleanup-worker.
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: forensics-cleanup-worker
+    environment:
+      DATABASE_URL: postgres://sentinelcore:dev-password@postgres:5432/sentinelcore?sslmode=disable
+      INTERVAL: 1h
+      OLDER_THAN: 168h
+      FORENSICS_BUCKET: dast-forensics
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_SECURE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
   dast-browser-worker:
     build:
       context: ../..
