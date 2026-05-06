@@ -1,5 +1,12 @@
 import { api } from "@/lib/api-client";
-import type { ApprovalRequest, EmergencyStop, OrgSettings } from "@/lib/types";
+import type {
+  ApprovalRequest,
+  EmergencyStop,
+  OrgSettings,
+  ProjectSLAPolicy,
+  SLADashboard,
+  SLAViolationSummary,
+} from "@/lib/types";
 
 export interface ApprovalFilters {
   status?: string;
@@ -77,4 +84,47 @@ export async function liftEmergencyStop(stopId: string): Promise<void> {
 
 export async function listActiveEmergencyStops(): Promise<{ stops: EmergencyStop[] }> {
   return api.get<{ stops: EmergencyStop[] }>("/api/v1/governance/emergency-stop/active");
+}
+
+// Phase-5 governance ops: SLA dashboard + per-project policy editor.
+
+export async function getSLADashboard(warnDays = 7): Promise<SLADashboard> {
+  return api.get<SLADashboard>(`/api/v1/governance/sla/dashboard?warn_days=${warnDays}`);
+}
+
+export interface SLAViolationsResponse {
+  violations: SLAViolationSummary[];
+  limit: number;
+}
+
+export async function listSLAViolations(
+  status: "open" | "resolved" | "all" = "open",
+  limit = 100,
+): Promise<SLAViolationsResponse> {
+  return api.get<SLAViolationsResponse>(
+    `/api/v1/governance/sla/violations?status=${status}&limit=${limit}`,
+  );
+}
+
+export async function getProjectSLAPolicy(projectId: string): Promise<ProjectSLAPolicy | null> {
+  try {
+    return await api.get<ProjectSLAPolicy>(`/api/v1/governance/sla/policies/${projectId}`);
+  } catch (err) {
+    // 404 means "no override" — fall back to org defaults at the call site.
+    if (err instanceof Error && /404|not found/i.test(err.message)) return null;
+    throw err;
+  }
+}
+
+export async function putProjectSLAPolicy(
+  projectId: string,
+  slaDays: Record<string, number>,
+): Promise<ProjectSLAPolicy> {
+  return api.put<ProjectSLAPolicy>(`/api/v1/governance/sla/policies/${projectId}`, {
+    sla_days: slaDays,
+  });
+}
+
+export async function deleteProjectSLAPolicy(projectId: string): Promise<void> {
+  await api.delete(`/api/v1/governance/sla/policies/${projectId}`);
 }

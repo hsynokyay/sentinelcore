@@ -9,6 +9,11 @@ import {
   listActiveEmergencyStops,
   createApprovalRequest,
   submitApprovalDecision,
+  getSLADashboard,
+  listSLAViolations,
+  getProjectSLAPolicy,
+  putProjectSLAPolicy,
+  deleteProjectSLAPolicy,
   type ApprovalFilters,
   type CreateApprovalRequestBody,
 } from "./api";
@@ -84,5 +89,61 @@ export function useLiftEmergencyStop() {
   return useMutation({
     mutationFn: (stopId: string) => liftEmergencyStop(stopId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["emergency-stops"] }),
+  });
+}
+
+// Phase-5 governance ops: SLA dashboard + per-project policy editor.
+
+export function useSLADashboard(warnDays = 7) {
+  return useQuery({
+    queryKey: ["sla-dashboard", warnDays],
+    queryFn: () => getSLADashboard(warnDays),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useSLAViolations(
+  status: "open" | "resolved" | "all" = "open",
+  limit = 100,
+) {
+  return useQuery({
+    queryKey: ["sla-violations", status, limit],
+    queryFn: () => listSLAViolations(status, limit),
+  });
+}
+
+export function useProjectSLAPolicy(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ["project-sla-policy", projectId],
+    queryFn: () => (projectId ? getProjectSLAPolicy(projectId) : Promise.resolve(null)),
+    enabled: !!projectId,
+  });
+}
+
+export function usePutProjectSLAPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      projectId,
+      slaDays,
+    }: {
+      projectId: string;
+      slaDays: Record<string, number>;
+    }) => putProjectSLAPolicy(projectId, slaDays),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["project-sla-policy", vars.projectId] });
+      qc.invalidateQueries({ queryKey: ["sla-dashboard"] });
+    },
+  });
+}
+
+export function useDeleteProjectSLAPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => deleteProjectSLAPolicy(projectId),
+    onSuccess: (_, projectId) => {
+      qc.invalidateQueries({ queryKey: ["project-sla-policy", projectId] });
+      qc.invalidateQueries({ queryKey: ["sla-dashboard"] });
+    },
   });
 }

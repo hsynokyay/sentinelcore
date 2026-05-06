@@ -271,6 +271,47 @@ export interface OrgSettings {
   >;
 }
 
+// Phase-5 governance ops: SLA dashboard payloads.
+export interface BreachSummary {
+  finding_id: string;
+  project_id: string;
+  severity: string;
+  status: string;
+  deadline_at: string;
+  overdue_hours: number;
+  title: string;
+}
+
+export interface TrendBucket {
+  day: string;
+  breaches: number;
+}
+
+export interface SLADashboard {
+  counts_by_status: Record<string, number>;
+  counts_by_severity: Record<string, number>;
+  top_breaches: BreachSummary[];
+  trend: TrendBucket[];
+}
+
+export interface SLAViolationSummary {
+  id: string;
+  finding_id: string;
+  severity: string;
+  deadline_at: string;
+  violated_at: string;
+  resolved_at?: string;
+  overdue_hours: number;
+}
+
+export interface ProjectSLAPolicy {
+  project_id: string;
+  org_id: string;
+  sla_days: Record<string, number>;
+  updated_at: string;
+  updated_by: string;
+}
+
 // Notifications
 export interface Notification {
   id: string;
