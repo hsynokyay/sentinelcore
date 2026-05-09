@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,10 +50,15 @@ export function ArtifactUploadDialog({
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const close = () => {
-    reset();
-    onOpenChange(false);
-  };
+  // Reset local form state when the dialog closes. Done in an effect so the
+  // <Dialog> wrapper can receive the parent's stable onOpenChange setter
+  // directly — passing an inline arrow caused Base UI to race the open
+  // transition and snap the dialog shut on first open.
+  useEffect(() => {
+    if (!open) reset();
+  }, [open]);
+
+  const close = () => onOpenChange(false);
 
   const submit = () => {
     setError(null);
@@ -95,7 +100,7 @@ export function ArtifactUploadDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => (v ? onOpenChange(true) : close())}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Upload Source Artifact</DialogTitle>
