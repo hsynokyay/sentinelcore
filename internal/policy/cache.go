@@ -114,6 +114,19 @@ func (c *Cache) Version() int64 {
 	return c.version
 }
 
+// AllPermissions returns every permission_id in the catalog. Used by
+// API-key create handlers to validate requested scopes against the known
+// vocabulary.
+func (c *Cache) AllPermissions() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]string, 0, len(c.allPerms))
+	for p := range c.allPerms {
+		out = append(out, p)
+	}
+	return out
+}
+
 // PermissionsFor returns the sorted list of permission_ids assigned to
 // the role. Used by /api/v1/auth/me.
 func (c *Cache) PermissionsFor(role string) []string {

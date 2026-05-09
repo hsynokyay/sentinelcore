@@ -167,7 +167,7 @@ func conditionalAuthMiddleware(jwtMgr *auth.JWTManager, sessions *auth.SessionSt
 
 // Start starts the control plane HTTP server and the metrics server.
 func (s *Server) Start(ctx context.Context) error {
-	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger)
+	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, s.rbacCache)
 
 	mux := http.NewServeMux()
 
@@ -218,6 +218,10 @@ func (s *Server) Start(ctx context.Context) error {
 	// Findings
 	mux.Handle("GET /api/v1/findings", s.authz("findings.read", handlers.ListFindings))
 	mux.Handle("PATCH /api/v1/findings/{id}/status", s.authz("findings.triage", handlers.UpdateFindingStatus))
+
+	// API keys
+	mux.Handle("POST /api/v1/api-keys", s.authz("api_keys.manage", handlers.CreateAPIKey))
+	mux.Handle("POST /api/v1/api-keys/{id}/rotate", s.authz("api_keys.manage", handlers.RotateAPIKey))
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
