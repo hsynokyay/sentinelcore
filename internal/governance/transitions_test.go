@@ -33,23 +33,23 @@ func TestValidateTransition(t *testing.T) {
 	}
 }
 
-func TestNeedsApproval(t *testing.T) {
+func TestNeedsApprovalForSettings(t *testing.T) {
 	noApproval := &OrgSettings{}
 	withApproval := &OrgSettings{
 		RequireApprovalRiskAcceptance: true,
 		RequireApprovalFalsePositive:  true,
 	}
 
-	if NeedsApproval("accepted_risk", noApproval) {
+	if NeedsApprovalForSettings("accepted_risk", noApproval) {
 		t.Error("expected no approval needed when setting is false")
 	}
-	if !NeedsApproval("accepted_risk", withApproval) {
+	if !NeedsApprovalForSettings("accepted_risk", withApproval) {
 		t.Error("expected approval needed when setting is true")
 	}
-	if NeedsApproval("confirmed", withApproval) {
+	if NeedsApprovalForSettings("confirmed", withApproval) {
 		t.Error("confirmed should never need approval")
 	}
-	if !NeedsApproval("false_positive", withApproval) {
+	if !NeedsApprovalForSettings("false_positive", withApproval) {
 		t.Error("expected false_positive to need approval when setting is true")
 	}
 }

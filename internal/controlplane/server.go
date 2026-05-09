@@ -19,6 +19,7 @@ import (
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
 	"github.com/sentinelcore/sentinelcore/internal/dast/authz"
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
+	"github.com/sentinelcore/sentinelcore/internal/export/evidence"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
@@ -194,6 +195,18 @@ func (s *Server) Start(ctx context.Context) error {
 
 	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker)
 
+	// Wire the evidence-pack BlobClient so DownloadExport can stream
+	// archives from disk. EXPORT_BLOB_DIR matches the export-worker env.
+	exportBlobDir := os.Getenv("EXPORT_BLOB_DIR")
+	if exportBlobDir == "" {
+		exportBlobDir = "/var/lib/sentinelcore/exports"
+	}
+	if blob, blobErr := evidence.NewFilesystemBlob(exportBlobDir); blobErr != nil {
+		s.logger.Warn().Err(blobErr).Str("dir", exportBlobDir).Msg("evidence-pack blob store unavailable; downloads will return 503")
+	} else {
+		handlers.SetExportBlob(blob)
+	}
+
 	mux := http.NewServeMux()
 
 	// Health
@@ -285,9 +298,34 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/governance/approvals", handlers.ListApprovals)
 	mux.HandleFunc("GET /api/v1/governance/approvals/{id}", handlers.GetApproval)
 	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decide", handlers.DecideApproval)
+	// Phase 5 governance-ops: two-person approvals.
+	mux.HandleFunc("POST /api/v1/governance/approvals", handlers.CreateApprovalRequestHandler)
+	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decisions", handlers.SubmitApprovalDecision)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop", handlers.ActivateEmergencyStop)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop/lift", handlers.LiftEmergencyStop)
 	mux.HandleFunc("GET /api/v1/governance/emergency-stop/active", handlers.ListActiveEmergencyStops)
+	// Phase 5 governance-ops: SLA dashboard + per-project policies.
+	mux.HandleFunc("GET /api/v1/governance/sla/dashboard", handlers.SLADashboard)
+	mux.HandleFunc("GET /api/v1/governance/sla/violations", handlers.ListSLAViolationsHandler)
+	mux.HandleFunc("GET /api/v1/governance/sla/policies/{project_id}", handlers.GetProjectSLAPolicyHandler)
+	mux.HandleFunc("PUT /api/v1/governance/sla/policies/{project_id}", handlers.PutProjectSLAPolicyHandler)
+	mux.HandleFunc("DELETE /api/v1/governance/sla/policies/{project_id}", handlers.DeleteProjectSLAPolicyHandler)
+
+	// Phase 5 governance-ops: compliance catalogs + mappings.
+	mux.HandleFunc("GET /api/v1/compliance/catalogs", handlers.ListComplianceCatalogs)
+	mux.HandleFunc("POST /api/v1/compliance/catalogs", handlers.CreateComplianceCatalog)
+	mux.HandleFunc("GET /api/v1/compliance/catalogs/{catalog_id}/items", handlers.ListComplianceCatalogItems)
+	mux.HandleFunc("POST /api/v1/compliance/catalogs/{catalog_id}/items", handlers.CreateComplianceItem)
+	mux.HandleFunc("GET /api/v1/compliance/mappings", handlers.ListComplianceMappings)
+	mux.HandleFunc("POST /api/v1/compliance/mappings", handlers.CreateComplianceMapping)
+	mux.HandleFunc("DELETE /api/v1/compliance/mappings/{id}", handlers.DeleteComplianceMapping)
+	mux.HandleFunc("GET /api/v1/compliance/resolve", handlers.ResolveComplianceControls)
+
+	// Phase 5 governance-ops: evidence pack export jobs.
+	mux.HandleFunc("POST /api/v1/governance/exports", handlers.CreateExport)
+	mux.HandleFunc("GET /api/v1/governance/exports", handlers.ListExports)
+	mux.HandleFunc("GET /api/v1/governance/exports/{id}", handlers.GetExport)
+	mux.HandleFunc("GET /api/v1/governance/exports/{id}/download", handlers.DownloadExport)
 
 	// Finding extensions
 	mux.HandleFunc("POST /api/v1/findings/{id}/assign", handlers.AssignFinding)

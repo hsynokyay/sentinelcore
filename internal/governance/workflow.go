@@ -12,9 +12,10 @@ import (
 	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
-// CreateApprovalRequest inserts a new approval request with status 'pending'
-// and an expiry of 7 days from now.
-func CreateApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID, orgID string, req *ApprovalRequest) error {
+// LegacyCreateApprovalRequest is the Phase-4 entrypoint for creating an
+// approval request. New code should call CreateApprovalRequest (decisions.go)
+// which carries the two-person columns and returns the inserted row.
+func LegacyCreateApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID, orgID string, req *ApprovalRequest) error {
 	if pool == nil {
 		return errors.New("governance: pool is nil")
 	}
@@ -135,10 +136,13 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 	return results, nil
 }
 
-// DecideApproval approves or rejects a pending approval request.
-// It validates that the decision is valid, the request is still pending,
-// and that the requester is not the one deciding (self-approval forbidden).
-func DecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID, id, decision, reason string) error {
+// LegacyDecideApproval is the Phase-4 entrypoint that flips the
+// approval_requests row to 'approved' or 'rejected' atomically without
+// recording per-approver decisions. New code should use DecideApproval
+// (decisions.go) which records per-approver rows and supports two-person
+// rule. Kept for back-compat with the existing controlplane handler that
+// has not yet been migrated.
+func LegacyDecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID, id, decision, reason string) error {
 	if pool == nil {
 		return errors.New("governance: pool is nil")
 	}

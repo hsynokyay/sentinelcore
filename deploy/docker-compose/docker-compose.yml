@@ -246,6 +246,22 @@ services:
       nats:
         condition: service_started
 
+  sla-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: sla-worker
+    environment:
+      DATABASE_URL: postgres://sentinelcore:dev-password@postgres:5432/sentinelcore?sslmode=disable
+      NATS_URL: nats://nats:4222
+      SLA_WORKER_INTERVAL: "1h"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
   notification-worker:
     build:
       context: ../..

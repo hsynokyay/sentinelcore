@@ -9,6 +9,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
+	"github.com/sentinelcore/sentinelcore/internal/export/evidence"
 	"github.com/sentinelcore/sentinelcore/internal/remediation"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
@@ -38,7 +39,14 @@ type Handlers struct {
 	logger      zerolog.Logger
 	remediation *remediation.Registry
 	riskWorker  *risk.Worker
+	// exportBlob is the object-store backend used to serve evidence pack
+	// downloads. May be nil in environments that haven't wired up exports
+	// (handlers degrade with 503 in that case).
+	exportBlob evidence.BlobClient
 }
+
+// SetExportBlob wires an evidence pack BlobClient. Called once at startup.
+func (h *Handlers) SetExportBlob(b evidence.BlobClient) { h.exportBlob = b }
 
 // NewHandlers creates a new Handlers instance.
 func NewHandlers(

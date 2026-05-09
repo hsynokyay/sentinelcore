@@ -26,16 +26,16 @@ func TestApprovalWorkflow_TransitionValidation(t *testing.T) {
 		RequireApprovalRiskAcceptance: true,
 		RequireApprovalFalsePositive:  true,
 	}
-	if !governance.NeedsApproval("accepted_risk", settings) {
+	if !governance.NeedsApprovalForSettings("accepted_risk", settings) {
 		t.Fatal("expected approval to be required for accepted_risk")
 	}
-	if !governance.NeedsApproval("false_positive", settings) {
+	if !governance.NeedsApprovalForSettings("false_positive", settings) {
 		t.Fatal("expected approval to be required for false_positive")
 	}
 
 	// Step 3: Without approval
 	noApproval := &governance.OrgSettings{}
-	if governance.NeedsApproval("accepted_risk", noApproval) {
+	if governance.NeedsApprovalForSettings("accepted_risk", noApproval) {
 		t.Fatal("expected no approval when setting is false")
 	}
 
