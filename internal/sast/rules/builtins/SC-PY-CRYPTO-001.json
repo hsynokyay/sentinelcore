@@ -1,1 +1,40 @@
-{"rule_id":"SC-PY-CRYPTO-001","name":"Weak cryptographic hash (MD5/SHA-1)","language":"python","cwe":["CWE-327","CWE-328"],"owasp":["A02:2021"],"severity":"high","description":"hashlib.md5() or hashlib.sha1() is used for hashing. MD5 and SHA-1 are cryptographically broken. Practical collision attacks exist, making these algorithms unsuitable for integrity verification, digital signatures, or password hashing.","remediation":"Replace hashlib.md5() and hashlib.sha1() with hashlib.sha256() or hashlib.sha3_256() for integrity checks. For password hashing, use bcrypt, scrypt, or argon2-cffi. In FIPS environments, ensure the chosen algorithm is FIPS-approved.","references":["https://cwe.mitre.org/data/definitions/327.html"],"detection":{"kind":"ast_call","patterns":[{"receiver_fqn":"hashlib","callee":"md5","message_template":"hashlib.md5() uses a broken hash algorithm"},{"receiver_fqn":"hashlib","callee":"sha1","message_template":"hashlib.sha1() uses a broken hash algorithm"}]},"confidence":{"base":0.90}}
+{
+  "schema_version": 2,
+  "rule_id": "SC-PY-CRYPTO-001",
+  "name": "Weak cryptographic hash (MD5/SHA-1)",
+  "languages": [
+    "python"
+  ],
+  "category": "crypto",
+  "cwe": [
+    "CWE-327",
+    "CWE-328"
+  ],
+  "owasp": [
+    "A02:2021"
+  ],
+  "severity": "high",
+  "description": "hashlib.md5() or hashlib.sha1() is used for hashing. MD5 and SHA-1 are cryptographically broken. Practical collision attacks exist, making these algorithms unsuitable for integrity verification, digital signatures, or password hashing.",
+  "remediation": "Replace hashlib.md5() and hashlib.sha1() with hashlib.sha256() or hashlib.sha3_256() for integrity checks. For password hashing, use bcrypt, scrypt, or argon2-cffi. In FIPS environments, ensure the chosen algorithm is FIPS-approved.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/327.html"
+  ],
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "hashlib",
+        "callee": "md5",
+        "message_template": "hashlib.md5() uses a broken hash algorithm"
+      },
+      {
+        "receiver_fqn": "hashlib",
+        "callee": "sha1",
+        "message_template": "hashlib.sha1() uses a broken hash algorithm"
+      }
+    ]
+  },
+  "confidence": {
+    "base": 0.9
+  }
+}

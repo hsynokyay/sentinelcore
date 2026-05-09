@@ -1,9 +1,18 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-JAVA-CRYPTO-001",
   "name": "Use of weak cryptographic algorithm",
-  "language": "java",
-  "cwe": ["CWE-327", "CWE-328"],
-  "owasp": ["A02:2021"],
+  "languages": [
+    "java"
+  ],
+  "category": "crypto",
+  "cwe": [
+    "CWE-327",
+    "CWE-328"
+  ],
+  "owasp": [
+    "A02:2021"
+  ],
   "severity": "high",
   "description": "This code uses a cryptographic algorithm or mode that is considered broken or weak by modern standards. DES, 3DES, RC2, RC4, Blowfish, and the ECB block-cipher mode no longer provide meaningful confidentiality or integrity. MD2, MD4, MD5, and SHA-1 hashes are either fully broken or are collision-vulnerable in security contexts.",
   "remediation": "Use AES-GCM or AES-CTR (with a random, unique IV per message) for symmetric encryption. Use SHA-256, SHA-512, or SHA-3 for cryptographic hashing. For password storage, use Argon2, bcrypt, scrypt, or PBKDF2 with a per-user salt.",
@@ -48,7 +57,7 @@
     "base": 0.95
   },
   "examples": {
-    "vulnerable": "Cipher c = Cipher.getInstance(\"DES\");",
-    "fixed": "Cipher c = Cipher.getInstance(\"AES/GCM/NoPadding\");"
+    "fixed": "Cipher c = Cipher.getInstance(\"AES/GCM/NoPadding\");",
+    "vulnerable": "Cipher c = Cipher.getInstance(\"DES\");"
   }
 }

@@ -22,6 +22,11 @@ type TestCase struct {
 	Body        string            `json:"body,omitempty"`
 	ContentType string            `json:"content_type,omitempty"`
 
+	// MinProfile is the minimum scan profile required for this test case
+	// to run. Empty value means "standard" (the existing default).
+	// Valid values: "passive", "standard", "aggressive".
+	MinProfile string `json:"min_profile,omitempty"`
+
 	// Matcher determines if the response indicates a vulnerability.
 	Matcher ResponseMatcher `json:"-"`
 }

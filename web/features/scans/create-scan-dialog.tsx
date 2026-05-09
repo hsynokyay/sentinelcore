@@ -163,7 +163,14 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
               control={control}
               name="project_id"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  itemToStringLabel={(v) => {
+                    const p = projects.find((p) => p.id === v);
+                    return p ? (p.display_name || p.name) : "";
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder={loadingProjects ? "Loading..." : "Select project"} />
                   </SelectTrigger>
@@ -189,7 +196,16 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
               control={control}
               name="scan_type"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  itemToStringLabel={(v) => {
+                    if (v === "sast") return "SAST";
+                    if (v === "dast") return "DAST";
+                    if (v === "full") return "SAST + DAST (full)";
+                    return String(v);
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select scan type" />
                   </SelectTrigger>
@@ -223,6 +239,10 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
                     value={field.value}
                     onValueChange={field.onChange}
                     disabled={!selectedProjectId}
+                    itemToStringLabel={(v) => {
+                      const t = targets.find((t) => t.id === v);
+                      return t ? (t.label || t.base_url) : "";
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue
@@ -269,6 +289,11 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
                         field.onChange(v === "__none__" ? "" : v)
                       }
                       disabled={!selectedProjectId}
+                      itemToStringLabel={(v) => {
+                        if (v === "__none__") return "None";
+                        const a = (artifacts ?? []).find((a) => a.id === v);
+                        return a ? `${a.name} (${a.entry_count} files)` : "";
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue
@@ -316,6 +341,11 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
                         field.onChange(v === "__none__" ? "" : v)
                       }
                       disabled={!selectedProjectId}
+                      itemToStringLabel={(v) => {
+                        if (v === "__none__") return "None";
+                        const t = targets.find((t) => t.id === v);
+                        return t ? (t.label || t.base_url) : "";
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="None" />
@@ -348,7 +378,16 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
                 control={control}
                 name="scan_profile"
                 render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
+                  <Select
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    itemToStringLabel={(v) => {
+                      if (v === "passive") return "Passive — observation only";
+                      if (v === "standard") return "Standard — balanced active checks";
+                      if (v === "aggressive") return "Aggressive — full active coverage";
+                      return String(v);
+                    }}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select scan mode" />
                     </SelectTrigger>

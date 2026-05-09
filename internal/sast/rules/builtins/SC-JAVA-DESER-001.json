@@ -1,1 +1,39 @@
-{"rule_id":"SC-JAVA-DESER-001","name":"Unsafe Deserialization via ObjectInputStream","language":"java","cwe":["CWE-502"],"owasp":["A08:2021"],"severity":"critical","description":"ObjectInputStream.readObject() or readUnshared() deserializes untrusted data, allowing an attacker to instantiate arbitrary classes and execute code via gadget chains.","remediation":"Avoid native Java deserialization of untrusted data. Use JSON, Protocol Buffers, or other safe formats. If deserialization is unavoidable, use an ObjectInputFilter (JEP 290) to restrict allowed classes.","references":["https://cwe.mitre.org/data/definitions/502.html"],"detection":{"kind":"ast_call","patterns":[{"receiver_fqn":"java.io.ObjectInputStream","callee":"readObject","message_template":"ObjectInputStream.readObject() deserializes untrusted data"},{"receiver_fqn":"java.io.ObjectInputStream","callee":"readUnshared","message_template":"ObjectInputStream.readUnshared() deserializes untrusted data"}]},"confidence":{"base":0.90}}
+{
+  "schema_version": 2,
+  "rule_id": "SC-JAVA-DESER-001",
+  "name": "Unsafe Deserialization via ObjectInputStream",
+  "languages": [
+    "java"
+  ],
+  "category": "deserialization",
+  "cwe": [
+    "CWE-502"
+  ],
+  "owasp": [
+    "A08:2021"
+  ],
+  "severity": "critical",
+  "description": "ObjectInputStream.readObject() or readUnshared() deserializes untrusted data, allowing an attacker to instantiate arbitrary classes and execute code via gadget chains.",
+  "remediation": "Avoid native Java deserialization of untrusted data. Use JSON, Protocol Buffers, or other safe formats. If deserialization is unavoidable, use an ObjectInputFilter (JEP 290) to restrict allowed classes.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/502.html"
+  ],
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "java.io.ObjectInputStream",
+        "callee": "readObject",
+        "message_template": "ObjectInputStream.readObject() deserializes untrusted data"
+      },
+      {
+        "receiver_fqn": "java.io.ObjectInputStream",
+        "callee": "readUnshared",
+        "message_template": "ObjectInputStream.readUnshared() deserializes untrusted data"
+      }
+    ]
+  },
+  "confidence": {
+    "base": 0.9
+  }
+}

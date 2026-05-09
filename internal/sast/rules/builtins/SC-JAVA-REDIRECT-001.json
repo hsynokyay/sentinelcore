@@ -1,17 +1,25 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-JAVA-REDIRECT-001",
   "name": "Open Redirect via unsanitized redirect target",
-  "language": "java",
+  "languages": [
+    "java"
+  ],
+  "category": "redirect",
+  "cwe": [
+    "CWE-601"
+  ],
+  "owasp": [
+    "A01:2021"
+  ],
+  "severity": "medium",
+  "description": "User-controlled input flows into an HTTP redirect target, allowing an attacker to redirect users to malicious sites.",
+  "remediation": "Validate redirect URLs against an allowlist or use relative paths only.",
   "detection": {
     "kind": "taint",
     "vuln_class": "open_redirect"
   },
-  "severity": "medium",
   "confidence": {
     "base": 0.75
-  },
-  "cwe": ["CWE-601"],
-  "owasp": ["A01:2021"],
-  "description": "User-controlled input flows into an HTTP redirect target, allowing an attacker to redirect users to malicious sites.",
-  "remediation": "Validate redirect URLs against an allowlist or use relative paths only."
+  }
 }

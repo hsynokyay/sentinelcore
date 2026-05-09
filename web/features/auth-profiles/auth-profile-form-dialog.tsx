@@ -209,9 +209,15 @@ export function AuthProfileFormDialog({
               value={authType}
               onValueChange={(v) => setAuthType(v as AuthProfileType)}
               disabled={isEdit}
+              itemToStringLabel={(v) => {
+                if (v === "bearer_token") return "Bearer Token";
+                if (v === "api_key") return "API Key";
+                if (v === "basic_auth") return "Basic Auth";
+                return String(v);
+              }}
             >
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Select auth type" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="bearer_token">Bearer Token</SelectItem>

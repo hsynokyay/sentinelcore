@@ -1,1 +1,42 @@
-{"rule_id":"SC-JS-CRYPTO-001","name":"Weak cryptographic hash (MD5/SHA-1)","language":"javascript","cwe":["CWE-327","CWE-328"],"owasp":["A02:2021"],"severity":"high","description":"crypto.createHash() is called with MD5 or SHA-1, which are cryptographically broken. Collision attacks against these algorithms are practical, making them unsuitable for integrity verification, signatures, or password hashing.","remediation":"Replace MD5 and SHA-1 with SHA-256 or SHA-3 for integrity checks. For password hashing, use bcrypt, scrypt, or Argon2 instead of any raw hash function.","references":["https://cwe.mitre.org/data/definitions/327.html"],"detection":{"kind":"ast_call","patterns":[{"receiver_fqn":"crypto","callee":"createHash","arg_index":0,"arg_matches_any":["^md5$","^sha1$","^SHA1$","^MD5$"],"message_template":"crypto.createHash(\"{{arg}}\") uses a weak hash algorithm"}]},"confidence":{"base":0.90}}
+{
+  "schema_version": 2,
+  "rule_id": "SC-JS-CRYPTO-001",
+  "name": "Weak cryptographic hash (MD5/SHA-1)",
+  "languages": [
+    "javascript"
+  ],
+  "category": "crypto",
+  "cwe": [
+    "CWE-327",
+    "CWE-328"
+  ],
+  "owasp": [
+    "A02:2021"
+  ],
+  "severity": "high",
+  "description": "crypto.createHash() is called with MD5 or SHA-1, which are cryptographically broken. Collision attacks against these algorithms are practical, making them unsuitable for integrity verification, signatures, or password hashing.",
+  "remediation": "Replace MD5 and SHA-1 with SHA-256 or SHA-3 for integrity checks. For password hashing, use bcrypt, scrypt, or Argon2 instead of any raw hash function.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/327.html"
+  ],
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "crypto",
+        "callee": "createHash",
+        "arg_index": 0,
+        "arg_matches_any": [
+          "^md5$",
+          "^sha1$",
+          "^SHA1$",
+          "^MD5$"
+        ],
+        "message_template": "crypto.createHash(\"{{arg}}\") uses a weak hash algorithm"
+      }
+    ]
+  },
+  "confidence": {
+    "base": 0.9
+  }
+}

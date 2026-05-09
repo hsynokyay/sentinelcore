@@ -8,12 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sentinelcore/sentinelcore/internal/governance"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
-	auditpkg "github.com/sentinelcore/sentinelcore/pkg/audit"
-	"github.com/sentinelcore/sentinelcore/pkg/tenant"
+	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
 type findingResponse struct {
@@ -22,11 +21,24 @@ type findingResponse struct {
 	ScanID                  string             `json:"scan_id"`
 	FindingType             string             `json:"finding_type"`
 	Severity                string             `json:"severity"`
+	Confidence              string             `json:"confidence,omitempty"`
 	Status                  string             `json:"status"`
 	Title                   string             `json:"title"`
 	Description             string             `json:"description"`
 	FilePath                string             `json:"file_path,omitempty"`
 	LineNumber              *int               `json:"line_number,omitempty"`
+	URL                     string             `json:"url,omitempty"`
+	HTTPMethod              string             `json:"http_method,omitempty"`
+	Parameter               string             `json:"parameter,omitempty"`
+	CWEID                   *int               `json:"cwe_id,omitempty"`
+	OWASPCategory           string             `json:"owasp_category,omitempty"`
+	CVSSScore               *float64           `json:"cvss_score,omitempty"`
+	CVSSVector              string             `json:"cvss_vector,omitempty"`
+	RiskScore               *float64           `json:"risk_score,omitempty"`
+	Tags                    []string           `json:"tags,omitempty"`
+	EvidenceHash            string             `json:"evidence_hash,omitempty"`
+	EvidenceSize            *int64             `json:"evidence_size,omitempty"`
+	Evidence                string             `json:"evidence,omitempty"` // populated only on GetFinding
 	CreatedAt               string             `json:"created_at"`
 	SLADeadline             *string            `json:"sla_deadline,omitempty"`
 	AssignedTo              *string            `json:"assigned_to,omitempty"`
@@ -114,8 +126,19 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 
 	var findings []findingResponse
 
-	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
-		query := `SELECT id, project_id, scan_job_id, finding_type, severity, status, title, COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at
+	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		// evidence_ref is intentionally excluded from list — it can be megabytes.
+		// Detail endpoint (GetFinding) returns it.
+		query := `SELECT id, project_id, scan_job_id, finding_type,
+		                 severity, COALESCE(confidence, ''), status, title, COALESCE(description, ''),
+		                 COALESCE(file_path, ''), line_start,
+		                 COALESCE(url, ''), COALESCE(http_method, ''), COALESCE(parameter, ''),
+		                 cwe_id, COALESCE(owasp_category, ''),
+		                 cvss_score, COALESCE(cvss_vector, ''), risk_score,
+		                 COALESCE(tags, '{}'),
+		                 COALESCE(evidence_hash, ''), evidence_size,
+		                 COALESCE(rule_id, ''),
+		                 created_at
 				  FROM findings.findings WHERE 1=1`
 		args := []any{}
 		argIdx := 1
@@ -144,7 +167,7 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 		query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 		args = append(args, limit, offset)
 
-		rows, err := tx.Query(ctx, query, args...)
+		rows, err := conn.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -154,11 +177,29 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 			var f findingResponse
 			var createdAt time.Time
 			var lineNumber *int
-			if err := rows.Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status, &f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt); err != nil {
+			var cweID *int
+			var cvssScore, riskScore *float64
+			var evidenceSize *int64
+			if err := rows.Scan(
+				&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType,
+				&f.Severity, &f.Confidence, &f.Status, &f.Title, &f.Description,
+				&f.FilePath, &lineNumber,
+				&f.URL, &f.HTTPMethod, &f.Parameter,
+				&cweID, &f.OWASPCategory,
+				&cvssScore, &f.CVSSVector, &riskScore,
+				&f.Tags,
+				&f.EvidenceHash, &evidenceSize,
+				&f.RuleID,
+				&createdAt,
+			); err != nil {
 				return err
 			}
 			f.CreatedAt = createdAt.Format(time.RFC3339)
 			f.LineNumber = lineNumber
+			f.CWEID = cweID
+			f.CVSSScore = cvssScore
+			f.RiskScore = riskScore
+			f.EvidenceSize = evidenceSize
 			findings = append(findings, f)
 		}
 		return rows.Err()
@@ -194,7 +235,7 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var f findingResponse
-	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		var createdAt time.Time
 		var lineNumber *int
 		var slaDeadline *time.Time
@@ -204,14 +245,31 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		var correlatedFindingIDs []string
 
 		var ruleID *string
-		qErr := tx.QueryRow(ctx,
-			`SELECT id, project_id, scan_job_id, finding_type, severity, status, title,
-			        COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at,
+		var cweID *int
+		var cvssScore, riskScore *float64
+		var evidenceSize *int64
+		qErr := conn.QueryRow(ctx,
+			`SELECT id, project_id, scan_job_id, finding_type,
+			        severity, COALESCE(confidence, ''), status, title,
+			        COALESCE(description, ''), COALESCE(file_path, ''), line_start,
+			        COALESCE(url, ''), COALESCE(http_method, ''), COALESCE(parameter, ''),
+			        cwe_id, COALESCE(owasp_category, ''),
+			        cvss_score, COALESCE(cvss_vector, ''), risk_score,
+			        COALESCE(tags, '{}'),
+			        COALESCE(evidence_ref, ''), COALESCE(evidence_hash, ''), evidence_size,
+			        created_at,
 			        sla_deadline, assigned_to, legal_hold, correlation_confidence, correlated_finding_ids,
 			        rule_id
 			 FROM findings.findings WHERE id = $1`, id,
-		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status,
-			&f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt,
+		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType,
+			&f.Severity, &f.Confidence, &f.Status, &f.Title,
+			&f.Description, &f.FilePath, &lineNumber,
+			&f.URL, &f.HTTPMethod, &f.Parameter,
+			&cweID, &f.OWASPCategory,
+			&cvssScore, &f.CVSSVector, &riskScore,
+			&f.Tags,
+			&f.Evidence, &f.EvidenceHash, &evidenceSize,
+			&createdAt,
 			&slaDeadline, &assignedTo, &legalHold, &correlationConfidence, &correlatedFindingIDs,
 			&ruleID)
 		if qErr != nil {
@@ -220,6 +278,10 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 
 		f.CreatedAt = createdAt.Format(time.RFC3339)
 		f.LineNumber = lineNumber
+		f.CWEID = cweID
+		f.CVSSScore = cvssScore
+		f.RiskScore = riskScore
+		f.EvidenceSize = evidenceSize
 		if ruleID != nil {
 			f.RuleID = *ruleID
 		}
@@ -235,7 +297,7 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query state transitions
-		rows, tErr := tx.Query(ctx,
+		rows, tErr := conn.Query(ctx,
 			`SELECT from_status, to_status, changed_by, COALESCE(reason, ''), created_at
 			 FROM findings.finding_state_transitions
 			 WHERE finding_id = $1
@@ -259,7 +321,7 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query taint paths (SAST evidence chain).
-		tpRows, tpErr := tx.Query(ctx,
+		tpRows, tpErr := conn.Query(ctx,
 			`SELECT step_index, file_path, line_start, COALESCE(line_end, 0),
 			        step_kind, detail, COALESCE(function_fqn, '')
 			   FROM findings.taint_paths
@@ -334,9 +396,9 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 	var resultStatus int
 	var resultBody any
 
-	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		// Get current status under RLS
-		qErr := tx.QueryRow(ctx,
+		qErr := conn.QueryRow(ctx,
 			`SELECT status FROM findings.findings WHERE id = $1`, id,
 		).Scan(&oldStatus)
 		if qErr != nil {
@@ -353,7 +415,7 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Update status
-		_, uErr := tx.Exec(ctx,
+		_, uErr := conn.Exec(ctx,
 			`UPDATE findings.findings SET status = $1, updated_at = now() WHERE id = $2`,
 			req.Status, id)
 		if uErr != nil {
@@ -361,7 +423,7 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Insert state transition record
-		_, _ = tx.Exec(ctx,
+		_, _ = conn.Exec(ctx,
 			`INSERT INTO findings.finding_state_transitions (id, finding_id, from_status, to_status, changed_by, reason, created_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, now())`,
 			uuid.New().String(), id, oldStatus, req.Status, user.UserID, req.Reason)
@@ -376,24 +438,8 @@ func (h *Handlers) UpdateFindingStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if resultStatus == http.StatusOK && h.emitter != nil {
-		// Canonical taxonomy: finding.status.changed. Details carry
-		// the before/after so the audit consumer can render a diff.
-		_ = h.emitter.Emit(r.Context(), auditpkg.AuditEvent{
-			ActorType:    "user",
-			ActorID:      user.UserID,
-			ActorIP:      r.RemoteAddr,
-			Action:       string(auditpkg.FindingStatusChanged),
-			ResourceType: "finding",
-			ResourceID:   id,
-			OrgID:        user.OrgID,
-			Result:       auditpkg.ResultSuccess,
-			Details: map[string]any{
-				"before": map[string]any{"status": oldStatus},
-				"after":  map[string]any{"status": req.Status},
-				"reason": req.Reason,
-			},
-		})
+	if resultStatus == http.StatusOK {
+		h.emitAuditEvent(r.Context(), "finding.status_update", "user", user.UserID, "finding", id, r.RemoteAddr, "success")
 	}
 
 	writeJSON(w, resultStatus, resultBody)

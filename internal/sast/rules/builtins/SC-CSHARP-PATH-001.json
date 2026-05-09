@@ -1,9 +1,17 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-CSHARP-PATH-001",
   "name": "Path Traversal via unsanitized file path",
-  "language": "csharp",
-  "cwe": ["CWE-22"],
-  "owasp": ["A01:2021"],
+  "languages": [
+    "csharp"
+  ],
+  "category": "path",
+  "cwe": [
+    "CWE-22"
+  ],
+  "owasp": [
+    "A01:2021"
+  ],
   "severity": "high",
   "description": "User-controlled input flows into a System.IO file-access API (File.ReadAllText, File.Open, FileStream, StreamReader, ...) without path normalization or containment checks. An attacker can use `..` segments to read, write, or delete files outside the intended directory.",
   "remediation": "Normalize the resolved path with Path.GetFullPath and verify it starts with the intended base directory before using it. Prefer Path.GetFileName on user input to strip directory components. Never concatenate user input directly with a base directory.",
@@ -17,10 +25,10 @@
     "vuln_class": "path_traversal"
   },
   "confidence": {
-    "base": 0.80
+    "base": 0.8
   },
   "examples": {
-    "vulnerable": "string filename = Request.Query[\"file\"];\nstring content = File.ReadAllText(filename);",
-    "fixed": "string filename = Request.Query[\"file\"];\nstring safe = Path.GetFileName(filename);\nstring full = Path.GetFullPath(Path.Combine(baseDir, safe));\nif (!full.StartsWith(baseDir)) throw new SecurityException();\nstring content = File.ReadAllText(full);"
+    "fixed": "string filename = Request.Query[\"file\"];\nstring safe = Path.GetFileName(filename);\nstring full = Path.GetFullPath(Path.Combine(baseDir, safe));\nif (!full.StartsWith(baseDir)) throw new SecurityException();\nstring content = File.ReadAllText(full);",
+    "vulnerable": "string filename = Request.Query[\"file\"];\nstring content = File.ReadAllText(filename);"
   }
 }

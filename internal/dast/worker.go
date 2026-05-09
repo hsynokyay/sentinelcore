@@ -24,6 +24,10 @@ type ScanJob struct {
 	ScopeConfig   scope.Config `json:"-"`
 	Concurrency   int        `json:"concurrency"`
 	RequestDelay  time.Duration `json:"request_delay"`
+
+	// Profile is the scan profile ("passive", "standard", "aggressive").
+	// Determines which probes run. Empty defaults to "standard".
+	Profile string `json:"profile,omitempty"`
 }
 
 // ScanResult contains the outcome of a DAST scan.
@@ -136,7 +140,7 @@ func (w *Worker) ExecuteScan(ctx context.Context, job ScanJob) (*ScanResult, err
 	}
 
 	// Generate test cases
-	testCases := GenerateTestCases(job.Endpoints)
+	testCases := GenerateTestCases(job.Endpoints, job.Profile)
 	w.logger.Info().Int("test_cases", len(testCases)).Msg("generated test cases")
 
 	// Set up scheduler

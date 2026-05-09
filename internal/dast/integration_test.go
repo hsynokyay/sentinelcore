@@ -2,10 +2,14 @@ package dast
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -332,4 +336,190 @@ func (r *rebindingResolver) LookupIPAddr(_ context.Context, host string) ([]net.
 		return []net.IPAddr{{IP: net.ParseIP(r.newIP)}}, nil
 	}
 	return nil, fmt.Errorf("unknown host: %s", host)
+}
+
+func TestIntegration_XXE_FiresOnEchoedFileContents(t *testing.T) {
+	// Server simulates a vulnerable XML parser that echoes resolved entities
+	// back as part of the response body.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "ENTITY") && strings.Contains(string(body), "&xxe;") {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("root:x:0:0:root:/root:/bin/bash\n"))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	ep := Endpoint{
+		Path:    "/parse",
+		Method:  "POST",
+		BaseURL: srv.URL,
+		RequestBody: &RequestBodySpec{ContentType: "application/xml"},
+	}
+	cases := GenerateTestCases([]Endpoint{ep}, "standard")
+	var xxe *TestCase
+	for i, c := range cases {
+		if c.RuleID == "DAST-XXE-001" {
+			xxe = &cases[i]
+			break
+		}
+	}
+	if xxe == nil {
+		t.Fatal("no XXE test case generated")
+	}
+	req, err := xxe.BuildRequest(context.Background())
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	hit, reason := xxe.Matcher.Match(resp, body)
+	if !hit {
+		t.Fatalf("matcher did not fire on echoed /etc/passwd; body=%q", body)
+	}
+	if !strings.Contains(reason, "external entity") {
+		t.Errorf("unexpected reason %q", reason)
+	}
+}
+
+func TestIntegration_JWTAlgNone_FiresOn200(t *testing.T) {
+	// Vulnerable server: trusts alg=none.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, "missing token", 401)
+			return
+		}
+		token := strings.TrimPrefix(auth, "Bearer ")
+		parts := strings.Split(token, ".")
+		if len(parts) != 3 {
+			http.Error(w, "bad token", 401)
+			return
+		}
+		// Pretend the alg=none header is acceptable.
+		header, _ := decodeJWTHeaderForTest(parts[0])
+		if alg, ok := header["alg"]; ok && alg == "none" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("welcome"))
+			return
+		}
+		http.Error(w, "unauthorised", 401)
+	}))
+	defer srv.Close()
+	ep := Endpoint{
+		Path:        "/me",
+		Method:      "GET",
+		BaseURL:     srv.URL,
+		CapturedJWT: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1In0.AAAA",
+	}
+	cases := GenerateTestCases([]Endpoint{ep}, "passive")
+	var probe *TestCase
+	for i, c := range cases {
+		if c.RuleID == "DAST-JWT-001" {
+			probe = &cases[i]
+			break
+		}
+	}
+	if probe == nil {
+		t.Fatal("no JWT alg=none probe generated")
+	}
+	req, _ := probe.BuildRequest(context.Background())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("vulnerable server should return 200; got %d", resp.StatusCode)
+	}
+	hit, _ := probe.Matcher.Match(resp, nil)
+	if !hit {
+		t.Fatalf("matcher did not fire on 200 response")
+	}
+}
+
+func TestIntegration_PrototypePollution_FiresOnEchoedSentinel(t *testing.T) {
+	// Vulnerable server: parses JSON and echoes a merged config that contains
+	// the sentinel value when the request contained __proto__.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]interface{}
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &payload); err != nil {
+			http.Error(w, "bad json", 400)
+			return
+		}
+		// Simulate naive merge: copy proto fields into the response config.
+		out := map[string]interface{}{"theme": "light"}
+		if proto, ok := payload["__proto__"].(map[string]interface{}); ok {
+			for k, v := range proto {
+				out[k] = v
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
+	}))
+	defer srv.Close()
+	ep := Endpoint{
+		Path:    "/config",
+		Method:  "POST",
+		BaseURL: srv.URL,
+		RequestBody: &RequestBodySpec{ContentType: "application/json"},
+	}
+	cases := GenerateTestCases([]Endpoint{ep}, "aggressive")
+	var probe *TestCase
+	for i, c := range cases {
+		if c.RuleID == "DAST-PROTO-POL-001" {
+			probe = &cases[i]
+			break
+		}
+	}
+	if probe == nil {
+		t.Fatal("no proto-pollution probe generated")
+	}
+	req, _ := probe.BuildRequest(context.Background())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	hit, _ := probe.Matcher.Match(resp, body)
+	if !hit {
+		t.Fatalf("matcher did not fire on echoed sentinel; body=%q", body)
+	}
+}
+
+// decodeJWTHeaderForTest is a tiny JSON+base64 helper used only by the
+// JWT-alg-none integration test. Production probe code has its own.
+func decodeJWTHeaderForTest(hdrB64 string) (map[string]string, error) {
+	raw, err := base64URLDecode(hdrB64)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func base64URLDecode(s string) ([]byte, error) {
+	switch len(s) % 4 {
+	case 2:
+		s += "=="
+	case 3:
+		s += "="
+	}
+	return decodeStdURLB64(s)
+}
+
+// decodeStdURLB64 is the URL variant of base64 used by JWTs. Defined locally
+// so the test stays single-file with explicit dependencies.
+func decodeStdURLB64(s string) ([]byte, error) {
+	return base64.URLEncoding.DecodeString(s)
 }

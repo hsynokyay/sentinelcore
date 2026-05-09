@@ -61,7 +61,7 @@ export function RisksEmptyState({
         suggestion="Run your first scan, then check back here."
         action={
           <Link href="/scans">
-            <Button variant="default" size="sm">
+            <Button variant="primary" size="sm">
               Go to Scans
             </Button>
           </Link>

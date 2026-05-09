@@ -2,6 +2,7 @@ package authbroker
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -289,6 +290,42 @@ func (s *APIKeyStrategy) Refresh(_ context.Context, _ *Session, cfg AuthConfig) 
 
 func (s *APIKeyStrategy) Validate(_ context.Context, session *Session) (bool, error) {
 	return !session.IsExpired(), nil
+}
+
+// BasicStrategy injects HTTP Basic authentication into the Authorization header.
+// Credentials are expected as username + password.
+type BasicStrategy struct{}
+
+func (s *BasicStrategy) Name() string { return "basic" }
+
+func (s *BasicStrategy) Authenticate(_ context.Context, cfg AuthConfig) (*Session, error) {
+	user, ok := cfg.Credentials["username"]
+	if !ok || user == "" {
+		return nil, fmt.Errorf("basic: missing 'username' in credentials")
+	}
+	pass, ok := cfg.Credentials["password"]
+	if !ok {
+		return nil, fmt.Errorf("basic: missing 'password' in credentials")
+	}
+
+	ttl := cfg.TTL
+	if ttl == 0 {
+		ttl = 24 * time.Hour
+	}
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
+	return &Session{
+		Headers:   map[string]string{"Authorization": "Basic " + encoded},
+		ExpiresAt: time.Now().Add(ttl),
+	}, nil
+}
+
+func (s *BasicStrategy) Refresh(_ context.Context, _ *Session, cfg AuthConfig) (*Session, error) {
+	return s.Authenticate(context.Background(), cfg)
+}
+
+func (s *BasicStrategy) Validate(_ context.Context, session *Session) (bool, error) {
+	return !session.IsExpired() && session.Headers["Authorization"] != "", nil
 }
 
 // validateEndpointNotInternal prevents SSRF via auth endpoints pointing at

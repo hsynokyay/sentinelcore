@@ -101,8 +101,22 @@ var PermissionMatrix = map[string]map[string]bool{
 	},
 }
 
+// roleAliases maps the role taxonomy used in core.users (post-IAC-phase1
+// migration) onto the original permission-matrix keys above. Without these
+// the production seed users (owner / admin / security_engineer) get a 403
+// from every Evaluate call because their role string does not exist as a
+// matrix key.
+var roleAliases = map[string]string{
+	"owner":             "platform_admin",
+	"admin":             "security_admin",
+	"security_engineer": "appsec_analyst",
+}
+
 // Evaluate checks if a role has a specific permission.
 func Evaluate(role, permission string) bool {
+	if alias, ok := roleAliases[role]; ok {
+		role = alias
+	}
 	perms, exists := PermissionMatrix[role]
 	if !exists {
 		return false

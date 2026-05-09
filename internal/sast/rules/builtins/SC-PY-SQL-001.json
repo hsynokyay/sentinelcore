@@ -1,21 +1,29 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-PY-SQL-001",
   "name": "SQL Injection via unsanitized query",
-  "language": "python",
-  "cwe": ["CWE-89"],
-  "owasp": ["A03:2021"],
+  "languages": [
+    "python"
+  ],
+  "category": "injection",
+  "cwe": [
+    "CWE-89"
+  ],
+  "owasp": [
+    "A03:2021"
+  ],
   "severity": "critical",
-  "confidence": {
-    "base": 0.85
-  },
-  "detection": {
-    "kind": "taint",
-    "vuln_class": "sql_injection"
-  },
   "description": "User input concatenated into SQL query string.",
   "remediation": "Use parameterized queries with placeholders.",
   "references": [
     "https://cwe.mitre.org/data/definitions/89.html",
     "https://owasp.org/Top10/A03_2021-Injection/"
-  ]
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "sql_injection"
+  },
+  "confidence": {
+    "base": 0.85
+  }
 }

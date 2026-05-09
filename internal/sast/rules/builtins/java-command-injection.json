@@ -1,9 +1,17 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-JAVA-CMD-001",
   "name": "OS Command Injection via unsanitized input",
-  "language": "java",
-  "cwe": ["CWE-78"],
-  "owasp": ["A03:2021"],
+  "languages": [
+    "java"
+  ],
+  "category": "injection",
+  "cwe": [
+    "CWE-78"
+  ],
+  "owasp": [
+    "A03:2021"
+  ],
   "severity": "critical",
   "description": "User-controlled input from HTTP request parameters flows into an operating system command execution API without sanitization. An attacker can inject arbitrary shell commands, potentially gaining full control of the server.",
   "remediation": "Never pass user input directly to Runtime.exec() or ProcessBuilder. Use an allowlist of permitted commands or arguments. If dynamic command construction is unavoidable, escape or validate every component against a strict pattern. Prefer higher-level APIs that do not invoke a shell (e.g. ProcessBuilder with explicit argument arrays rather than a single shell string).",
@@ -20,7 +28,7 @@
     "base": 0.85
   },
   "examples": {
-    "vulnerable": "String cmd = request.getParameter(\"cmd\");\nRuntime.getRuntime().exec(cmd);",
-    "fixed": "// Use an allowlist\nString cmd = request.getParameter(\"cmd\");\nif (!ALLOWED_COMMANDS.contains(cmd)) throw new SecurityException();\nRuntime.getRuntime().exec(cmd);"
+    "fixed": "// Use an allowlist\nString cmd = request.getParameter(\"cmd\");\nif (!ALLOWED_COMMANDS.contains(cmd)) throw new SecurityException();\nRuntime.getRuntime().exec(cmd);",
+    "vulnerable": "String cmd = request.getParameter(\"cmd\");\nRuntime.getRuntime().exec(cmd);"
   }
 }

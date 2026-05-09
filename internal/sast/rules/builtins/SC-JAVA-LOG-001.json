@@ -1,1 +1,28 @@
-{"rule_id":"SC-JAVA-LOG-001","name":"Sensitive data logged from HTTP input","language":"java","cwe":["CWE-532"],"owasp":["A09:2021"],"severity":"medium","description":"User-supplied HTTP input flows into a logging statement without sanitization. Sensitive data such as passwords, tokens, or PII may be written to log files, exposing it to anyone with log access.","remediation":"Never log raw user input that may contain sensitive data. Mask or redact sensitive fields before logging. Use structured logging with explicit field allowlists.","references":["https://cwe.mitre.org/data/definitions/532.html"],"detection":{"kind":"taint","vuln_class":"sensitive_logging"},"confidence":{"base":0.70}}
+{
+  "schema_version": 2,
+  "rule_id": "SC-JAVA-LOG-001",
+  "name": "Sensitive data logged from HTTP input",
+  "languages": [
+    "java"
+  ],
+  "category": "logging",
+  "cwe": [
+    "CWE-532"
+  ],
+  "owasp": [
+    "A09:2021"
+  ],
+  "severity": "medium",
+  "description": "User-supplied HTTP input flows into a logging statement without sanitization. Sensitive data such as passwords, tokens, or PII may be written to log files, exposing it to anyone with log access.",
+  "remediation": "Never log raw user input that may contain sensitive data. Mask or redact sensitive fields before logging. Use structured logging with explicit field allowlists.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/532.html"
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "sensitive_logging"
+  },
+  "confidence": {
+    "base": 0.7
+  }
+}

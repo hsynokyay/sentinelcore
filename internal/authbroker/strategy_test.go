@@ -43,6 +43,36 @@ func TestBearerStrategy(t *testing.T) {
 	})
 }
 
+func TestBasicStrategy(t *testing.T) {
+	s := &BasicStrategy{}
+	if s.Name() != "basic" {
+		t.Fatalf("expected name 'basic', got %q", s.Name())
+	}
+
+	t.Run("success", func(t *testing.T) {
+		session, err := s.Authenticate(context.Background(), AuthConfig{
+			Credentials: map[string]string{"username": "alice", "password": "s3cret"},
+			TTL:         time.Hour,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// "alice:s3cret" base64 = "YWxpY2U6czNjcmV0"
+		if session.Headers["Authorization"] != "Basic YWxpY2U6czNjcmV0" {
+			t.Fatalf("unexpected header: %s", session.Headers["Authorization"])
+		}
+	})
+
+	t.Run("missing_username", func(t *testing.T) {
+		_, err := s.Authenticate(context.Background(), AuthConfig{
+			Credentials: map[string]string{"password": "x"},
+		})
+		if err == nil {
+			t.Fatal("expected error for missing username")
+		}
+	})
+}
+
 func TestOAuth2CCStrategy(t *testing.T) {
 	// Mock OAuth2 token endpoint
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

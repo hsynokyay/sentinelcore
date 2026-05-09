@@ -1,0 +1,30 @@
+# Production override for the DAST worker.
+#
+# Deployed at /opt/sentinelcore/compose/docker-compose.dast-worker.yml on the
+# pilot host. Mirrored here so configuration changes show up in code review
+# instead of getting lost on the host.
+#
+# Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.dast-worker.prod.yml up -d --no-deps dast-worker
+#
+# Network rationale: the worker joins both the internal `sentinelcore_backend`
+# (Postgres, NATS) AND the `sentinelcore_proxy` (egress) network — DAST needs
+# outbound HTTP/DNS to reach scan targets, which the backend network forbids.
+
+services:
+  dast-worker:
+    image: sentinelcore/dast-worker:pilot
+    container_name: sentinelcore_dast_worker
+    restart: unless-stopped
+    env_file:
+      - /opt/sentinelcore/env/sentinelcore.env
+    networks:
+      - sentinelcore_backend
+      - sentinelcore_proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true

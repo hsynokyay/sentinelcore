@@ -21,9 +21,9 @@ export interface NextBestActionCta {
   label: string;
   href?: string;
   onClick?: () => void;
-  /** Override the visual treatment. Defaults to `default` for primary,
+  /** Override the visual treatment. Defaults to `primary` for primary,
    *  `outline` for secondary. */
-  variant?: "default" | "outline" | "ghost";
+  variant?: "primary" | "outline" | "ghost";
 }
 
 /** A detail row in the panel's metadata section — used for score
@@ -72,7 +72,7 @@ function ActionButton({
   defaultVariant,
 }: {
   cta: NextBestActionCta;
-  defaultVariant: "default" | "outline";
+  defaultVariant: "primary" | "outline";
 }) {
   const variant = cta.variant ?? defaultVariant;
   const button = (
@@ -183,7 +183,7 @@ export function NextBestAction({
         {(primaryAction || secondaryAction) && (
           <div className="mt-4 flex items-center gap-2">
             {primaryAction && (
-              <ActionButton cta={primaryAction} defaultVariant="default" />
+              <ActionButton cta={primaryAction} defaultVariant="primary" />
             )}
             {secondaryAction && (
               <ActionButton cta={secondaryAction} defaultVariant="outline" />
