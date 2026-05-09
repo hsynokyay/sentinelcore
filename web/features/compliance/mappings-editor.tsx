@@ -181,12 +181,12 @@ function MappingsTable({
                 {target ? `${target.item.control_id} — ${target.item.title}` : m.target_control_id}
               </td>
               <td className="py-2 pr-3">
-                <Badge variant={m.confidence === "custom" ? "default" : "secondary"}>
+                <Badge variant={m.confidence === "custom" ? "status" : "tag"}>
                   {m.confidence}
                 </Badge>
               </td>
               <td className="py-2 pr-3">
-                {isCustom ? <Badge>tenant</Badge> : <Badge variant="secondary">built-in</Badge>}
+                {isCustom ? <Badge>tenant</Badge> : <Badge variant="tag">built-in</Badge>}
               </td>
               <td className="py-2">
                 {isCustom ? (

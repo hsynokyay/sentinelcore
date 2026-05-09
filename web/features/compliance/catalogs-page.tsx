@@ -64,7 +64,7 @@ export function CatalogsPage() {
                   </div>
                 </span>
                 {c.is_builtin ? (
-                  <Badge variant="secondary">built-in</Badge>
+                  <Badge variant="tag">built-in</Badge>
                 ) : (
                   <Badge>custom</Badge>
                 )}
@@ -93,7 +93,7 @@ function CatalogDetail({ catalog }: { catalog: ComplianceCatalog }) {
             <span className="text-muted-foreground font-normal">v{catalog.version}</span>
           </span>
           {catalog.is_builtin ? (
-            <Badge variant="secondary">built-in</Badge>
+            <Badge variant="tag">built-in</Badge>
           ) : (
             <Badge>custom</Badge>
           )}

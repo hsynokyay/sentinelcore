@@ -62,7 +62,7 @@ export function ControlsStrip({ finding }: ControlsStripProps) {
             <span className="text-muted-foreground hidden md:inline">
               {c.title.length > 40 ? `${c.title.slice(0, 37)}…` : c.title}
             </span>
-            <Badge variant={c.confidence === "custom" ? "default" : "secondary"} className="text-[10px]">
+            <Badge variant={c.confidence === "custom" ? "status" : "tag"} className="text-[10px]">
               {c.confidence}
             </Badge>
           </span>
