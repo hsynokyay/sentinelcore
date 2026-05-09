@@ -14,7 +14,15 @@ import (
 
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
 	"github.com/sentinelcore/sentinelcore/internal/dast/credentials"
+	"github.com/sentinelcore/sentinelcore/internal/metrics"
 )
+
+// Forensicser is the minimal capture-on-failure surface the engine relies
+// on. *Forensics satisfies it; tests inject fakes to assert call counts
+// (see security_regression_replay_test.go sec-10).
+type Forensicser interface {
+	Capture(ctx context.Context, bundleID uuid.UUID, actionIdx int) (string, error)
+}
 
 // Engine drives recorded-login replay through chromedp with hardening checks
 // (rate limit, scope/host preflight, circuit breaker, principal binding,
@@ -23,6 +31,7 @@ type Engine struct {
 	rateLimit *RateLimit
 	circuit   CircuitStore      // optional; nil disables circuit checks
 	creds     credentials.Store // optional; required only for bundles with ActionFill
+	forensics Forensicser       // optional; nil skips screenshot capture
 }
 
 // NewEngine returns an Engine with default rate limiting and no circuit.
@@ -44,6 +53,15 @@ func (e *Engine) WithCircuit(c CircuitStore) *Engine {
 // ActionFill step.
 func (e *Engine) WithCredentials(s credentials.Store) *Engine {
 	e.creds = s
+	return e
+}
+
+// WithForensics wires a screenshot-capture sink. On every error-return path
+// inside Replay the engine will best-effort call Capture and persist the
+// returned object key on the circuit's failure row. A nil receiver disables
+// capture; callers wire *Forensics in production and a fake in tests.
+func (e *Engine) WithForensics(f Forensicser) *Engine {
+	e.forensics = f
 	return e
 }
 
@@ -75,15 +93,19 @@ type Result struct {
 func (e *Engine) Replay(ctx context.Context, b *bundles.Bundle) (*Result, error) {
 	// 1. Existing nil/type/expired/no-actions guards.
 	if b == nil {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: nil bundle")
 	}
 	if b.Type != "recorded_login" {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: wrong bundle type %q", b.Type)
 	}
 	if b.ExpiresAt.Before(time.Now()) {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: bundle expired")
 	}
 	if len(b.Actions) == 0 {
+		metrics.ReplayTotal.WithLabelValues("failure_other").Inc()
 		return nil, fmt.Errorf("replay: bundle has no recorded actions")
 	}
 
@@ -95,32 +117,41 @@ func (e *Engine) Replay(ctx context.Context, b *bundles.Bundle) (*Result, error)
 		}
 	}
 
+	bundleID := mustParseUUID(b.ID)
+
 	// 3. NEW: circuit check (skipped when no store wired).
 	if e.circuit != nil {
-		bid := mustParseUUID(b.ID)
-		open, err := e.circuit.IsOpen(ctx, bid)
+		open, err := e.circuit.IsOpen(ctx, bundleID)
 		if err != nil {
-			return nil, fmt.Errorf("replay: circuit check: %w", err)
+			metrics.ReplayTotal.WithLabelValues("failure_circuit").Inc()
+			return nil, e.recordAndWrap(ctx, ctx, bundleID, -1, fmt.Errorf("replay: circuit check: %w", err))
 		}
 		if open {
+			metrics.ReplayTotal.WithLabelValues("failure_circuit").Inc()
+			// Don't recordAndWrap here: the circuit is already open, we
+			// must not bump the failure counter further.
 			return nil, fmt.Errorf("replay: circuit open for bundle %s (refresh_required)", b.ID)
 		}
 	}
 
 	// 4. Existing rate limit.
 	if err := e.rateLimit.Allow(b.ID, targetHost); err != nil {
-		return nil, err
+		metrics.ReplayTotal.WithLabelValues("failure_ratelimit").Inc()
+		return nil, e.recordAndWrap(ctx, ctx, bundleID, -1, err)
 	}
 
 	// 5. Existing pre-flight host match.
 	if err := preflightHostMatch(b, targetHost); err != nil {
-		return nil, err
+		metrics.ReplayTotal.WithLabelValues("failure_host").Inc()
+		return nil, e.recordAndWrap(ctx, ctx, bundleID, -1, err)
 	}
 
 	// 6. NEW: principal binding (only when a scan-expected principal is set).
 	if exp, _ := ctx.Value(scanPrincipalKey{}).(string); exp != "" {
 		if err := VerifyPrincipal(b.TargetPrincipal, exp); err != nil {
-			return nil, fmt.Errorf("replay: %w", err)
+			metrics.PrincipalMismatchTotal.Inc()
+			metrics.ReplayTotal.WithLabelValues("failure_principal").Inc()
+			return nil, e.recordAndWrap(ctx, ctx, bundleID, -1, fmt.Errorf("replay: %w", err))
 		}
 	}
 
@@ -134,13 +165,18 @@ func (e *Engine) Replay(ctx context.Context, b *bundles.Bundle) (*Result, error)
 
 	res, err := e.run(bctx, b, targetHost)
 	if err != nil {
+		// e.run is responsible for tagging the specific failure label
+		// (failure_action / failure_anomaly / failure_postate) before
+		// returning. The fall-through "failure_other" guard exists so any
+		// untagged path still ticks ReplayTotal.
 		return nil, err
 	}
 
 	// 9. On overall success: close the circuit (if wired).
 	if e.circuit != nil {
-		_ = e.circuit.Reset(bctx, mustParseUUID(b.ID))
+		_ = e.circuit.Reset(bctx, bundleID)
 	}
+	metrics.ReplayTotal.WithLabelValues("success").Inc()
 	return res, nil
 }
 
@@ -185,8 +221,11 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 	timeoutCtx, timeoutCancel := context.WithTimeout(bctx, 60*time.Second)
 	defer timeoutCancel()
 
+	bundleID := mustParseUUID(b.ID)
+
 	if err := chromedp.Run(timeoutCtx, network.Enable()); err != nil {
-		return nil, fmt.Errorf("replay: enable network: %w", err)
+		metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
+		return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, -1, fmt.Errorf("replay: enable network: %w", err))
 	}
 
 	// Hydrate session via existing cookies.
@@ -198,49 +237,57 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 		if err := chromedp.Run(timeoutCtx, chromedp.ActionFunc(func(ctx context.Context) error {
 			return expr.Do(ctx)
 		})); err != nil {
-			return nil, fmt.Errorf("replay: set cookie %s: %w", cookie.Name, err)
+			metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
+			return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, -1, fmt.Errorf("replay: set cookie %s: %w", cookie.Name, err))
 		}
 	}
-
-	bundleID := mustParseUUID(b.ID)
 
 	for i, a := range b.Actions {
 		actStart := time.Now()
 		switch a.Kind {
 		case bundles.ActionNavigate:
 			if err := chromedp.Run(timeoutCtx, chromedp.Navigate(a.URL)); err != nil {
-				return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d navigate: %w", i, err))
+				metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
+				return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, i, fmt.Errorf("replay: action %d navigate: %w", i, err))
 			}
 		case bundles.ActionWaitForLoad:
 			// chromedp.Navigate already waits.
 		case bundles.ActionCaptchaMark:
-			return nil, fmt.Errorf("replay: action %d is captcha_mark — automatable replay not possible", i)
+			metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
+			return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, i, fmt.Errorf("replay: action %d is captcha_mark — automatable replay not possible", i))
 		case bundles.ActionClick:
 			// Click capture deferred; treat as no-op.
 		case bundles.ActionFill:
 			if e.creds == nil {
-				return nil, fmt.Errorf("replay: action %d is fill but no credential store configured", i)
+				metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
+				return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, i, fmt.Errorf("replay: action %d is fill but no credential store configured", i))
 			}
 			if err := InjectFill(timeoutCtx, e.creds, bundleID, a); err != nil {
-				return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d: %w", i, err))
+				metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
+				return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, i, fmt.Errorf("replay: action %d: %w", i, err))
 			}
 		}
 
 		// NEW: per-action duration anomaly check.
 		if err := CheckActionDuration(time.Since(actStart), a.DurationMs); err != nil {
-			return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d: %w", i, err))
+			metrics.AnomalyTotal.Inc()
+			metrics.ReplayTotal.WithLabelValues("failure_anomaly").Inc()
+			return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, i, fmt.Errorf("replay: action %d: %w", i, err))
 		}
 
 		// NEW: post-state hash check (skipped when ExpectedPostStateHash is empty).
 		if err := VerifyPostState(timeoutCtx, a.ExpectedPostStateHash); err != nil {
-			return nil, e.recordAndWrap(ctx, bundleID, fmt.Errorf("replay: action %d: %w", i, err))
+			metrics.PostStateMismatchTotal.Inc()
+			metrics.ReplayTotal.WithLabelValues("failure_postate").Inc()
+			return nil, e.recordAndWrap(ctx, timeoutCtx, bundleID, i, fmt.Errorf("replay: action %d: %w", i, err))
 		}
 	}
 
 	var ua, finalURL string
 	cookies, err := fetchAllCookies(allocCtx)
 	if err != nil {
-		return nil, fmt.Errorf("replay: fetch cookies: %w", err)
+		metrics.ReplayTotal.WithLabelValues("failure_action").Inc()
+		return nil, e.recordAndWrap(ctx, allocCtx, bundleID, -1, fmt.Errorf("replay: fetch cookies: %w", err))
 	}
 	_ = chromedp.Run(allocCtx,
 		chromedp.Evaluate(`navigator.userAgent`, &ua),
@@ -269,11 +316,24 @@ func (e *Engine) run(ctx context.Context, b *bundles.Bundle, targetHost string) 
 	}, nil
 }
 
-// recordAndWrap records a failure to the circuit (if wired) and returns the
-// passed error. Used so the per-action loop stays linear.
-func (e *Engine) recordAndWrap(ctx context.Context, bundleID uuid.UUID, err error) error {
+// recordAndWrap records a failure to the circuit (if wired), capturing a
+// best-effort forensic screenshot first when forensics is configured. The
+// captured object key is appended to the circuit row's screenshot_refs.
+// Used so the per-action loop stays linear.
+//
+// captureCtx is the chromedp-aware context (e.g. timeoutCtx); persistCtx is
+// the parent context used for the circuit DB write so a chromedp deadline
+// does not cascade into the persistence step. Either may be the same ctx
+// when the caller has no chromedp scope (pre-flight paths).
+func (e *Engine) recordAndWrap(persistCtx, captureCtx context.Context, bundleID uuid.UUID, actionIdx int, err error) error {
+	screenshotRef := ""
+	if e.forensics != nil {
+		if ref, capErr := e.forensics.Capture(captureCtx, bundleID, actionIdx); capErr == nil {
+			screenshotRef = ref
+		}
+	}
 	if e.circuit != nil {
-		_ = e.circuit.RecordFailure(ctx, bundleID, err.Error())
+		_ = e.circuit.RecordFailure(persistCtx, bundleID, err.Error(), screenshotRef)
 	}
 	return err
 }

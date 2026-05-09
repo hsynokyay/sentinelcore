@@ -147,7 +147,7 @@ func TestSec07_CircuitOpensAfter3(t *testing.T) {
 	sec07MustInsertBundle(t, pool, id)
 
 	for i := 0; i < 3; i++ {
-		if err := s.RecordFailure(ctx, id, "boom"); err != nil {
+		if err := s.RecordFailure(ctx, id, "boom", ""); err != nil {
 			t.Fatalf("RecordFailure %d: %v", i+1, err)
 		}
 	}
@@ -212,5 +212,82 @@ func TestSec09_FillValueRejectedAtIngest(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must not carry value") {
 		t.Fatalf("expected 'must not carry value' error, got: %v", err)
+	}
+}
+
+// sec10FakeForensics counts Capture invocations so the privacy regression
+// can assert "no capture on the not-yet-failed path." It deliberately
+// returns an empty key + nil error so the engine treats the capture as a
+// successful no-op when the path is exercised — what we test here is the
+// CALL COUNT, not the engine's reaction to the result.
+type sec10FakeForensics struct{ calls int }
+
+func (f *sec10FakeForensics) Capture(_ context.Context, _ uuid.UUID, _ int) (string, error) {
+	f.calls++
+	return "", nil
+}
+
+// sec-10: forensics privacy — Replay must NOT capture a screenshot on any
+// path that did not first observe a replay failure. Specifically: a request
+// rejected by an early validation gate (nil bundle / wrong type / expired /
+// no actions) must NOT touch chromedp and therefore must NOT invoke the
+// forensics sink, because those rejections are well-formedness errors that
+// have no operational forensic value and would only burn KMS+MinIO quota.
+//
+// This is the "happy-path" from the privacy invariant's perspective: in
+// unit tests we have no live chromedp browser, so the only way to observe
+// a positively-no-capture branch is to exercise Replay's pre-bundleID
+// validation gates.
+func TestSec10_ForensicsOnlyOnFailure(t *testing.T) {
+	fakeF := &sec10FakeForensics{}
+	e := replay.NewEngine().WithForensics(fakeF)
+
+	// Case A: nil bundle — Replay must reject before any forensic capture.
+	if _, err := e.Replay(context.Background(), nil); err == nil {
+		t.Fatal("expected nil-bundle rejection")
+	}
+	if fakeF.calls != 0 {
+		t.Fatalf("Capture called %d times on nil-bundle path", fakeF.calls)
+	}
+
+	// Case B: wrong type — same invariant, different gate.
+	wrongType := &bundles.Bundle{
+		ID:        "10101010-1010-1010-1010-101010101010",
+		Type:      "session_import",
+		ExpiresAt: time.Now().Add(time.Hour),
+		Actions:   []bundles.Action{{Kind: bundles.ActionNavigate, URL: "https://x/"}},
+	}
+	if _, err := e.Replay(context.Background(), wrongType); err == nil {
+		t.Fatal("expected wrong-type rejection")
+	}
+	if fakeF.calls != 0 {
+		t.Fatalf("Capture called %d times on wrong-type path", fakeF.calls)
+	}
+
+	// Case C: expired bundle — same invariant.
+	expired := &bundles.Bundle{
+		ID:        "20202020-2020-2020-2020-202020202020",
+		Type:      "recorded_login",
+		ExpiresAt: time.Now().Add(-time.Hour),
+		Actions:   []bundles.Action{{Kind: bundles.ActionNavigate, URL: "https://x/"}},
+	}
+	if _, err := e.Replay(context.Background(), expired); err == nil {
+		t.Fatal("expected expired rejection")
+	}
+	if fakeF.calls != 0 {
+		t.Fatalf("Capture called %d times on expired path", fakeF.calls)
+	}
+
+	// Case D: no actions — same invariant.
+	empty := &bundles.Bundle{
+		ID:        "30303030-3030-3030-3030-303030303030",
+		Type:      "recorded_login",
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if _, err := e.Replay(context.Background(), empty); err == nil {
+		t.Fatal("expected no-actions rejection")
+	}
+	if fakeF.calls != 0 {
+		t.Fatalf("Capture called %d times on empty-actions path", fakeF.calls)
 	}
 }

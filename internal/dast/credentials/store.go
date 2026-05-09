@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/sentinelcore/sentinelcore/internal/kms"
+	"github.com/sentinelcore/sentinelcore/internal/metrics"
 )
 
 // ErrNotFound is returned by Load when no row matches (bundle_id, vault_key).
@@ -100,8 +101,10 @@ func (s *PostgresStore) Load(ctx context.Context, bundleID uuid.UUID, vaultKey s
 	).Scan(&iv, &ciphertext, &wrappedDEK)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			metrics.CredentialLoadTotal.WithLabelValues("not_found").Inc()
 			return nil, ErrNotFound
 		}
+		metrics.CredentialLoadTotal.WithLabelValues("error").Inc()
 		return nil, fmt.Errorf("credentials/load: scan: %w", err)
 	}
 	env := &kms.Envelope{
@@ -114,8 +117,10 @@ func (s *PostgresStore) Load(ctx context.Context, bundleID uuid.UUID, vaultKey s
 	}
 	plain, err := kms.DecryptEnvelope(ctx, s.kms, env, aadFor(bundleID, vaultKey))
 	if err != nil {
+		metrics.CredentialLoadTotal.WithLabelValues("decrypt_error").Inc()
 		return nil, fmt.Errorf("credentials/load: decrypt: %w", err)
 	}
+	metrics.CredentialLoadTotal.WithLabelValues("success").Inc()
 	return plain, nil
 }
 

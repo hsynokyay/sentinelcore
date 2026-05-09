@@ -80,6 +80,19 @@ type Bundle struct {
 	TTLSeconds          int  `json:"ttl_seconds"`
 
 	RecordingMetadata *RecordingMetadata `json:"recording_metadata,omitempty"`
+
+	// Status reflects the row's lifecycle status (e.g. "pending_review",
+	// "approved", "superseded"). Populated by Load; not part of canonical
+	// JSON because lifecycle state can mutate independently of bundle
+	// content. Save ignores this field; transitions go through Approve /
+	// Reject / Revoke / SoftDelete / SetSupersededBy.
+	Status string `json:"status,omitempty"`
+
+	// SupersededBy points at the bundle ID that replaced this bundle via
+	// the re-record flow (NULL for non-superseded bundles). Included in
+	// canonical JSON with omitempty so HMACs computed at creation (when
+	// empty) remain valid; the link is set later via SetSupersededBy.
+	SupersededBy string `json:"superseded_by,omitempty"`
 }
 
 // canonicalAction mirrors Action but serializes Timestamp as RFC3339Nano UTC
@@ -116,6 +129,7 @@ type canonicalBundle struct {
 	AutomatableRefresh bool                `json:"automatable_refresh,omitempty"`
 	TTLSeconds         int                 `json:"ttl_seconds"`
 	RecordingMetadata  *RecordingMetadata  `json:"recording_metadata,omitempty"`
+	SupersededBy       string              `json:"superseded_by,omitempty"`
 }
 
 // CanonicalJSON returns a deterministic JSON encoding of b suitable for HMAC
@@ -173,6 +187,7 @@ func (b *Bundle) CanonicalJSON() ([]byte, error) {
 		AutomatableRefresh: b.AutomatableRefresh,
 		TTLSeconds:         b.TTLSeconds,
 		RecordingMetadata:  b.RecordingMetadata,
+		SupersededBy:       b.SupersededBy,
 	}
 
 	var buf bytes.Buffer
