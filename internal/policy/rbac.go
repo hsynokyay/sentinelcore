@@ -30,6 +30,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		// Phase 5 governance-ops: compliance catalogs + mappings.
 		"compliance.catalogs.read": true, "compliance.catalogs.write": true,
 		"compliance.mappings.read": true, "compliance.mappings.write": true,
+		// Phase 5 governance-ops: evidence pack exports.
+		"governance.exports.read": true, "governance.exports.write": true,
 		"webhooks.read": true, "webhooks.manage": true,
 		"retention.read": true, "retention.manage": true,
 		"reports.read": true,
@@ -51,6 +53,8 @@ var PermissionMatrix = map[string]map[string]bool{
 		// Phase 5 governance-ops: compliance catalogs + mappings.
 		"compliance.catalogs.read": true, "compliance.catalogs.write": true,
 		"compliance.mappings.read": true, "compliance.mappings.write": true,
+		// Phase 5 governance-ops: evidence pack exports.
+		"governance.exports.read": true, "governance.exports.write": true,
 		"webhooks.read": true, "webhooks.manage": true,
 		"retention.read": true,
 		"reports.read": true,
@@ -69,6 +73,9 @@ var PermissionMatrix = map[string]map[string]bool{
 		// Phase 5 governance-ops: analysts read compliance, don't write.
 		"compliance.catalogs.read": true,
 		"compliance.mappings.read": true,
+		// Phase 5 governance-ops: analysts can read their team's exports
+		// (write is restricted to admins to avoid runaway resource use).
+		"governance.exports.read": true,
 		"webhooks.read": true,
 		"reports.read": true,
 	},
@@ -85,6 +92,9 @@ var PermissionMatrix = map[string]map[string]bool{
 		// Phase 5 governance-ops: auditor reads compliance catalogs/mappings.
 		"compliance.catalogs.read": true,
 		"compliance.mappings.read": true,
+		// Phase 5 governance-ops: auditor's primary need — reading and
+		// requesting evidence packs for their compliance audits.
+		"governance.exports.read": true, "governance.exports.write": true,
 		"webhooks.read": true,
 		"retention.read": true,
 		"reports.read": true,

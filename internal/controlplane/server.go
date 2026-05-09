@@ -19,6 +19,7 @@ import (
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
 	"github.com/sentinelcore/sentinelcore/internal/dast/authz"
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
+	"github.com/sentinelcore/sentinelcore/internal/export/evidence"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
 	"github.com/sentinelcore/sentinelcore/pkg/audit"
@@ -194,6 +195,18 @@ func (s *Server) Start(ctx context.Context) error {
 
 	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker)
 
+	// Wire the evidence-pack BlobClient so DownloadExport can stream
+	// archives from disk. EXPORT_BLOB_DIR matches the export-worker env.
+	exportBlobDir := os.Getenv("EXPORT_BLOB_DIR")
+	if exportBlobDir == "" {
+		exportBlobDir = "/var/lib/sentinelcore/exports"
+	}
+	if blob, blobErr := evidence.NewFilesystemBlob(exportBlobDir); blobErr != nil {
+		s.logger.Warn().Err(blobErr).Str("dir", exportBlobDir).Msg("evidence-pack blob store unavailable; downloads will return 503")
+	} else {
+		handlers.SetExportBlob(blob)
+	}
+
 	mux := http.NewServeMux()
 
 	// Health
@@ -307,6 +320,12 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/compliance/mappings", handlers.CreateComplianceMapping)
 	mux.HandleFunc("DELETE /api/v1/compliance/mappings/{id}", handlers.DeleteComplianceMapping)
 	mux.HandleFunc("GET /api/v1/compliance/resolve", handlers.ResolveComplianceControls)
+
+	// Phase 5 governance-ops: evidence pack export jobs.
+	mux.HandleFunc("POST /api/v1/governance/exports", handlers.CreateExport)
+	mux.HandleFunc("GET /api/v1/governance/exports", handlers.ListExports)
+	mux.HandleFunc("GET /api/v1/governance/exports/{id}", handlers.GetExport)
+	mux.HandleFunc("GET /api/v1/governance/exports/{id}/download", handlers.DownloadExport)
 
 	// Finding extensions
 	mux.HandleFunc("POST /api/v1/findings/{id}/assign", handlers.AssignFinding)
