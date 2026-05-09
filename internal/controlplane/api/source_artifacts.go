@@ -23,11 +23,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/archive"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // ArtifactStorageRoot is where uploaded bundles live. The controlplane
@@ -190,10 +190,10 @@ func (h *Handlers) CreateSourceArtifact(w http.ResponseWriter, r *http.Request) 
 	sha := hex.EncodeToString(hasher.Sum(nil))
 	var created sourceArtifactResponse
 
-	rlsErr := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	rlsErr := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Verify the project exists under RLS before inserting.
 		var exists bool
-		if qErr := conn.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM core.projects WHERE id = $1)`, projectID).Scan(&exists); qErr != nil {
+		if qErr := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM core.projects WHERE id = $1)`, projectID).Scan(&exists); qErr != nil {
 			return qErr
 		}
 		if !exists {
@@ -201,7 +201,7 @@ func (h *Handlers) CreateSourceArtifact(w http.ResponseWriter, r *http.Request) 
 		}
 
 		var createdAt time.Time
-		if insErr := conn.QueryRow(ctx,
+		if insErr := tx.QueryRow(ctx,
 			`INSERT INTO scans.source_artifacts
 			   (id, project_id, name, description, format, storage_path, size_bytes, sha256_hex, entry_count, uncompressed_size, uploaded_by, created_at)
 			 VALUES ($1,$2,$3,$4,'zip',$5,$6,$7,$8,$9,$10,now())
@@ -257,8 +257,8 @@ func (h *Handlers) ListSourceArtifacts(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("id")
 	var artifacts []sourceArtifactResponse
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		rows, qErr := conn.Query(ctx,
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, qErr := tx.Query(ctx,
 			`SELECT id, project_id, name, COALESCE(description,''), format,
 			        size_bytes, sha256_hex, entry_count, uncompressed_size,
 			        uploaded_by::text, created_at
@@ -307,9 +307,9 @@ func (h *Handlers) GetSourceArtifact(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue("id")
 	var a sourceArtifactResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		var createdAt time.Time
-		if qErr := conn.QueryRow(ctx,
+		if qErr := tx.QueryRow(ctx,
 			`SELECT id, project_id, name, COALESCE(description,''), format,
 			        size_bytes, sha256_hex, entry_count, uncompressed_size,
 			        uploaded_by::text, created_at
@@ -344,9 +344,9 @@ func (h *Handlers) DeleteSourceArtifact(w http.ResponseWriter, r *http.Request) 
 	id := r.PathValue("id")
 
 	var storagePath string
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// DELETE ... RETURNING gives us the path under RLS in one round trip.
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`DELETE FROM scans.source_artifacts WHERE id = $1 RETURNING storage_path`, id,
 		).Scan(&storagePath)
 		if qErr != nil {

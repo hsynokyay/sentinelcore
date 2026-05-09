@@ -10,21 +10,41 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useAuth } from "@/features/auth/hooks";
 import { loginSchema, type LoginFormData } from "@/features/auth/schemas";
+import { SSOLoginButtons } from "@/features/sso/login-buttons";
+
+// Derive the org slug from an email's domain: alice@acme.com → "acme".
+// Returns undefined when the email is malformed or still being typed.
+function deriveOrgSlug(email: string): string | undefined {
+  const at = email.indexOf("@");
+  if (at < 0) return undefined;
+  const host = email.slice(at + 1).split(".")[0];
+  return host ? host.toLowerCase() : undefined;
+}
 
 export default function LoginPage() {
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
+  const emailValue = watch("email") ?? "";
+  const orgSlug = deriveOrgSlug(emailValue);
 
   const onSubmit = async (data: LoginFormData) => {
     setError(null);
     try {
       await login(data.email, data.password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      // SSO-only users surface as "use SSO to sign in" from the backend
+      // (HTTP 401, code=USE_SSO). Nudge the user toward the SSO buttons
+      // which are already visible below.
+      const msg = err instanceof Error ? err.message : "Login failed";
+      if (msg.toLowerCase().includes("use sso")) {
+        setError("Your account uses SSO — use the provider button below.");
+      } else {
+        setError(msg);
+      }
     }
   };
 
@@ -58,6 +78,12 @@ export default function LoginPage() {
               Sign in
             </Button>
           </form>
+          {/*
+           * SSO buttons render only when orgSlug is derivable AND at least
+           * one enabled provider exists for that org (the hook fails closed
+           * to an empty list — unknown orgs render nothing).
+           */}
+          <SSOLoginButtons orgSlug={orgSlug} />
         </CardContent>
       </Card>
     </div>

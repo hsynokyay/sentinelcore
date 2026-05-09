@@ -1,0 +1,19 @@
+[Unit]
+Description=Daily encrypted SentinelCore DB backup
+Documentation=https://github.com/hsynokyay/sentinelcore/blob/main/docs/superpowers/plans/2026-04-18-phase7-data-security.md
+
+[Timer]
+# 02:17 UTC daily. Off-peak for most tenants; the 17-minute offset
+# avoids contention with other hourly jobs (retention sweeps at :00,
+# certificate renewals at :10, etc).
+OnCalendar=*-*-* 02:17:00 UTC
+# If the host was off at 02:17 (e.g. reboot), run the missed one as
+# soon as it comes up.
+Persistent=true
+# Jitter +/- 5 min so a fleet of nodes doesn't hit S3 at once.
+RandomizedDelaySec=5min
+
+Unit=sc-backup.service
+
+[Install]
+WantedBy=timers.target

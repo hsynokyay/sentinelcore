@@ -73,6 +73,22 @@ var APIKeyAuths = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total API key authentication attempts.",
 }, []string{"status"})
 
+// --- Audit integrity metrics ---
+
+// AuditIntegrityChecks counts chain-verification outcomes per partition.
+// A pass is expected every hour; a fail is pager-escalated in chunk 9.
+var AuditIntegrityChecks = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "sentinelcore_audit_integrity_check_total",
+	Help: "Audit chain verification runs, by partition and outcome (pass|fail|partial|error).",
+}, []string{"partition", "outcome"})
+
+// AuditEventsIngested counts events successfully written to audit.audit_log.
+// Bumped by the audit-service consumer on each commit.
+var AuditEventsIngested = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "sentinelcore_audit_events_ingested_total",
+	Help: "Audit events persisted to audit.audit_log, by action domain.",
+}, []string{"action_domain"})
+
 // --- HTTP request metrics (general) ---
 
 var HTTPRequests = promauto.NewCounterVec(prometheus.CounterOpts{

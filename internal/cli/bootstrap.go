@@ -68,7 +68,7 @@ func Bootstrap(ctx context.Context, cfg BootstrapConfig) error {
 	adminID := uuid.New().String()
 	_, err = pool.Exec(ctx,
 		`INSERT INTO core.users (id, org_id, email, full_name, password_hash, role, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, 'Platform Admin', $4, 'platform_admin', 'active', $5, $5)`,
+		 VALUES ($1, $2, $3, 'Owner', $4, 'owner', 'active', $5, $5)`,
 		adminID, orgID, cfg.AdminEmail, passwordHash, now)
 	if err != nil {
 		return fmt.Errorf("bootstrap: create admin user: %w", err)
@@ -143,7 +143,7 @@ func RunBootstrapFromPool(ctx context.Context, pool *pgxpool.Pool, email, passwo
 	adminID := uuid.New().String()
 	_, err = pool.Exec(ctx,
 		`INSERT INTO core.users (id, org_id, email, full_name, password_hash, role, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, 'Platform Admin', $4, 'platform_admin', 'active', $5, $5)`,
+		 VALUES ($1, $2, $3, 'Owner', $4, 'owner', 'active', $5, $5)`,
 		adminID, orgID, email, passwordHash, now)
 	if err != nil {
 		return fmt.Errorf("bootstrap: create admin user: %w", err)

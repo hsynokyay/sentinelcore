@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sentinelcore/sentinelcore/internal/policy"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 type createTeamRequest struct {
@@ -39,11 +42,6 @@ func (h *Handlers) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.create") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	orgID := r.PathValue("org_id")
 
 	var req createTeamRequest
@@ -62,11 +60,14 @@ func (h *Handlers) CreateTeam(w http.ResponseWriter, r *http.Request) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
-	_, err := h.pool.Exec(r.Context(),
-		`INSERT INTO core.teams (id, org_id, name, display_name, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $5)`,
-		id, orgID, req.Name, req.DisplayName, now,
-	)
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx,
+				`INSERT INTO core.teams (id, org_id, name, display_name, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, $5, $5)`,
+				id, orgID, req.Name, req.DisplayName, now)
+			return err
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to create team")
 		writeError(w, http.StatusInternalServerError, "failed to create team", "INTERNAL_ERROR")
@@ -90,33 +91,32 @@ func (h *Handlers) ListTeams(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	orgID := r.PathValue("org_id")
 
-	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, org_id, name, display_name, created_at FROM core.teams WHERE org_id = $1 ORDER BY created_at DESC`, orgID)
+	var teams []teamResponse
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := tx.Query(ctx,
+				`SELECT id, org_id, name, display_name, created_at FROM core.teams WHERE org_id = $1 ORDER BY created_at DESC`, orgID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var t teamResponse
+				var createdAt time.Time
+				if err := rows.Scan(&t.ID, &t.OrgID, &t.Name, &t.DisplayName, &createdAt); err != nil {
+					return err
+				}
+				t.CreatedAt = createdAt.Format(time.RFC3339)
+				teams = append(teams, t)
+			}
+			return rows.Err()
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to list teams")
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
-	}
-	defer rows.Close()
-
-	var teams []teamResponse
-	for rows.Next() {
-		var t teamResponse
-		var createdAt time.Time
-		if err := rows.Scan(&t.ID, &t.OrgID, &t.Name, &t.DisplayName, &createdAt); err != nil {
-			h.logger.Error().Err(err).Msg("failed to scan team")
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		t.CreatedAt = createdAt.Format(time.RFC3339)
-		teams = append(teams, t)
 	}
 
 	if teams == nil {
@@ -132,11 +132,6 @@ func (h *Handlers) AddTeamMember(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.update") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	teamID := r.PathValue("id")
 
 	var req addMemberRequest
@@ -150,11 +145,14 @@ func (h *Handlers) AddTeamMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	_, err := h.pool.Exec(r.Context(),
-		`INSERT INTO core.team_memberships (team_id, user_id, role, joined_at)
-		 VALUES ($1, $2, $3, $4)`,
-		teamID, req.UserID, req.Role, now,
-	)
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx,
+				`INSERT INTO core.team_memberships (team_id, user_id, role, joined_at)
+				 VALUES ($1, $2, $3, $4)`,
+				teamID, req.UserID, req.Role, now)
+			return err
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to add team member")
 		writeError(w, http.StatusInternalServerError, "failed to add member", "INTERNAL_ERROR")
@@ -177,33 +175,32 @@ func (h *Handlers) ListTeamMembers(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "teams.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	teamID := r.PathValue("id")
 
-	rows, err := h.pool.Query(r.Context(),
-		`SELECT team_id, user_id, role, joined_at FROM core.team_memberships WHERE team_id = $1`, teamID)
+	var members []memberResponse
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := tx.Query(ctx,
+				`SELECT team_id, user_id, role, joined_at FROM core.team_memberships WHERE team_id = $1`, teamID)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var m memberResponse
+				var addedAt time.Time
+				if err := rows.Scan(&m.TeamID, &m.UserID, &m.Role, &addedAt); err != nil {
+					return err
+				}
+				m.AddedAt = addedAt.Format(time.RFC3339)
+				members = append(members, m)
+			}
+			return rows.Err()
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to list team members")
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
-	}
-	defer rows.Close()
-
-	var members []memberResponse
-	for rows.Next() {
-		var m memberResponse
-		var addedAt time.Time
-		if err := rows.Scan(&m.TeamID, &m.UserID, &m.Role, &addedAt); err != nil {
-			h.logger.Error().Err(err).Msg("failed to scan member")
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		m.AddedAt = addedAt.Format(time.RFC3339)
-		members = append(members, m)
 	}
 
 	if members == nil {

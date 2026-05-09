@@ -1,0 +1,37 @@
+[Unit]
+Description=SentinelCore SLA deadline reconciliation sweep
+Documentation=https://github.com/hsynokyay/sentinelcore/blob/main/docs/superpowers/plans/2026-04-19-phase9-governance-compliance.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/sentinelcore/env/sentinelcore.env
+
+[Service]
+Type=oneshot
+User=sentinelcore
+Group=sentinelcore
+EnvironmentFile=/opt/sentinelcore/env/sentinelcore.env
+
+# --once exits after one sweep; the timer schedules the next run.
+ExecStart=/usr/local/bin/sc-sla-sweep --once
+
+# Sandbox: reads env file, writes nothing on disk, only the DB.
+ProtectSystem=strict
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+TimeoutStartSec=10min
+
+[Install]
+WantedBy=multi-user.target

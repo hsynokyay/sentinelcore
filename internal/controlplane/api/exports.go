@@ -4,19 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
-	"github.com/sentinelcore/sentinelcore/internal/compliance"
 	"github.com/sentinelcore/sentinelcore/internal/export"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
-	"github.com/sentinelcore/sentinelcore/internal/remediation"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // ExportFindingMarkdown serves GET /api/v1/findings/{id}/export.md
@@ -93,11 +89,11 @@ func (h *Handlers) loadFindingForExport(w http.ResponseWriter, r *http.Request) 
 
 	id := r.PathValue("id")
 	var f export.FindingData
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		var createdAt time.Time
 		var lineStart *int
 		var ruleID *string
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`SELECT id, title, severity, status, finding_type, COALESCE(rule_id,''),
 			        COALESCE(description,''), COALESCE(file_path,''), line_start,
 			        COALESCE(url,''), COALESCE(http_method,''), COALESCE(parameter,''),
@@ -118,7 +114,7 @@ func (h *Handlers) loadFindingForExport(w http.ResponseWriter, r *http.Request) 
 		f.CreatedAt = createdAt
 
 		// Load taint paths.
-		rows, tpErr := conn.Query(ctx,
+		rows, tpErr := tx.Query(ctx,
 			`SELECT step_index, file_path, line_start, step_kind, detail
 			 FROM findings.taint_paths WHERE finding_id = $1 ORDER BY step_index`, id)
 		if tpErr != nil {
@@ -144,70 +140,7 @@ func (h *Handlers) loadFindingForExport(w http.ResponseWriter, r *http.Request) 
 		f.Remediation = h.remediation.Get(f.RuleID)
 	}
 
-	// Resolve compliance controls so SARIF / Markdown exports surface
-	// OWASP / PCI / NIST tags. Failures are non-fatal — a finding with
-	// no resolved CWE simply ships without compliance metadata.
-	if orgID, perr := uuid.Parse(user.OrgID); perr == nil {
-		f.ControlRefs = resolveControlRefsForFinding(r.Context(), h.pool, orgID, f.Remediation)
-	}
-
 	return f, true
-}
-
-// cweIDsFromRemediation returns the integer CWE ids referenced in a
-// remediation pack (its References slice carries titles like "CWE-79").
-// Returns nil when the pack is nil or has no CWE entries.
-func cweIDsFromRemediation(pack *remediation.Pack) []int {
-	if pack == nil {
-		return nil
-	}
-	var out []int
-	for _, ref := range pack.References {
-		title := strings.TrimSpace(ref.Title)
-		if !strings.HasPrefix(title, "CWE-") {
-			continue
-		}
-		n, err := strconv.Atoi(strings.TrimPrefix(title, "CWE-"))
-		if err != nil || n <= 0 {
-			continue
-		}
-		out = append(out, n)
-	}
-	return out
-}
-
-// resolveControlRefsForFinding walks the pack's CWE references,
-// resolves each via compliance.ResolveControls, and returns a deduped
-// deterministic slice for the exporter. Resolution failures are
-// silent — a missing built-in catalog should not break the export.
-func resolveControlRefsForFinding(ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID, pack *remediation.Pack) []export.ControlRef {
-	cwes := cweIDsFromRemediation(pack)
-	if len(cwes) == 0 {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []export.ControlRef
-	for _, cwe := range cwes {
-		refs, err := compliance.ResolveControls(ctx, pool, orgID, cwe)
-		if err != nil {
-			continue
-		}
-		for _, r := range refs {
-			key := r.CatalogCode + "/" + r.ControlID
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, export.ControlRef{
-				CatalogCode: r.CatalogCode,
-				CatalogName: r.CatalogName,
-				ControlID:   r.ControlID,
-				Title:       r.Title,
-				Confidence:  r.Confidence,
-			})
-		}
-	}
-	return out
 }
 
 func (h *Handlers) loadScanForExport(w http.ResponseWriter, r *http.Request) (export.ScanData, bool) {
@@ -222,9 +155,9 @@ func (h *Handlers) loadScanForExport(w http.ResponseWriter, r *http.Request) (ex
 
 	id := r.PathValue("id")
 	var d export.ScanData
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		var startedAt, finishedAt *time.Time
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`SELECT sj.id, sj.scan_type, sj.scan_profile, sj.status,
 			        COALESCE(p.display_name, p.name, ''),
 			        COALESCE(t.label, t.base_url, ''),
@@ -245,7 +178,7 @@ func (h *Handlers) loadScanForExport(w http.ResponseWriter, r *http.Request) (ex
 		d.FinishedAt = finishedAt
 
 		// Load findings for this scan.
-		rows, fErr := conn.Query(ctx,
+		rows, fErr := tx.Query(ctx,
 			`SELECT id, title, severity, status, finding_type, COALESCE(rule_id,''),
 			        COALESCE(description,''), COALESCE(file_path,''), line_start,
 			        COALESCE(url,''), COALESCE(http_method,''), COALESCE(parameter,''),
@@ -271,9 +204,6 @@ func (h *Handlers) loadScanForExport(w http.ResponseWriter, r *http.Request) (ex
 			}
 			if f.RuleID != "" && h.remediation != nil {
 				f.Remediation = h.remediation.Get(f.RuleID)
-			}
-			if orgID, perr := uuid.Parse(user.OrgID); perr == nil {
-				f.ControlRefs = resolveControlRefsForFinding(ctx, h.pool, orgID, f.Remediation)
 			}
 			d.Findings = append(d.Findings, f)
 		}

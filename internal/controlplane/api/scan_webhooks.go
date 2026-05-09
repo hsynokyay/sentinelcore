@@ -12,10 +12,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
 	"github.com/sentinelcore/sentinelcore/pkg/observability"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // ScanWebhookPayload is the JSON body sent to webhook endpoints when a scan
@@ -32,8 +34,16 @@ type ScanWebhookPayload struct {
 
 // DispatchScanWebhooks sends a scan.completed event to all active webhooks
 // for the finding's org. Called from the scan status update path.
+//
+// The initial scan-metadata resolve is a cross-tenant lookup (the
+// caller knows only scanID) which today requires bypassing RLS; the
+// scan worker runs as a platform process, not per-tenant. Wave 3 of
+// the data-security plan splits the DB roles so the worker's DSN has
+// RLS bypass built in — at that point this direct pool.QueryRow is
+// safe. Until then, the worker's sentinel DB user still has BYPASSRLS
+// from bootstrap, which is why this works. The second query (webhook
+// URL list) uses tenant.Tx once the org is known.
 func DispatchScanWebhooks(ctx context.Context, pool *pgxpool.Pool, logger zerolog.Logger, scanID string) {
-	// Load scan metadata.
 	var projectID, scanType, status, orgID string
 	var findingsCount int
 	err := pool.QueryRow(ctx,
@@ -66,22 +76,31 @@ func DispatchScanWebhooks(ctx context.Context, pool *pgxpool.Pool, logger zerolo
 	// Load webhook URLs for this org. Secret for signing is the platform
 	// MSG_SIGNING_KEY (same as NATS message signing).
 	signingKey := os.Getenv("MSG_SIGNING_KEY")
-	rows, err := pool.Query(ctx,
-		`SELECT url FROM governance.webhook_configs
-		  WHERE org_id = $1 AND enabled = true
-		    AND ('scan.completed' = ANY(events) OR 'scan.*' = ANY(events) OR events = '{}')`,
-		orgID)
-	if err != nil {
+	var urls []string
+	if err := tenant.Tx(ctx, pool, orgID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT url FROM governance.webhook_configs
+			  WHERE org_id = $1 AND enabled = true
+			    AND ('scan.completed' = ANY(events) OR 'scan.*' = ANY(events) OR events = '{}')`,
+			orgID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var url string
+			if rows.Scan(&url) != nil {
+				continue
+			}
+			urls = append(urls, url)
+		}
+		return rows.Err()
+	}); err != nil {
 		return
 	}
-	defer rows.Close()
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	for rows.Next() {
-		var url string
-		if rows.Scan(&url) != nil {
-			continue
-		}
+	for _, url := range urls {
 		go deliverWebhook(client, logger, url, signingKey, body)
 	}
 }

@@ -18,6 +18,10 @@ bin/
 /updater
 /np-gc
 /correlation-engine
+/backup
+/cli
+/migrate
+/sentinelcore-cli
 
 # Environment and secrets
 .env
@@ -52,3 +56,5 @@ web/node_modules/
 
 # Git worktrees (used by superpowers subagent-driven-development)
 .worktrees/
+/rotate-sweep
+/sla-sweep

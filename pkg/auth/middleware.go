@@ -91,7 +91,16 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 					OrgID:  rk.OrgID,
 					Role:   rk.Role,
 				}
+				principal := Principal{
+					Kind:   "api_key",
+					OrgID:  rk.OrgID,
+					UserID: rk.UserID,
+					Role:   rk.Role,
+					Scopes: rk.Scopes,
+					KeyID:  rk.KeyID,
+				}
 				ctx := context.WithValue(r.Context(), UserContextKey, userCtx)
+				ctx = WithPrincipal(ctx, principal)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -119,6 +128,19 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 					}
 				}
 
+				// Phase 8 §5.2: absolute session lifetime. Unlike idle,
+				// this timestamp NEVER advances on activity, so a user
+				// kept-warm session still hits the ceiling. Default 12h;
+				// override via SC_ABSOLUTE_SESSION_LIFETIME env (duration).
+				absoluteLifetime := parseAbsoluteLifetime()
+				if absoluteLifetime > 0 {
+					expired, err := sessions.IsAbsoluteExpired(r.Context(), claims.ID, absoluteLifetime)
+					if err == nil && expired {
+						http.Error(w, `{"error":"session expired","code":"SESSION_EXPIRED"}`, http.StatusUnauthorized)
+						return
+					}
+				}
+
 				// Touch session to track activity for idle timeout.
 				_ = sessions.TouchSession(r.Context(), claims.ID, 15*time.Minute)
 			}
@@ -130,7 +152,19 @@ func AuthMiddleware(jwtMgr *JWTManager, sessions *SessionStore) func(http.Handle
 				JTI:    claims.ID,
 			}
 
+			// Phase 1 Task 6.1: also store a Principal so RequirePermission middleware
+			// can read it. UserContext is kept for backward compatibility with legacy
+			// handlers; new code should prefer Principal via PrincipalFromContext.
+			principal := Principal{
+				Kind:   "user",
+				OrgID:  claims.OrgID,
+				UserID: claims.Subject,
+				Role:   claims.Role, // already translated to new vocabulary by JWT.ValidateToken (Task 4.1)
+				JTI:    claims.ID,
+			}
+
 			ctx := context.WithValue(r.Context(), UserContextKey, userCtx)
+			ctx = WithPrincipal(ctx, principal)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -151,6 +185,21 @@ func parseIdleTimeout() time.Duration {
 	d, err := time.ParseDuration(v)
 	if err != nil {
 		return 30 * time.Minute
+	}
+	return d
+}
+
+// parseAbsoluteLifetime reads SC_ABSOLUTE_SESSION_LIFETIME (default: 12h).
+// Phase 8 §5.2 — ceiling on how long a single login can persist,
+// independent of activity. 0 disables the check.
+func parseAbsoluteLifetime() time.Duration {
+	v := os.Getenv("SC_ABSOLUTE_SESSION_LIFETIME")
+	if v == "" {
+		return 12 * time.Hour
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 12 * time.Hour
 	}
 	return d
 }
