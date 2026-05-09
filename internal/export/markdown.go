@@ -31,6 +31,11 @@ type FindingData struct {
 	CreatedAt   time.Time
 	TaintPaths  []TaintStep
 	Remediation *remediation.Pack
+	// ControlRefs is the resolved compliance control set for this
+	// finding (populated by the HTTP handler from
+	// compliance.ResolveControls). Empty slice means "no compliance
+	// data available" — the formatters skip the section silently.
+	ControlRefs []ControlRef
 }
 
 // TaintStep is one evidence-chain step.
@@ -83,6 +88,20 @@ func FindingMarkdown(f FindingData) string {
 		for _, s := range f.TaintPaths {
 			b.WriteString(fmt.Sprintf("%d. **[%s]** %s — `%s:%d`\n",
 				s.StepIndex+1, cap(s.StepKind), s.Detail, s.FilePath, s.LineStart))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(f.ControlRefs) > 0 {
+		b.WriteString("## Compliance\n\n")
+		b.WriteString("| Catalog | Control | Title | Confidence |\n|---|---|---|---|\n")
+		for _, c := range f.ControlRefs {
+			catName := c.CatalogName
+			if catName == "" {
+				catName = c.CatalogCode
+			}
+			b.WriteString(fmt.Sprintf("| %s | `%s` | %s | %s |\n",
+				catName, c.ControlID, c.Title, c.Confidence))
 		}
 		b.WriteString("\n")
 	}

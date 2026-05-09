@@ -11,6 +11,7 @@ import { RemediationPanel } from "./remediation-panel";
 import { DeveloperHandoff } from "./developer-handoff";
 import { ExportFindingButton } from "@/features/export/export-finding-button";
 import { ExportFindingSarifButton } from "@/features/export/export-sarif-buttons";
+import { ControlsStrip } from "@/features/compliance/controls-strip";
 import type { Finding } from "@/lib/types";
 
 const triageStatuses = [
@@ -74,6 +75,9 @@ export function FindingDetail({ finding }: FindingDetailProps) {
         <h3 className="text-sm font-medium text-muted-foreground mb-2">Location</h3>
         <code className="text-sm bg-muted px-2 py-1 rounded font-mono">{location}</code>
       </section>
+
+      {/* Phase-5 governance ops: compliance controls strip */}
+      <ControlsStrip finding={finding} />
 
       {/* Analysis Trace — SAST evidence chain */}
       {finding.taint_paths && finding.taint_paths.length > 0 && (

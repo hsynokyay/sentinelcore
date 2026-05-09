@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useEffect } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -87,13 +88,22 @@ export function CreateScanDialog({ open, onOpenChange }: CreateScanDialogProps) 
     }
   }, [selectedScanType, setValue]);
 
-  // Reset form when dialog closes
+  // Reset form when dialog closes. We only depend on `open` because:
+  // - `reset` from useForm is stable across renders.
+  // - `createScan` (useMutation result) is a NEW object every render, so
+  //   including it as a dep makes this effect run on every render — calling
+  //   reset() on each render starves the main thread and blocks Next.js
+  //   client-side route transitions away from /scans (the bug we hit in prod).
+  // We hold createScan in a ref so the effect can call .reset() without
+  // re-subscribing.
+  const createScanRef = React.useRef(createScan);
+  createScanRef.current = createScan;
   useEffect(() => {
     if (!open) {
       reset();
-      createScan.reset();
+      createScanRef.current.reset();
     }
-  }, [open, reset, createScan]);
+  }, [open, reset]);
 
   const onSubmit = (values: ScanFormValues) => {
     const {

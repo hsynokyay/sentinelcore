@@ -1,0 +1,32 @@
+{
+  "rule_id": "SC-JAVA-SESSION-001",
+  "name": "Predictable session/token via java.util.Random",
+  "language": "java",
+  "cwe": ["CWE-330"],
+  "owasp": ["A07:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "java.util.Random",
+        "callee": "nextInt",
+        "message_template": "java.util.Random is not cryptographic — use SecureRandom"
+      },
+      {
+        "receiver_fqn": "java.util.Random",
+        "callee": "nextLong",
+        "message_template": "java.util.Random is not cryptographic"
+      },
+      {
+        "receiver_fqn": "java.util.Random",
+        "callee": "nextBytes",
+        "message_template": "java.util.Random is not cryptographic"
+      }
+    ]
+  },
+  "description": "java.util.Random uses a linear-congruential PRNG that is trivially predictable. Using it for session IDs, tokens, or any security-relevant value is a CWE-330 violation.",
+  "remediation": "Use java.security.SecureRandom for any value that must not be predictable.",
+  "references": ["https://cwe.mitre.org/data/definitions/330.html"]
+}

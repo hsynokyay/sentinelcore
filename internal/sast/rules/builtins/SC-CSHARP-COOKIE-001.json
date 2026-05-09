@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-CSHARP-COOKIE-001",
+  "name": "Cookie appended without Secure flag",
+  "language": "csharp",
+  "cwe": ["CWE-614"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.75 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "Microsoft.AspNetCore.Http.IResponseCookies",
+        "callee": "Append",
+        "arg_index": 0,
+        "arg_text_missing_any": ["Secure"],
+        "message_template": "IResponseCookies.Append called with CookieOptions missing Secure"
+      },
+      {
+        "receiver_fqn": "IResponseCookies",
+        "callee": "Append",
+        "arg_index": 0,
+        "arg_text_missing_any": ["Secure"],
+        "message_template": "IResponseCookies.Append missing Secure"
+      }
+    ]
+  },
+  "description": "Response cookie appended without CookieOptions.Secure = true. ASP.NET defaults Secure to false outside of a HTTPS-only environment.",
+  "remediation": "Set Secure = true on the CookieOptions initializer.",
+  "references": ["https://cwe.mitre.org/data/definitions/614.html"]
+}

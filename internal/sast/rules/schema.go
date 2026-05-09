@@ -74,15 +74,44 @@ const (
 // If ArgIndex is set and ArgMatchesAny is non-empty, the operand at
 // ArgIndex must be a string literal matching at least one of the supplied
 // regular expressions.
+//
+// ArgTextContainsAny / ArgTextMissingAny operate on Instruction.ArgSourceText
+// — the verbatim source-text representation of each operand. Use these for
+// cookie/JWT options-object patterns where a key's presence (or absence)
+// inside an object literal cannot be expressed as a string-literal regex.
+//
+//   ArgTextContainsAny — pattern fires when the operand source text contains
+//   at least one of the listed substrings.
+//   ArgTextMissingAny — pattern fires only when NONE of the listed substrings
+//   appear in the operand source text. The list represents alternative
+//   spellings of the same protective marker (e.g. ["httpOnly", "HttpOnly"]);
+//   finding any one form is enough to consider the call safe.
+//
+// FuncTextContainsAny / FuncTextMissingAny operate on
+// Instruction.EnclosingFunctionText — the verbatim source text of the entire
+// enclosing function/method body. Use these for patterns that need to assert
+// the presence or absence of a sibling statement in the same scope (e.g.
+// "addCookie called without setSecure in the same method").
+//
+//   FuncTextContainsAny — pattern fires when the enclosing function source
+//   contains at least one of the listed substrings.
+//   FuncTextMissingAny — pattern fires only when NONE of the listed
+//   substrings appear in the enclosing function source. List entries are
+//   alternative spellings of the same protective marker.
 type CallPattern struct {
-	ReceiverFQN   string   `json:"receiver_fqn,omitempty"`
-	Callee        string   `json:"callee,omitempty"`
-	CalleeFQN     string   `json:"callee_fqn,omitempty"`
-	ArgIndex      *int     `json:"arg_index,omitempty"`
-	ArgMatchesAny []string `json:"arg_matches_any,omitempty"`
+	ReceiverFQN         string   `json:"receiver_fqn,omitempty"`
+	Callee              string   `json:"callee,omitempty"`
+	CalleeFQN           string   `json:"callee_fqn,omitempty"`
+	ArgIndex            *int     `json:"arg_index,omitempty"`
+	ArgMatchesAny       []string `json:"arg_matches_any,omitempty"`
+	ArgTextContainsAny  []string `json:"arg_text_contains_any,omitempty"`
+	ArgTextMissingAny   []string `json:"arg_text_missing_any,omitempty"`
+	FuncTextContainsAny []string `json:"func_text_contains_any,omitempty"`
+	FuncTextMissingAny  []string `json:"func_text_missing_any,omitempty"`
 	// MessageTemplate is a human-readable description used in the finding
 	// title when this pattern fires. Supports the placeholder {{arg}} which
-	// expands to the matched string literal.
+	// expands to the matched string literal (or, for arg_text_* matchers,
+	// the operand source text).
 	MessageTemplate string `json:"message_template,omitempty"`
 }
 

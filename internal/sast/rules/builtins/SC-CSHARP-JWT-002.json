@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-CSHARP-JWT-002",
+  "name": "TokenValidationParameters disables signature validation",
+  "language": "csharp",
+  "cwe": ["CWE-347"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "JwtSecurityTokenHandler",
+        "callee": "ValidateToken",
+        "arg_index": 0,
+        "arg_text_contains_any": ["ValidateSignature = false", "ValidateLifetime = false", "RequireSignedTokens = false"],
+        "message_template": "ValidateToken called with validation disabled"
+      }
+    ]
+  },
+  "description": "TokenValidationParameters explicitly disables signature/lifetime validation.",
+  "remediation": "Remove the disable; ValidateSignature and RequireSignedTokens must be true.",
+  "references": ["https://cwe.mitre.org/data/definitions/347.html"]
+}

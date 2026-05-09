@@ -52,6 +52,12 @@ type AuthConfig struct {
 	Endpoint    string            `json:"endpoint"`     // auth endpoint URL
 	ExtraParams map[string]string `json:"extra_params"`
 	TTL         time.Duration     `json:"ttl"`
+
+	// Fields used by SessionImportStrategy / RecordedLoginStrategy.
+	BundleID   string `json:"bundle_id,omitempty"`
+	CustomerID string `json:"customer_id,omitempty"`
+	ProjectID  string `json:"project_id,omitempty"`
+	ScopeID    string `json:"scope_id,omitempty"`
 }
 
 // Strategy defines how to authenticate with a target.

@@ -9,6 +9,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/rs/zerolog"
 
+	"github.com/sentinelcore/sentinelcore/internal/export/evidence"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/internal/remediation"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
@@ -51,6 +52,11 @@ type Handlers struct {
 	ssoClients    *sso.ClientCache
 	ssoEvents     *sso.EventStore
 	publicBaseURL string
+
+	// exportBlob is the object-store backend used to serve evidence pack
+	// downloads. May be nil in environments that haven't wired up exports
+	// (handlers degrade with 503 in that case).
+	exportBlob evidence.BlobClient
 }
 
 // WithSSO wires the SSO stores onto an existing Handlers.
@@ -74,6 +80,9 @@ func (h *Handlers) WithPublicBaseURL(url string) *Handlers {
 	h.publicBaseURL = url
 	return h
 }
+
+// SetExportBlob wires an evidence pack BlobClient. Called once at startup.
+func (h *Handlers) SetExportBlob(b evidence.BlobClient) { h.exportBlob = b }
 
 // NewHandlers creates a new Handlers instance.
 func NewHandlers(

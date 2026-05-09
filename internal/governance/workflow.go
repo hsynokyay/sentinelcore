@@ -9,12 +9,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/tenant"
+	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
-// CreateApprovalRequest inserts a new approval request with status 'pending'
-// and an expiry of 7 days from now.
-func CreateApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID, orgID string, req *ApprovalRequest) error {
+// LegacyCreateApprovalRequest is the Phase-4 entrypoint for creating an
+// approval request. New code should call CreateApprovalRequest (decisions.go)
+// which carries the two-person columns and returns the inserted row.
+func LegacyCreateApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID, orgID string, req *ApprovalRequest) error {
 	if pool == nil {
 		return errors.New("governance: pool is nil")
 	}
@@ -32,8 +33,8 @@ func CreateApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID, orgI
 	expires := req.CreatedAt.Add(7 * 24 * time.Hour)
 	req.ExpiresAt = &expires
 
-	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
 			INSERT INTO governance.approval_requests (
 				id, org_id, team_id, request_type, resource_type,
 				resource_id, requested_by, reason, status, expires_at, created_at
@@ -52,8 +53,8 @@ func GetApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID, orgID, 
 	}
 
 	var ar ApprovalRequest
-	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
-		row := tx.QueryRow(ctx, `
+	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		row := conn.QueryRow(ctx, `
 			SELECT id, org_id, team_id, request_type, resource_type, resource_id,
 			       requested_by, reason, status, decided_by, decision_reason,
 			       decided_at, expires_at, created_at
@@ -85,7 +86,7 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 	}
 
 	var results []ApprovalRequest
-	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		var query string
 		var args []interface{}
 
@@ -110,7 +111,7 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 			args = []interface{}{limit, offset}
 		}
 
-		rows, err := tx.Query(ctx, query, args...)
+		rows, err := conn.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -135,10 +136,13 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 	return results, nil
 }
 
-// DecideApproval approves or rejects a pending approval request.
-// It validates that the decision is valid, the request is still pending,
-// and that the requester is not the one deciding (self-approval forbidden).
-func DecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID, id, decision, reason string) error {
+// LegacyDecideApproval is the Phase-4 entrypoint that flips the
+// approval_requests row to 'approved' or 'rejected' atomically without
+// recording per-approver decisions. New code should use DecideApproval
+// (decisions.go) which records per-approver rows and supports two-person
+// rule. Kept for back-compat with the existing controlplane handler that
+// has not yet been migrated.
+func LegacyDecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID, id, decision, reason string) error {
 	if pool == nil {
 		return errors.New("governance: pool is nil")
 	}
@@ -146,10 +150,10 @@ func DecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID, id, 
 		return fmt.Errorf("governance: invalid decision %q; must be 'approved' or 'rejected'", decision)
 	}
 
-	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
 		// Fetch current state.
 		var currentStatus, requestedBy string
-		row := tx.QueryRow(ctx, `
+		row := conn.QueryRow(ctx, `
 			SELECT status, requested_by
 			  FROM governance.approval_requests
 			 WHERE id = $1`, id)
@@ -169,7 +173,7 @@ func DecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID, id, 
 		}
 
 		now := time.Now()
-		_, err := tx.Exec(ctx, `
+		_, err := conn.Exec(ctx, `
 			UPDATE governance.approval_requests
 			   SET status = $1,
 			       decided_by = $2,

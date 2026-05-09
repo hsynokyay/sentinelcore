@@ -1,0 +1,29 @@
+{
+  "rule_id": "SC-JAVA-COOKIE-002",
+  "name": "Cookie added without setHttpOnly(true)",
+  "language": "java",
+  "cwe": ["CWE-1004"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.65 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "javax.servlet.http.HttpServletResponse",
+        "callee": "addCookie",
+        "func_text_missing_any": ["setHttpOnly(true)", ".httpOnly(true)"],
+        "message_template": "addCookie called without setHttpOnly(true) in the same method"
+      },
+      {
+        "receiver_fqn": "jakarta.servlet.http.HttpServletResponse",
+        "callee": "addCookie",
+        "func_text_missing_any": ["setHttpOnly(true)", ".httpOnly(true)"],
+        "message_template": "addCookie called without setHttpOnly(true) in the same method"
+      }
+    ]
+  },
+  "description": "A servlet Cookie is added to the response without a sibling setHttpOnly(true) call. HttpOnly-less cookies are accessible from document.cookie in JavaScript, expanding the impact of any XSS to session theft.",
+  "remediation": "Call cookie.setHttpOnly(true) before response.addCookie(cookie).",
+  "references": ["https://cwe.mitre.org/data/definitions/1004.html"]
+}

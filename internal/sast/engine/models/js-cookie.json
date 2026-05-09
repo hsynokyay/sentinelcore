@@ -1,0 +1,9 @@
+{
+  "language": "javascript",
+  "framework": "js-cookie",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "res", "method": "cookie", "vuln_class": "cookie_misconfig"},
+    {"kind": "sink", "receiver_fqn": "response", "method": "cookie", "vuln_class": "cookie_misconfig"},
+    {"kind": "sink", "receiver_fqn": "Response", "method": "cookie", "vuln_class": "cookie_misconfig"}
+  ]
+}

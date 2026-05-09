@@ -17,9 +17,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/tenant"
+	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
 // blockedCIDRs contains RFC 1918, loopback, link-local, and cloud metadata ranges
@@ -141,8 +140,8 @@ func CreateWebhookConfig(ctx context.Context, pool *pgxpool.Pool, userID, orgID 
 	config.CreatedAt = now
 	config.UpdatedAt = now
 
-	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
 			INSERT INTO governance.webhook_configs (
 				id, org_id, name, url, secret_encrypted, secret_key_id,
 				events, enabled, created_at, updated_at
@@ -162,8 +161,8 @@ func ListWebhookConfigs(ctx context.Context, pool *pgxpool.Pool, userID, orgID s
 	}
 
 	var results []WebhookConfig
-	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
+	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		rows, err := conn.Query(ctx, `
 			SELECT id, org_id, name, url, secret_encrypted, secret_key_id,
 			       events, enabled, created_at, updated_at
 			  FROM governance.webhook_configs
@@ -198,8 +197,8 @@ func DeleteWebhookConfig(ctx context.Context, pool *pgxpool.Pool, userID, orgID,
 		return errors.New("notification: pool is nil")
 	}
 
-	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
 			DELETE FROM governance.webhook_configs
 			 WHERE id = $1`, id)
 		return err

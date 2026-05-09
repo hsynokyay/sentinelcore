@@ -1,0 +1,45 @@
+{
+  "rule_id": "SC-PY-COOKIE-002",
+  "name": "Cookie set without HttpOnly flag",
+  "language": "python",
+  "cwe": ["CWE-1004"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.75 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "flask.Response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["httponly", "HttpOnly"],
+        "message_template": "Flask set_cookie without httponly=True allows JS access to the cookie"
+      },
+      {
+        "receiver_fqn": "django.http.HttpResponse",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["httponly", "HttpOnly"],
+        "message_template": "Django set_cookie without httponly=True"
+      },
+      {
+        "receiver_fqn": "Response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["httponly", "HttpOnly"],
+        "message_template": "Response.set_cookie without httponly=True"
+      },
+      {
+        "receiver_fqn": "response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["httponly", "HttpOnly"],
+        "message_template": "response.set_cookie without httponly=True"
+      }
+    ]
+  },
+  "description": "A response cookie is set without HttpOnly. HttpOnly-less cookies are accessible from document.cookie in JavaScript, expanding the impact of any XSS to session theft.",
+  "remediation": "Pass httponly=True to set_cookie.",
+  "references": ["https://cwe.mitre.org/data/definitions/1004.html"]
+}

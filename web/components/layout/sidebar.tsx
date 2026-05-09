@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Shield, Play, Globe, CheckCircle, Bell, FileText, Settings, ShieldCheck, Target, KeyRound, FileArchive, AlertTriangle } from "lucide-react";
+import { LayoutDashboard, Shield, Play, Globe, CheckCircle, Bell, FileText, Settings, ShieldCheck, Target, KeyRound, FileArchive, AlertTriangle, Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { href: "/artifacts", label: "Source Artifacts", icon: FileArchive },
   { href: "/surface", label: "Attack Surface", icon: Globe },
   { href: "/approvals", label: "Approvals", icon: CheckCircle },
+  { href: "/compliance", label: "Compliance", icon: Scale },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/audit", label: "Audit Log", icon: FileText },
   { href: "/settings", label: "Settings", icon: Settings },

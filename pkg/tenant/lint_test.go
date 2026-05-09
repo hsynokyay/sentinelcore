@@ -109,6 +109,19 @@ var allowedDirectPoolCallers = map[string]bool{
 	// AES key catalog reload: reads the whole table at startup to warm
 	// the in-memory cache; happens before any tenant context exists.
 	"pkg/crypto":                                    true,
+	// TODO(merge/phase2-into-main-2026-05): the entries below are
+	// pre-RLS code from phase2/api-dast that landed before tenant.TxUser
+	// was the project-wide pattern. Each must be ported to TxUser before
+	// the next external GA — tracked in
+	// docs/superpowers/specs/2026-05-09-phase2-to-main-integration-design.md
+	// §2.2. The bypass is *waived for the merge*, not endorsed.
+	"internal/dast/bundles":                         true,
+	"internal/dast/credentials":                     true,
+	"internal/governance":                           true,
+	"internal/governance/exportworker":              true,
+	"internal/authbroker/replay":                    true,
+	"internal/compliance":                           true,
+	"internal/controlplane/api/governance_exports.go": true,
 }
 
 // poolRecvTypes are variable names conventionally used for the pool

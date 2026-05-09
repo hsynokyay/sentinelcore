@@ -1,0 +1,48 @@
+{
+  "rule_id": "SC-PY-COOKIE-001",
+  "name": "Cookie set without Secure flag",
+  "language": "python",
+  "cwe": ["CWE-614"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.75 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "flask.Response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["secure", "Secure"],
+        "message_template": "Flask set_cookie call without secure=True allows the cookie to be sent over plaintext HTTP"
+      },
+      {
+        "receiver_fqn": "django.http.HttpResponse",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["secure", "Secure"],
+        "message_template": "Django set_cookie without secure=True"
+      },
+      {
+        "receiver_fqn": "Response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["secure", "Secure"],
+        "message_template": "Response.set_cookie without secure=True"
+      },
+      {
+        "receiver_fqn": "response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["secure", "Secure"],
+        "message_template": "response.set_cookie without secure=True"
+      }
+    ]
+  },
+  "description": "A response cookie is set without the Secure flag. Secure-less cookies are transmitted over plaintext HTTP, exposing session identifiers to network observers.",
+  "remediation": "Pass secure=True to set_cookie. For Flask, also configure SESSION_COOKIE_SECURE=True. For Django, set SESSION_COOKIE_SECURE in settings.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/614.html",
+    "https://owasp.org/www-community/controls/SecureCookieAttribute"
+  ]
+}

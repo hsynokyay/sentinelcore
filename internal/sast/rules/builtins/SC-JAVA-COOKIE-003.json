@@ -1,0 +1,29 @@
+{
+  "rule_id": "SC-JAVA-COOKIE-003",
+  "name": "Cookie added without SameSite attribute",
+  "language": "java",
+  "cwe": ["CWE-1275"],
+  "owasp": ["A05:2021"],
+  "severity": "low",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "javax.servlet.http.HttpServletResponse",
+        "callee": "addCookie",
+        "func_text_missing_any": ["SameSite", "sameSite"],
+        "message_template": "addCookie called without explicit SameSite attribute in the same method"
+      },
+      {
+        "receiver_fqn": "jakarta.servlet.http.HttpServletResponse",
+        "callee": "addCookie",
+        "func_text_missing_any": ["SameSite", "sameSite"],
+        "message_template": "addCookie called without explicit SameSite attribute"
+      }
+    ]
+  },
+  "description": "A servlet Cookie is added without any reference to SameSite in the enclosing method. Older browsers default to None, leaving the cookie attached to cross-origin requests. Lower confidence than Secure/HttpOnly because servlet Cookie has no direct setSameSite setter — applications typically configure SameSite via a response header or Spring ResponseCookie.builder.",
+  "remediation": "Use Spring's ResponseCookie.builder with .sameSite(\"Lax\") or set the SameSite header explicitly. For raw servlets, set the Set-Cookie header manually with SameSite= included.",
+  "references": ["https://cwe.mitre.org/data/definitions/1275.html"]
+}

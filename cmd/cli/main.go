@@ -29,6 +29,11 @@ func main() {
 		runDBSplitRoles()
 	case "version":
 		cli.PrintVersion()
+	case "dast":
+		if err := runDastCommand(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -106,6 +111,7 @@ func printUsage() {
 	fmt.Println("  rotate     Rotate secrets: aes/<purpose>, hmac/audit, apikey-pepper")
 	fmt.Println("  db-split-roles  Generate/apply/verify split-role passwords (Phase 7 Wave 3)")
 	fmt.Println("  version    Show version information")
+	fmt.Println("  dast       DAST commands (record, ...)")
 	fmt.Println()
 	fmt.Println("Bootstrap options:")
 	fmt.Println("  --admin-email <email>       Admin email address")

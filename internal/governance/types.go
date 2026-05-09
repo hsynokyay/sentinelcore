@@ -49,20 +49,26 @@ func NewDefaultOrgSettings(orgID string) OrgSettings {
 
 // ApprovalRequest represents a pending governance approval.
 type ApprovalRequest struct {
-	ID             string     `json:"id"`
-	OrgID          string     `json:"org_id"`
-	TeamID         string     `json:"team_id,omitempty"`
-	RequestType    string     `json:"request_type"`
-	ResourceType   string     `json:"resource_type"`
-	ResourceID     string     `json:"resource_id"`
-	RequestedBy    string     `json:"requested_by"`
-	Reason         string     `json:"reason"`
-	Status         string     `json:"status"`
-	DecidedBy      string     `json:"decided_by,omitempty"`
-	DecisionReason string     `json:"decision_reason,omitempty"`
-	DecidedAt      *time.Time `json:"decided_at,omitempty"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
+	ID                string     `json:"id"`
+	OrgID             string     `json:"org_id"`
+	TeamID            string     `json:"team_id,omitempty"`
+	RequestType       string     `json:"request_type"`
+	ResourceType      string     `json:"resource_type"`
+	ResourceID        string     `json:"resource_id"`
+	RequestedBy       string     `json:"requested_by"`
+	Reason            string     `json:"reason"`
+	Status            string     `json:"status"`
+	DecidedBy         string     `json:"decided_by,omitempty"`
+	DecisionReason    string     `json:"decision_reason,omitempty"`
+	DecidedAt         *time.Time `json:"decided_at,omitempty"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+	// Phase 5 governance-ops fields. Optional on the legacy code paths;
+	// always populated by CreateApprovalRequest/DecideApproval.
+	RequiredApprovals int    `json:"required_approvals,omitempty"`
+	CurrentApprovals  int    `json:"current_approvals,omitempty"`
+	TargetTransition  string `json:"target_transition,omitempty"`
+	ProjectID         string `json:"project_id,omitempty"`
 }
 
 // FindingAssignment represents an ownership assignment for a finding.

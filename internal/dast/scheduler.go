@@ -42,11 +42,12 @@ type SchedulerConfig struct {
 
 // Scheduler dispatches test cases through a scope-enforced, rate-limited pipeline.
 type Scheduler struct {
-	cfg       SchedulerConfig
-	enforcer  *scope.Enforcer
-	session   *authbroker.Session
-	client    *http.Client
-	logger    zerolog.Logger
+	cfg          SchedulerConfig
+	enforcer     *scope.Enforcer
+	session      *authbroker.Session
+	client       *http.Client
+	logger       zerolog.Logger
+	bypassIssuer *BypassTokenIssuer
 }
 
 // NewScheduler creates a request scheduler with scope enforcement.
@@ -67,6 +68,14 @@ func NewScheduler(cfg SchedulerConfig, enforcer *scope.Enforcer, session *authbr
 		client:   client,
 		logger:   logger.With().Str("component", "dast-scheduler").Logger(),
 	}
+}
+
+// SetBypassIssuer configures an optional BypassTokenIssuer. When non-nil, the
+// scheduler injects a scanner bypass token into every outgoing request header.
+// The field is intentionally nil by default — the feature remains inactive until
+// a customer enables it and the issuer is wired in.
+func (s *Scheduler) SetBypassIssuer(issuer *BypassTokenIssuer) {
+	s.bypassIssuer = issuer
 }
 
 // Execute runs all test cases and streams results to the returned channel.
@@ -134,6 +143,16 @@ func (s *Scheduler) executeTestCase(ctx context.Context, tc TestCase) RequestRes
 	// Inject auth session credentials
 	if s.session != nil {
 		s.session.ApplyTo(req)
+	}
+
+	// Inject scanner bypass token when the feature is enabled for this scan.
+	if s.bypassIssuer != nil {
+		host := req.URL.Host
+		if tok, err := s.bypassIssuer.Issue(ctx, s.cfg.ScanJobID, host); err == nil {
+			req.Header.Set(BypassTokenHeader, tok)
+		} else {
+			s.logger.Warn().Err(err).Msg("bypass token issue failed, continuing without header")
+		}
 	}
 
 	start := time.Now()

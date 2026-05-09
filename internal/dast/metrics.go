@@ -87,11 +87,6 @@ func RecordScopeViolation(violationType string) {
 	scopeViolationsTotal.WithLabelValues(violationType).Inc()
 }
 
-// RecordEvidenceRedaction increments the credential-redaction counter.
-// Called by the evidence pipeline whenever it strips secret-looking
-// tokens from a response body before persisting evidence.
-func RecordEvidenceRedaction() { evidenceRedactions.Inc() }
-
 // RecordScopeCheck increments the scope check counter.
 func RecordScopeCheck() {
 	scopeChecksTotal.Inc()

@@ -13,9 +13,15 @@ function Dialog({
 }: Omit<React.ComponentProps<typeof DialogPrimitive.Root>, "onOpenChange"> & {
   onOpenChange?: (open: boolean) => void;
 }) {
+  // `modal='trap-focus'` keeps focus inside the dialog (good UX) but does NOT
+  // apply `inert` to outside elements or lock scroll. The default `modal=true`
+  // mode applies inert via Base UI's markOthers utility; if that cleanup races
+  // with React's concurrent unmount, inert leaks and the sidebar / main content
+  // become unclickable. trap-focus avoids the whole class of leak.
   return (
     <DialogPrimitive.Root
       open={open}
+      modal="trap-focus"
       onOpenChange={onOpenChange ? (value) => onOpenChange(value) : undefined}
       {...props}
     />

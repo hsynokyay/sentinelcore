@@ -7,9 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/tenant"
+	"github.com/sentinelcore/sentinelcore/pkg/db"
 )
 
 // CreateRetentionRecord inserts a new retention record. If a record for the
@@ -169,8 +168,8 @@ func SetLegalHold(ctx context.Context, pool *pgxpool.Pool, userID, orgID, resour
 		return errors.New("governance: pool is nil")
 	}
 
-	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
 			UPDATE governance.retention_records
 			   SET legal_hold = $1,
 			       legal_hold_by = $2,
@@ -192,8 +191,8 @@ func GetRetentionStats(ctx context.Context, pool *pgxpool.Pool, userID, orgID st
 
 	result := make(map[string]map[string]int)
 
-	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
-		rows, qErr := tx.Query(ctx, `
+	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+		rows, qErr := conn.Query(ctx, `
 			SELECT resource_type, lifecycle, COUNT(*)
 			  FROM governance.retention_records
 			 GROUP BY resource_type, lifecycle`)

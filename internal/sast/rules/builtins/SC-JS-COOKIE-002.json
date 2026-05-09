@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-COOKIE-002",
+  "name": "Cookie set without HttpOnly flag",
+  "language": "javascript",
+  "cwe": ["CWE-1004"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.75 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "res",
+        "callee": "cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["httpOnly", "HttpOnly"],
+        "message_template": "res.cookie() without httpOnly: true"
+      },
+      {
+        "receiver_fqn": "response",
+        "callee": "cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["httpOnly", "HttpOnly"],
+        "message_template": "response.cookie() without httpOnly: true"
+      }
+    ]
+  },
+  "description": "Cookie missing httpOnly: true is reachable from JavaScript via document.cookie, magnifying the impact of any XSS into session theft.",
+  "remediation": "Set httpOnly: true in the cookie options object.",
+  "references": ["https://cwe.mitre.org/data/definitions/1004.html"]
+}

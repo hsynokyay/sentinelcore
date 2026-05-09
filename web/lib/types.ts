@@ -232,12 +232,19 @@ export interface ApprovalRequest {
   resource_id: string;
   requested_by: string;
   reason: string;
-  status: "pending" | "approved" | "rejected" | "expired";
+  // 'executed' = Phase-5 terminal state after governance auto-applies the gated transition.
+  status: "pending" | "approved" | "rejected" | "expired" | "executed";
   decided_by?: string;
   decision_reason?: string;
   decided_at?: string;
   expires_at?: string;
   created_at: string;
+  // Phase-5 two-person rule fields. Optional because legacy single-shot
+  // approvals don't populate them.
+  required_approvals?: number;
+  current_approvals?: number;
+  target_transition?: string;
+  project_id?: string;
 }
 
 export interface EmergencyStop {
@@ -262,6 +269,47 @@ export interface OrgSettings {
     string,
     { retention_days: number; grace_days: number }
   >;
+}
+
+// Phase-5 governance ops: SLA dashboard payloads.
+export interface BreachSummary {
+  finding_id: string;
+  project_id: string;
+  severity: string;
+  status: string;
+  deadline_at: string;
+  overdue_hours: number;
+  title: string;
+}
+
+export interface TrendBucket {
+  day: string;
+  breaches: number;
+}
+
+export interface SLADashboard {
+  counts_by_status: Record<string, number>;
+  counts_by_severity: Record<string, number>;
+  top_breaches: BreachSummary[];
+  trend: TrendBucket[];
+}
+
+export interface SLAViolationSummary {
+  id: string;
+  finding_id: string;
+  severity: string;
+  deadline_at: string;
+  violated_at: string;
+  resolved_at?: string;
+  overdue_hours: number;
+}
+
+export interface ProjectSLAPolicy {
+  project_id: string;
+  org_id: string;
+  sla_days: Record<string, number>;
+  updated_at: string;
+  updated_by: string;
 }
 
 // Notifications
@@ -434,4 +482,43 @@ export interface RiskListFilters {
   vuln_class?: string;
   limit?: number;
   offset?: number;
+}
+
+// Phase-5 governance ops: compliance catalogs + mappings.
+export interface ComplianceCatalog {
+  id: string;
+  org_id?: string | null;
+  code: string;
+  name: string;
+  version: string;
+  description?: string;
+  is_builtin: boolean;
+}
+
+export interface ComplianceItem {
+  id: string;
+  catalog_id: string;
+  control_id: string;
+  title: string;
+  description?: string;
+}
+
+export interface ComplianceMapping {
+  id: string;
+  org_id?: string | null;
+  source_kind: "cwe" | "owasp" | "internal";
+  source_code: string;
+  target_control_id: string;
+  confidence: "normative" | "derived" | "custom";
+  source_version?: string;
+}
+
+export interface ComplianceControlRef {
+  catalog_code: string;
+  catalog_name: string;
+  control_id: string;
+  title: string;
+  confidence: string;
+  source_kind: string;
+  source_code: string;
 }

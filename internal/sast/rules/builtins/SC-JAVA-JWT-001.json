@@ -1,0 +1,27 @@
+{
+  "rule_id": "SC-JAVA-JWT-001",
+  "name": "JWT parsed without signature verification (parseClaimsJwt)",
+  "language": "java",
+  "cwe": ["CWE-347"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "io.jsonwebtoken.JwtParser",
+        "callee": "parseClaimsJwt",
+        "message_template": "JwtParser.parseClaimsJwt does NOT verify signatures — use parseClaimsJws"
+      },
+      {
+        "receiver_fqn": "JwtParser",
+        "callee": "parseClaimsJwt",
+        "message_template": "JwtParser.parseClaimsJwt does NOT verify signatures"
+      }
+    ]
+  },
+  "description": "jjwt's parseClaimsJwt method parses an unsigned JWT. Any token-shaped string passes; an attacker can forge claims at will.",
+  "remediation": "Use parseClaimsJws (note the 's') with a configured signing key. parseClaimsJwt is for unsigned tokens only.",
+  "references": ["https://cwe.mitre.org/data/definitions/347.html"]
+}

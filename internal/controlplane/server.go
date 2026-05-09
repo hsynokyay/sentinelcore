@@ -16,7 +16,11 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/sentinelcore/sentinelcore/internal/authbroker/replay"
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
+	"github.com/sentinelcore/sentinelcore/internal/dast/authz"
+	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
+	"github.com/sentinelcore/sentinelcore/internal/export/evidence"
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/internal/risk"
 	"github.com/sentinelcore/sentinelcore/pkg/apikeys"
@@ -53,9 +57,34 @@ type Server struct {
 	rbacCache *policy.Cache
 	denier    auth.AuditDenier
 
+	// DAST wiring (populated via Set*Store builders).
+	bundleStore  bundles.BundleStore // nil until SetBundleStore is called
+	roleStore    authz.RoleStore     // nil until SetRoleStore is called
+	circuitStore replay.CircuitStore // nil until SetCircuitStore is called
+
 	// Optional SSO wiring (populated by WithSSO).
 	ssoEncKey     []byte
 	publicBaseURL string
+}
+
+// SetBundleStore configures the DAST bundle store used by the bundles CRUD
+// endpoints. Must be called before Start if bundle endpoints are needed;
+// without it the endpoints return 503 Service Unavailable.
+func (s *Server) SetBundleStore(store bundles.BundleStore) {
+	s.bundleStore = store
+}
+
+// SetRoleStore configures the DAST role store used by the approval/reject/list
+// endpoints for role-gated access control. Must be called before Start if DAST
+// approval endpoints are needed; without it the role gate returns 403.
+func (s *Server) SetRoleStore(store authz.RoleStore) {
+	s.roleStore = store
+}
+
+// SetCircuitStore configures the replay circuit breaker store used by the
+// circuit reset endpoint. Without it, the endpoint returns 503.
+func (s *Server) SetCircuitStore(store replay.CircuitStore) {
+	s.circuitStore = store
 }
 
 // WithSSO enables the OIDC SSO surface. Must be called before Start.
@@ -280,6 +309,18 @@ func (s *Server) Start(ctx context.Context) error {
 
 	handlers := api.NewHandlers(s.pool, s.jwtMgr, s.sessions, s.emitter, s.js, s.logger, riskWorker, s.rbacCache)
 
+	// Wire the evidence-pack BlobClient so DownloadExport can stream
+	// archives from disk. EXPORT_BLOB_DIR matches the export-worker env.
+	exportBlobDir := os.Getenv("EXPORT_BLOB_DIR")
+	if exportBlobDir == "" {
+		exportBlobDir = "/var/lib/sentinelcore/exports"
+	}
+	if blob, blobErr := evidence.NewFilesystemBlob(exportBlobDir); blobErr != nil {
+		s.logger.Warn().Err(blobErr).Str("dir", exportBlobDir).Msg("evidence-pack blob store unavailable; downloads will return 503")
+	} else {
+		handlers.SetExportBlob(blob)
+	}
+
 	// Optional SSO wiring: skip cleanly if prerequisites absent so the
 	// rest of the control plane still boots on clusters that haven't
 	// rotated in an encryption key yet. Endpoints return SSO_DISABLED.
@@ -397,6 +438,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("GET /api/v1/governance/approvals", handlers.ListApprovals)
 	mux.HandleFunc("GET /api/v1/governance/approvals/{id}", handlers.GetApproval)
 	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decide", handlers.DecideApproval)
+	// Phase 5 governance-ops: two-person approvals.
+	mux.HandleFunc("POST /api/v1/governance/approvals", handlers.CreateApprovalRequestHandler)
+	mux.HandleFunc("POST /api/v1/governance/approvals/{id}/decisions", handlers.SubmitApprovalDecision)
 	// Phase 9 §4.1 multi-approver vote endpoints. Go through the FSM
 	// so requester-cannot-vote, duplicate-vote, terminal-state refusal
 	// are all enforced server-side regardless of UI behaviour.
@@ -405,6 +449,28 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop", handlers.ActivateEmergencyStop)
 	mux.HandleFunc("POST /api/v1/governance/emergency-stop/lift", handlers.LiftEmergencyStop)
 	mux.HandleFunc("GET /api/v1/governance/emergency-stop/active", handlers.ListActiveEmergencyStops)
+	// Phase 5 governance-ops: SLA dashboard + per-project policies.
+	mux.HandleFunc("GET /api/v1/governance/sla/dashboard", handlers.SLADashboard)
+	mux.HandleFunc("GET /api/v1/governance/sla/violations", handlers.ListSLAViolationsHandler)
+	mux.HandleFunc("GET /api/v1/governance/sla/policies/{project_id}", handlers.GetProjectSLAPolicyHandler)
+	mux.HandleFunc("PUT /api/v1/governance/sla/policies/{project_id}", handlers.PutProjectSLAPolicyHandler)
+	mux.HandleFunc("DELETE /api/v1/governance/sla/policies/{project_id}", handlers.DeleteProjectSLAPolicyHandler)
+
+	// Phase 5 governance-ops: compliance catalogs + mappings.
+	mux.HandleFunc("GET /api/v1/compliance/catalogs", handlers.ListComplianceCatalogs)
+	mux.HandleFunc("POST /api/v1/compliance/catalogs", handlers.CreateComplianceCatalog)
+	mux.HandleFunc("GET /api/v1/compliance/catalogs/{catalog_id}/items", handlers.ListComplianceCatalogItems)
+	mux.HandleFunc("POST /api/v1/compliance/catalogs/{catalog_id}/items", handlers.CreateComplianceItem)
+	mux.HandleFunc("GET /api/v1/compliance/mappings", handlers.ListComplianceMappings)
+	mux.HandleFunc("POST /api/v1/compliance/mappings", handlers.CreateComplianceMapping)
+	mux.HandleFunc("DELETE /api/v1/compliance/mappings/{id}", handlers.DeleteComplianceMapping)
+	mux.HandleFunc("GET /api/v1/compliance/resolve", handlers.ResolveComplianceControls)
+
+	// Phase 5 governance-ops: evidence pack export jobs.
+	mux.HandleFunc("POST /api/v1/governance/exports", handlers.CreateExport)
+	mux.HandleFunc("GET /api/v1/governance/exports", handlers.ListExports)
+	mux.HandleFunc("GET /api/v1/governance/exports/{id}", handlers.GetExport)
+	mux.HandleFunc("GET /api/v1/governance/exports/{id}/download", handlers.DownloadExport)
 
 	// Finding extensions
 	mux.HandleFunc("POST /api/v1/findings/{id}/assign", handlers.AssignFinding)
@@ -471,6 +537,56 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("DELETE /api/v1/sso/providers/{id}/mappings/{mapping_id}", s.authz("sso.manage", handlers.DeleteSSOMapping))
 
 	mux.Handle("GET /api/v1/sso/providers/{id}/history", s.authz("sso.manage", handlers.SSOLoginHistory))
+
+	// DAST auth bundles. The store is set via SetBundleStore; if nil the handler
+	// returns 503 so the rest of the server stays functional during incremental
+	// rollout. Auth is enforced by the global conditionalAuthMiddleware above.
+	bundlesHandler := NewBundlesHandler(s.bundleStore)
+	mux.HandleFunc("POST /api/v1/dast/bundles", func(w http.ResponseWriter, r *http.Request) {
+		if s.bundleStore == nil {
+			http.Error(w, "bundle store not configured", http.StatusServiceUnavailable)
+			return
+		}
+		bundlesHandler.Create(w, r)
+	})
+	mux.HandleFunc("POST /api/v1/dast/bundles/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
+		if s.bundleStore == nil {
+			http.Error(w, "bundle store not configured", http.StatusServiceUnavailable)
+			return
+		}
+		bundlesHandler.Revoke(w, r)
+	})
+
+	// Approval routes — role-gated. Auth (JWT/session) is provided by the
+	// global conditionalAuthMiddleware; DAST role check is layered on top.
+	// If roleStore is nil the middleware returns 503 to avoid a nil-pointer
+	// panic while still providing a clear operational signal.
+	effectiveRoleStore := s.roleStore
+	if effectiveRoleStore == nil {
+		effectiveRoleStore = unavailableRoleStore{}
+	}
+	mux.Handle("POST /api/v1/dast/bundles/{id}/approve",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleReviewer)(http.HandlerFunc(bundlesHandler.Approve)))
+	mux.Handle("POST /api/v1/dast/bundles/{id}/reject",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleReviewer)(http.HandlerFunc(bundlesHandler.Reject)))
+	mux.Handle("GET /api/v1/dast/bundles",
+		authz.RequireAnyDASTRole(effectiveRoleStore, authz.RoleReviewer, authz.RoleRecordingAdmin)(http.HandlerFunc(bundlesHandler.ListPending)))
+
+	// Circuit reset — recording_admin only. The handler returns 503 if the
+	// circuit store has not been wired via SetCircuitStore.
+	mux.Handle("POST /api/v1/dast/bundles/{id}/circuit/reset",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleRecordingAdmin)(CircuitResetHandler(s.circuitStore)))
+
+	// Bundle re-record — recording_admin only. Supersedes the source bundle
+	// and returns a fresh pending_review draft id for the operator to record
+	// against. Wired via the BundleStore (PostgresStore satisfies the
+	// narrower bundles.ReRecordStore interface that ReRecord requires).
+	var reRecordStore bundles.ReRecordStore
+	if rrs, ok := s.bundleStore.(bundles.ReRecordStore); ok {
+		reRecordStore = rrs
+	}
+	mux.Handle("POST /api/v1/dast/bundles/{id}/re-record",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleRecordingAdmin)(ReRecordHandler(reRecordStore)))
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux
@@ -573,4 +689,25 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 // WriteError writes a JSON error response.
 func WriteError(w http.ResponseWriter, status int, message, code string) {
 	WriteJSON(w, status, map[string]string{"error": message, "code": code})
+}
+
+// unavailableRoleStore is a sentinel RoleStore used when the real store has not
+// been configured. Every method returns an error so the role-gate middleware
+// responds 500 instead of panicking on a nil interface.
+type unavailableRoleStore struct{}
+
+func (unavailableRoleStore) Grant(_ context.Context, _, _ string, _ authz.Role) error {
+	return fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) Revoke(_ context.Context, _ string, _ authz.Role) error {
+	return fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) HasRole(_ context.Context, _ string, _ authz.Role) (bool, error) {
+	return false, fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) ListUserRoles(_ context.Context, _ string) ([]authz.Role, error) {
+	return nil, fmt.Errorf("role store not configured")
+}
+func (unavailableRoleStore) ListUsersWithRole(_ context.Context, _ authz.Role) ([]string, error) {
+	return nil, fmt.Errorf("role store not configured")
 }
