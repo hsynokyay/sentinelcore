@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-PY-HEADER-001",
+  "name": "HTTP response header injection",
+  "language": "python",
+  "cwe": ["CWE-113"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.70 },
+  "detection": { "kind": "taint", "vuln_class": "http_header_injection" },
+  "description": "User input flows unchanged into a Flask/Django response header. CR/LF in the value splits the response and enables HTTP response-splitting attacks.",
+  "remediation": "Strip CR/LF from any user-supplied header value, or use a framework helper that does this for you.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/113.html"
+  ]
+}

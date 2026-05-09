@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-JS-PROTO-002",
+  "name": "Prototype pollution via tainted assignment sink",
+  "language": "javascript",
+  "cwe": ["CWE-1321"],
+  "owasp": ["A08:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.55 },
+  "detection": { "kind": "taint", "vuln_class": "prototype_pollution" },
+  "description": "Tainted user input reaches a deep-merge or property-set sink (lodash.set, lodash.defaultsDeep, etc.) without prior key validation.",
+  "remediation": "Validate that source object keys are in an allowlist, or use a deep-merge library that protects against __proto__ / prototype keys.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/1321.html"
+  ]
+}

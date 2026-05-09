@@ -1,0 +1,15 @@
+{
+  "rule_id": "SC-PY-MASS-001",
+  "name": "Mass assignment via Django Model(**request.POST)",
+  "language": "python",
+  "cwe": ["CWE-915"],
+  "owasp": ["A04:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.55 },
+  "detection": { "kind": "taint", "vuln_class": "mass_assignment" },
+  "description": "Django Model constructor receives the entire request payload. Attacker-supplied fields like is_staff or is_superuser are silently assigned.",
+  "remediation": "Use a ModelForm with explicit fields list, or pick allowlisted fields from request.POST manually.",
+  "references": [
+    "https://cwe.mitre.org/data/definitions/915.html"
+  ]
+}

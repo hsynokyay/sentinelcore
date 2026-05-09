@@ -25,6 +25,13 @@
     {"kind": "sink", "receiver_fqn": "res", "method": "send", "vuln_class": "xss"},
     {"kind": "sink", "receiver_fqn": "res", "method": "write", "vuln_class": "xss"},
     {"kind": "sink", "receiver_fqn": "document", "method": "write", "vuln_class": "xss"},
-    {"kind": "sink", "receiver_fqn": "", "method": "innerHTML", "vuln_class": "xss"}
+    {"kind": "sink", "receiver_fqn": "", "method": "innerHTML", "vuln_class": "xss"},
+    {"kind": "sink", "receiver_fqn": "Object", "method": "assign", "vuln_class": "prototype_pollution"},
+    {"kind": "sink", "receiver_fqn": "_", "method": "merge", "vuln_class": "prototype_pollution"},
+    {"kind": "sink", "receiver_fqn": "_", "method": "defaultsDeep", "vuln_class": "prototype_pollution"},
+    {"kind": "sink", "receiver_fqn": "_", "method": "set", "vuln_class": "prototype_pollution"},
+    {"kind": "sink", "receiver_fqn": "lodash", "method": "merge", "vuln_class": "prototype_pollution"},
+    {"kind": "sink", "receiver_fqn": "lodash", "method": "defaultsDeep", "vuln_class": "prototype_pollution"},
+    {"kind": "sink", "receiver_fqn": "lodash", "method": "set", "vuln_class": "prototype_pollution"}
   ]
 }

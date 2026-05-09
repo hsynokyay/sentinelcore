@@ -1,0 +1,27 @@
+{
+  "rule_id": "SC-CSHARP-XXE-001",
+  "name": "XXE via XmlDocument default XmlResolver",
+  "language": "csharp",
+  "cwe": ["CWE-611"],
+  "owasp": ["A05:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.80 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "System.Xml.XmlDocument",
+        "callee": "Load",
+        "message_template": "XmlDocument.Load with default XmlResolver is XXE-vulnerable"
+      },
+      {
+        "receiver_fqn": "System.Xml.XmlDocument",
+        "callee": "LoadXml",
+        "message_template": "XmlDocument.LoadXml with default XmlResolver is XXE-vulnerable"
+      }
+    ]
+  },
+  "description": "XmlDocument constructed without setting XmlResolver = null follows external DTD references and entity declarations, enabling XXE.",
+  "remediation": "Set doc.XmlResolver = null; before calling Load. Better: use XmlReader with safe XmlReaderSettings (DtdProcessing.Prohibit).",
+  "references": ["https://cwe.mitre.org/data/definitions/611.html"]
+}

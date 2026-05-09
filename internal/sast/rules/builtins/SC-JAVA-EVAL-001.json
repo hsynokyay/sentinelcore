@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-JAVA-EVAL-001",
+  "name": "Unsafe ScriptEngine.eval with user input",
+  "language": "java",
+  "cwe": ["CWE-95"],
+  "owasp": ["A03:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": { "kind": "taint", "vuln_class": "unsafe_eval" },
+  "description": "javax.script.ScriptEngine.eval evaluates user-supplied source code in the JVM. Attacker-controlled input results in remote code execution.",
+  "remediation": "Do not evaluate user-supplied code. If you absolutely must accept expressions, use a sandboxed expression engine like SpEL with restricted permissions, or restrict to a tiny domain-specific grammar you parse yourself.",
+  "references": ["https://cwe.mitre.org/data/definitions/95.html"]
+}

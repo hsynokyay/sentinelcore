@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-PY-LOG-001",
+  "name": "Log injection via unsanitized request value",
+  "language": "python",
+  "cwe": ["CWE-117"],
+  "owasp": ["A09:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.60 },
+  "detection": { "kind": "taint", "vuln_class": "log_injection" },
+  "description": "Untrusted user input flows into a logging call without removing CR/LF, allowing attackers to forge log entries that confuse log parsers and SIEM rules.",
+  "remediation": "Strip CR/LF (and ideally limit length) before logging. Prefer structured logging with key=value pairs over interpolating user input.",
+  "references": ["https://cwe.mitre.org/data/definitions/117.html"]
+}

@@ -1,0 +1,27 @@
+{
+  "rule_id": "SC-JS-DESER-001",
+  "name": "Unsafe deserialization via node-serialize",
+  "language": "javascript",
+  "cwe": ["CWE-502"],
+  "owasp": ["A08:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "serialize",
+        "callee": "unserialize",
+        "message_template": "node-serialize.unserialize is RCE-vulnerable when called on attacker-controlled input"
+      },
+      {
+        "receiver_fqn": "node-serialize",
+        "callee": "unserialize",
+        "message_template": "node-serialize.unserialize is RCE-vulnerable"
+      }
+    ]
+  },
+  "description": "node-serialize.unserialize evaluates a JavaScript IIFE encoded into the serialized object. Attacker payloads execute arbitrary code in the Node process.",
+  "remediation": "Replace node-serialize with JSON.parse. If you genuinely need to serialize functions/closures, redesign — there is no safe pattern.",
+  "references": ["https://cwe.mitre.org/data/definitions/502.html"]
+}

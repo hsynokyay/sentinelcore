@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-CSHARP-REDIRECT-001",
+  "name": "Open redirect via Response.Redirect with user input",
+  "language": "csharp",
+  "cwe": ["CWE-601"],
+  "owasp": ["A01:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.65 },
+  "detection": { "kind": "taint", "vuln_class": "open_redirect" },
+  "description": "HttpResponse.Redirect / IActionResult Redirect receives an unvalidated URL from request input. Attacker can send victims to phishing sites that look like the legitimate app.",
+  "remediation": "Validate the URL is in an allowlist of trusted hosts, or use IUrlHelper.IsLocalUrl to enforce same-origin redirects.",
+  "references": ["https://cwe.mitre.org/data/definitions/601.html"]
+}

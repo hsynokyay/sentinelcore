@@ -10,6 +10,14 @@
     {"kind": "source", "receiver_fqn": "System.Web.HttpRequest", "method": "Form", "taint_kind": "http_input", "applies_to": "return"},
     {"kind": "source", "receiver_fqn": "System.Web.HttpRequest", "method": "Params", "taint_kind": "http_input", "applies_to": "return"},
     {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "Headers.Add", "vuln_class": "auth_header_injection"},
-    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "AppendHeader", "vuln_class": "auth_header_injection"}
+    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "AppendHeader", "vuln_class": "auth_header_injection"},
+    {"kind": "sink", "receiver_fqn": "HtmlString", "method": "<init>", "vuln_class": "xss"},
+    {"kind": "sink", "receiver_fqn": "HtmlHelper", "method": "Raw", "vuln_class": "xss"},
+    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "Headers.Add", "vuln_class": "http_header_injection"},
+    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "AppendHeader", "vuln_class": "http_header_injection"},
+    {"kind": "sink", "receiver_fqn": "HttpResponse", "method": "Redirect", "vuln_class": "open_redirect"},
+    {"kind": "sink", "receiver_fqn": "Microsoft.Extensions.Logging.ILogger", "method": "LogInformation", "vuln_class": "log_injection"},
+    {"kind": "sink", "receiver_fqn": "Microsoft.Extensions.Logging.ILogger", "method": "LogWarning", "vuln_class": "log_injection"},
+    {"kind": "sink", "receiver_fqn": "Microsoft.Extensions.Logging.ILogger", "method": "LogError", "vuln_class": "log_injection"}
   ]
 }

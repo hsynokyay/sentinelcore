@@ -1,0 +1,10 @@
+{
+  "language": "python",
+  "framework": "python-templating",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "flask", "method": "render_template_string", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "jinja2.Template", "method": "render", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "jinja2.Environment", "method": "from_string", "vuln_class": "ssti"},
+    {"kind": "sink", "receiver_fqn": "Template", "method": "render", "vuln_class": "ssti"}
+  ]
+}
