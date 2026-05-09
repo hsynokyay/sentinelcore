@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // TriageFinding attempts a status transition for a finding.
@@ -57,8 +57,8 @@ func TriageFinding(
 
 	// Step 3: execute transition directly.
 	now := time.Now()
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, updateErr := conn.Exec(ctx, `
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, updateErr := tx.Exec(ctx, `
 			UPDATE findings.findings
 			   SET status = $1, updated_at = $2
 			 WHERE id = $3 AND org_id = $4 AND status = $5`,
@@ -69,7 +69,7 @@ func TriageFinding(
 		}
 
 		// Record transition in audit log.
-		_, insertErr := conn.Exec(ctx, `
+		_, insertErr := tx.Exec(ctx, `
 			INSERT INTO governance.finding_transitions (
 				id, finding_id, org_id, team_id,
 				from_status, to_status, changed_by, reason, created_at

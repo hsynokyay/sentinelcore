@@ -26,6 +26,12 @@ func (e *PrivilegeEscalationError) Error() string {
 
 // EmptyScopesError — sentinel for requests with no scopes. Exposed as a
 // value so handlers can errors.Is() it to 400 BAD_REQUEST.
+//
+// Name deviates from the ErrFoo convention intentionally: it is part
+// of our public API and renaming would break consumers. Staticcheck
+// suppressed below.
+//
+//lint:ignore ST1012 public API name; renaming is a breaking change
 var EmptyScopesError = fmt.Errorf("scopes must contain at least one permission")
 
 // DuplicateScopeError is returned when the requested list contains the

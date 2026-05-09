@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sentinelcore/sentinelcore/internal/governance"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // CreateNotification inserts a single in-app notification with RLS enforcement.
@@ -28,8 +29,8 @@ func CreateNotification(ctx context.Context, pool *pgxpool.Pool, userID, orgID s
 	n.Read = false
 	n.CreatedAt = time.Now()
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, err := conn.Exec(ctx, `
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			INSERT INTO governance.notifications (
 				id, org_id, user_id, category, title, body,
 				resource_type, resource_id, read, created_at
@@ -85,8 +86,8 @@ func ListNotifications(ctx context.Context, pool *pgxpool.Pool, userID, orgID st
 	}
 
 	var results []governance.Notification
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		rows, err := conn.Query(ctx, `
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
 			SELECT id, org_id, user_id, category, title, body,
 			       resource_type, resource_id, read, created_at
 			  FROM governance.notifications
@@ -122,8 +123,8 @@ func MarkRead(ctx context.Context, pool *pgxpool.Pool, userID, orgID, notificati
 		return errors.New("notification: pool is nil")
 	}
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, err := conn.Exec(ctx, `
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			UPDATE governance.notifications
 			   SET read = true
 			 WHERE id = $1 AND user_id = $2`, notificationID, userID)
@@ -137,8 +138,8 @@ func MarkAllRead(ctx context.Context, pool *pgxpool.Pool, userID, orgID string) 
 		return errors.New("notification: pool is nil")
 	}
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, err := conn.Exec(ctx, `
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			UPDATE governance.notifications
 			   SET read = true
 			 WHERE user_id = $1 AND read = false`, userID)
@@ -153,8 +154,8 @@ func UnreadCount(ctx context.Context, pool *pgxpool.Pool, userID, orgID string) 
 	}
 
 	var count int
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		row := conn.QueryRow(ctx, `
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, `
 			SELECT COUNT(*)
 			  FROM governance.notifications
 			 WHERE user_id = $1 AND read = false`, userID)

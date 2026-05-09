@@ -176,11 +176,7 @@ func (c *Crawler) visitPage(ctx context.Context, chromeCtx context.Context, entr
 			HasCSRF: rf.HasCSRF,
 		}
 		for _, f := range rf.Fields {
-			fi.Fields = append(fi.Fields, FormField{
-				Name:  f.Name,
-				Type:  f.Type,
-				Value: f.Value,
-			})
+			fi.Fields = append(fi.Fields, FormField(f))
 		}
 
 		// Determine if the form action is safe (non-destructive).

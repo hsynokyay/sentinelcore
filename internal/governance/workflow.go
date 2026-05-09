@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 // LegacyCreateApprovalRequest is the Phase-4 entrypoint for creating an
@@ -33,8 +33,8 @@ func LegacyCreateApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID
 	expires := req.CreatedAt.Add(7 * 24 * time.Hour)
 	req.ExpiresAt = &expires
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		_, err := conn.Exec(ctx, `
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
 			INSERT INTO governance.approval_requests (
 				id, org_id, team_id, request_type, resource_type,
 				resource_id, requested_by, reason, status, expires_at, created_at
@@ -53,8 +53,8 @@ func GetApprovalRequest(ctx context.Context, pool *pgxpool.Pool, userID, orgID, 
 	}
 
 	var ar ApprovalRequest
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		row := conn.QueryRow(ctx, `
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, `
 			SELECT id, org_id, team_id, request_type, resource_type, resource_id,
 			       requested_by, reason, status, decided_by, decision_reason,
 			       decided_at, expires_at, created_at
@@ -86,7 +86,7 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 	}
 
 	var results []ApprovalRequest
-	err := db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
 		var query string
 		var args []interface{}
 
@@ -111,7 +111,7 @@ func ListApprovalRequests(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 			args = []interface{}{limit, offset}
 		}
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -150,10 +150,10 @@ func LegacyDecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 		return fmt.Errorf("governance: invalid decision %q; must be 'approved' or 'rejected'", decision)
 	}
 
-	return db.WithRLS(ctx, pool, userID, orgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	return tenant.TxUser(ctx, pool, orgID, userID, func(ctx context.Context, tx pgx.Tx) error {
 		// Fetch current state.
 		var currentStatus, requestedBy string
-		row := conn.QueryRow(ctx, `
+		row := tx.QueryRow(ctx, `
 			SELECT status, requested_by
 			  FROM governance.approval_requests
 			 WHERE id = $1`, id)
@@ -173,7 +173,7 @@ func LegacyDecideApproval(ctx context.Context, pool *pgxpool.Pool, userID, orgID
 		}
 
 		now := time.Now()
-		_, err := conn.Exec(ctx, `
+		_, err := tx.Exec(ctx, `
 			UPDATE governance.approval_requests
 			   SET status = $1,
 			       decided_by = $2,

@@ -115,12 +115,13 @@ var allowedDirectPoolCallers = map[string]bool{
 	// the next external GA — tracked in
 	// docs/superpowers/specs/2026-05-09-phase2-to-main-integration-design.md
 	// §2.2. The bypass is *waived for the merge*, not endorsed.
-	"internal/dast/bundles":                         true,
-	"internal/dast/credentials":                     true,
-	"internal/governance":                           true,
-	"internal/governance/exportworker":              true,
-	"internal/authbroker/replay":                    true,
-	"internal/compliance":                           true,
+	"internal/dast":                                   true,
+	"internal/dast/bundles":                           true,
+	"internal/dast/credentials":                       true,
+	"internal/governance":                             true,
+	"internal/governance/exportworker":                true,
+	"internal/authbroker/replay":                      true,
+	"internal/compliance":                             true,
 	"internal/controlplane/api/governance_exports.go": true,
 }
 
