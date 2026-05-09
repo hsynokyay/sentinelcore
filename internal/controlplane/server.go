@@ -400,8 +400,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("POST /api/v1/api-keys/{id}/rotate", s.stepUp("api_keys.manage", handlers.RotateAPIKey))
 
 	// Scan targets
-	mux.HandleFunc("POST /api/v1/projects/{id}/scan-targets", handlers.CreateScanTarget)
-	mux.HandleFunc("GET /api/v1/projects/{id}/scan-targets", handlers.ListScanTargets)
+	mux.Handle("POST /api/v1/projects/{id}/scan-targets", s.authz("targets.manage", handlers.CreateScanTarget))
+	mux.Handle("GET /api/v1/projects/{id}/scan-targets", s.authz("targets.read", handlers.ListScanTargets))
 	mux.HandleFunc("GET /api/v1/scan-targets/{id}", handlers.GetScanTarget)
 	mux.HandleFunc("PATCH /api/v1/scan-targets/{id}", handlers.UpdateScanTarget)
 	mux.HandleFunc("DELETE /api/v1/scan-targets/{id}", handlers.DeleteScanTarget)
@@ -412,9 +412,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.Handle("POST /api/v1/scans/{id}/cancel", s.authz("scans.cancel", handlers.CancelScan))
 
 	// Findings
-	mux.HandleFunc("GET /api/v1/findings", handlers.ListFindings)
+	mux.Handle("GET /api/v1/findings", s.authz("findings.read", handlers.ListFindings))
 	mux.HandleFunc("GET /api/v1/findings/{id}", handlers.GetFinding)
-	mux.HandleFunc("PATCH /api/v1/findings/{id}/status", handlers.UpdateFindingStatus)
+	mux.Handle("PATCH /api/v1/findings/{id}/status", s.authz("findings.triage", handlers.UpdateFindingStatus))
 	mux.HandleFunc("GET /api/v1/findings/{id}/export.md", handlers.ExportFindingMarkdown)
 	mux.HandleFunc("GET /api/v1/findings/{id}/export.sarif", handlers.ExportFindingSARIF)
 
