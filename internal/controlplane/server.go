@@ -16,6 +16,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/sentinelcore/sentinelcore/internal/authbroker/replay"
 	"github.com/sentinelcore/sentinelcore/internal/controlplane/api"
 	"github.com/sentinelcore/sentinelcore/internal/dast/authz"
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
@@ -48,8 +49,9 @@ type Server struct {
 	js          jetstream.JetStream
 	nc          *nats.Conn         // for health checks
 	redis       *redis.Client      // for health checks
-	bundleStore bundles.BundleStore // nil until SetBundleStore is called
-	roleStore   authz.RoleStore    // nil until SetRoleStore is called
+	bundleStore  bundles.BundleStore  // nil until SetBundleStore is called
+	roleStore    authz.RoleStore      // nil until SetRoleStore is called
+	circuitStore replay.CircuitStore  // nil until SetCircuitStore is called
 }
 
 // SetBundleStore configures the DAST bundle store used by the bundles CRUD
@@ -64,6 +66,12 @@ func (s *Server) SetBundleStore(store bundles.BundleStore) {
 // approval endpoints are needed; without it the role gate returns 403.
 func (s *Server) SetRoleStore(store authz.RoleStore) {
 	s.roleStore = store
+}
+
+// SetCircuitStore configures the replay circuit breaker store used by the
+// circuit reset endpoint. Without it, the endpoint returns 503.
+func (s *Server) SetCircuitStore(store replay.CircuitStore) {
+	s.circuitStore = store
 }
 
 // NewServer creates a new control plane server.
@@ -400,6 +408,11 @@ func (s *Server) Start(ctx context.Context) error {
 		authz.RequireDASTRole(effectiveRoleStore, authz.RoleReviewer)(http.HandlerFunc(bundlesHandler.Reject)))
 	mux.Handle("GET /api/v1/dast/bundles",
 		authz.RequireAnyDASTRole(effectiveRoleStore, authz.RoleReviewer, authz.RoleRecordingAdmin)(http.HandlerFunc(bundlesHandler.ListPending)))
+
+	// Circuit reset — recording_admin only. The handler returns 503 if the
+	// circuit store has not been wired via SetCircuitStore.
+	mux.Handle("POST /api/v1/dast/bundles/{id}/circuit/reset",
+		authz.RequireDASTRole(effectiveRoleStore, authz.RoleRecordingAdmin)(CircuitResetHandler(s.circuitStore)))
 
 	// Build middleware chain: outermost first
 	var handler http.Handler = mux

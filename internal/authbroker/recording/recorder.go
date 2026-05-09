@@ -16,6 +16,7 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 
 	"github.com/sentinelcore/sentinelcore/internal/dast/bundles"
@@ -53,11 +54,56 @@ type Recorder struct {
 	actions         []bundles.Action
 }
 
-// recordAction appends a to the recorder's action list in a thread-safe manner.
+// recordAction appends a to the recorder's action list in a thread-safe
+// manner and back-fills DurationMs on the previous action using the gap
+// between consecutive timestamps.
 func (r *Recorder) recordAction(a bundles.Action) {
 	r.actionsMu.Lock()
 	defer r.actionsMu.Unlock()
+	if n := len(r.actions); n > 0 {
+		prev := r.actions[n-1]
+		gap := a.Timestamp.Sub(prev.Timestamp).Milliseconds()
+		if gap < 0 {
+			gap = 0
+		}
+		r.actions[n-1].DurationMs = int(gap)
+	}
 	r.actions = append(r.actions, a)
+}
+
+// setLastActionHash assigns hash to the tail action only if the tail's
+// timestamp still matches forTS — i.e. no newer action has arrived since
+// the hash compute was kicked off. This is the late-assign safety check
+// for the goroutine path (see asyncCapturePostStateHash).
+func (r *Recorder) setLastActionHash(forTS time.Time, hash string) {
+	if hash == "" {
+		return
+	}
+	r.actionsMu.Lock()
+	defer r.actionsMu.Unlock()
+	n := len(r.actions)
+	if n == 0 {
+		return
+	}
+	if !r.actions[n-1].Timestamp.Equal(forTS) {
+		return
+	}
+	r.actions[n-1].ExpectedPostStateHash = hash
+}
+
+// asyncCapturePostStateHash fires ComputePostStateHash on a goroutine and
+// late-assigns the result to the tail action if it is still the tail.
+// We dispatch off the ListenTarget callback because chromedp.Run is
+// synchronous on the same target and would deadlock if invoked from inside
+// an event handler.
+func (r *Recorder) asyncCapturePostStateHash(ctx context.Context, forTS time.Time) {
+	go func() {
+		hash, err := ComputePostStateHash(ctx)
+		if err != nil {
+			return // best-effort: leave hash empty on transient failure
+		}
+		r.setLastActionHash(forTS, hash)
+	}()
 }
 
 // New returns a Recorder ready to Run.
@@ -102,23 +148,58 @@ func (r *Recorder) Run(ctx context.Context) (*RecordedSession, error) {
 			}
 		case *page.EventFrameNavigated:
 			if e.Frame != nil && e.Frame.URL != "" {
+				ts := time.Now().UTC()
 				r.recordAction(bundles.Action{
 					Kind:      bundles.ActionNavigate,
 					URL:       e.Frame.URL,
-					Timestamp: time.Now().UTC(),
+					Timestamp: ts,
 				})
+				r.asyncCapturePostStateHash(timeoutCtx, ts)
 			}
+		case *runtime.EventBindingCalled:
+			if e.Name != "__sentinel_emit" {
+				return
+			}
+			a, err := ParseAndValidate(e.Payload)
+			if err != nil {
+				// Drop invalid events — they are not fatal.
+				return
+			}
+			r.recordAction(a)
+			r.asyncCapturePostStateHash(timeoutCtx, a.Timestamp)
 		}
 	})
 
 	if err := chromedp.Run(timeoutCtx,
 		network.Enable(),
+		chromedp.ActionFunc(func(c context.Context) error {
+			if err := runtime.AddBinding("__sentinel_emit").Do(c); err != nil {
+				return fmt.Errorf("recording: add binding: %w", err)
+			}
+			if _, err := page.AddScriptToEvaluateOnNewDocument(captureScript).Do(c); err != nil {
+				return fmt.Errorf("recording: install capture script: %w", err)
+			}
+			return nil
+		}),
 		chromedp.Navigate(r.opts.TargetURL),
 	); err != nil {
 		return nil, fmt.Errorf("recording: initial navigate: %w", err)
 	}
 
 	<-timeoutCtx.Done()
+
+	// Final action has no successor to back-fill its DurationMs from, so
+	// stamp it from the time elapsed since its own timestamp.
+	r.actionsMu.Lock()
+	if n := len(r.actions); n > 0 {
+		last := r.actions[n-1]
+		dur := time.Since(last.Timestamp).Milliseconds()
+		if dur < 0 {
+			dur = 0
+		}
+		r.actions[n-1].DurationMs = int(dur)
+	}
+	r.actionsMu.Unlock()
 
 	var ua, finalURL string
 	cookies, err := r.fetchCookies(allocCtx)
