@@ -176,6 +176,9 @@ func (s *PostgresStore) Save(ctx context.Context, b *Bundle, customerID string) 
 		}
 	}
 
+	// 10b. Compute action_count.
+	actionCount := len(b.Actions)
+
 	// 11. Insert row.
 	const q = `
 INSERT INTO dast_auth_bundles (
@@ -185,7 +188,7 @@ INSERT INTO dast_auth_bundles (
     integrity_hmac, schema_version,
     created_by_user_id, created_at, expires_at,
     captcha_in_flow, automatable_refresh, ttl_seconds,
-    recording_metadata
+    recording_metadata, action_count
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, 'pending_review',
@@ -193,7 +196,7 @@ INSERT INTO dast_auth_bundles (
     $12, $13,
     $14, $15, $16,
     $17, $18, $19,
-    $20
+    $20, $21
 )`
 	_, err = s.pool.Exec(ctx, q,
 		b.ID, b.CustomerID, b.ProjectID, b.TargetHost, nullableString(b.TargetPrincipal),
@@ -202,7 +205,7 @@ INSERT INTO dast_auth_bundles (
 		integrityHMAC, b.SchemaVersion,
 		b.CreatedByUserID, b.CreatedAt, b.ExpiresAt,
 		b.CaptchaInFlow, b.AutomatableRefresh, b.TTLSeconds,
-		nullableBytes(recordingMetadataJSON),
+		nullableBytes(recordingMetadataJSON), actionCount,
 	)
 	if err != nil {
 		return "", fmt.Errorf("bundles/save: insert: %w", err)

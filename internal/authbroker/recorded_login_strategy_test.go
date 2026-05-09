@@ -96,10 +96,32 @@ func TestRecordedLogin_LoadError(t *testing.T) {
 	}
 }
 
-func TestRecordedLogin_RefreshErrors(t *testing.T) {
-	s := &RecordedLoginStrategy{}
-	_, err := s.Refresh(context.Background(), nil, AuthConfig{})
+func TestRecordedLogin_Refresh_OneShotErrors(t *testing.T) {
+	store := &recordedFakeStore{
+		bundle: &bundles.Bundle{
+			ID: "b1", Type: "recorded_login",
+			ExpiresAt:          time.Now().Add(time.Hour),
+			AutomatableRefresh: false,
+		},
+	}
+	s := &RecordedLoginStrategy{Bundles: store}
+	_, err := s.Refresh(context.Background(), nil, AuthConfig{BundleID: "b1", CustomerID: "c1"})
 	if err == nil {
-		t.Fatal("expected refresh to error in one-shot mode")
+		t.Fatal("expected error: one-shot bundles cannot refresh")
+	}
+}
+
+func TestRecordedLogin_Refresh_NoReplayer(t *testing.T) {
+	store := &recordedFakeStore{
+		bundle: &bundles.Bundle{
+			ID: "b1", Type: "recorded_login",
+			ExpiresAt:          time.Now().Add(time.Hour),
+			AutomatableRefresh: true,
+		},
+	}
+	s := &RecordedLoginStrategy{Bundles: store}
+	_, err := s.Refresh(context.Background(), nil, AuthConfig{BundleID: "b1", CustomerID: "c1"})
+	if err == nil {
+		t.Fatal("expected error: replayer not configured")
 	}
 }
