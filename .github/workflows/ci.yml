@@ -36,10 +36,12 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          # 1.26.2 patches GO-2026-4866/4869/4870/4946/4947 (stdlib
+          # 1.26.3 patches GO-2026-4971 (net.Dial NUL-byte panic on
+          # Windows) and GO-2026-4918 (net/http/internal/http2). Earlier
+          # 1.26.2 patches: GO-2026-4866/4869/4870/4946/4947 (stdlib
           # crypto/x509 + crypto/tls + archive/tar). Track the next
           # minor the moment it lands.
-          go-version: '1.26.2'
+          go-version: '1.26.3'
           cache: true
 
       - name: mod verify + tidy-clean
