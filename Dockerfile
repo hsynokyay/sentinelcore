@@ -2,7 +2,7 @@
 # is reproducible and Cosign-verifiable against a specific upstream.
 # Rebase via `docker manifest inspect <tag>` when Go or Alpine is
 # bumped; re-pin to the new digest in one commit.
-FROM golang:1.26-alpine@sha256:f85330846cde1e57ca9ec309382da3b8e6ae3ab943d2739500e08c86393a21b1 AS builder
+FROM golang:1.26.3-alpine@sha256:f44b851aa23dfa219d18db6eab743203245429d355cb619cf96a2ffe2a84ba7a AS builder
 ARG SERVICE=controlplane
 ENV GOTOOLCHAIN=auto
 WORKDIR /app
