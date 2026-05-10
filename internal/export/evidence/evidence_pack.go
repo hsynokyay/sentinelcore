@@ -366,11 +366,11 @@ func writeZipFile(zw *zip.Writer, name string, body []byte) error {
 		Name:   name,
 		Method: zip.Deflate,
 	}
-	// SetModTime is deprecated but it is the only API that lets us write
-	// the archaic ZIP MS-DOS modtime — Modified would require Go > 1.10
-	// to keep extra fields out, but we still get the extended timestamp
-	// extra-field unless we leave Modified zero. zero Modified == 1980-01-01.
-	hdr.SetModTime(time.Time{})
+	// Deterministic archive: zero Modified makes archive/zip default the
+	// MS-DOS modtime fields to 1980-01-01 so packs are bit-stable across
+	// runs. Assigning the field directly avoids the deprecated SetModTime
+	// helper (SA1019).
+	hdr.Modified = time.Time{}
 	w, err := zw.CreateHeader(hdr)
 	if err != nil {
 		return err
