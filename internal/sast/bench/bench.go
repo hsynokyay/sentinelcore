@@ -36,12 +36,70 @@ type Manifest struct {
 }
 
 // Case is a single benchmark test case.
+//
+// Manifest schema accepts EITHER:
+//   - "rule":  "SC-X-Y-NNN"            — single expected rule (legacy)
+//   - "rules": ["SC-X-Y-NNN", ...]     — any-of list (Sprint 1.2-fix)
+//
+// The two forms are mutually exclusive per entry. Match semantics is
+// "any rule fires → expected satisfied", which models the post-Sprint-1.2
+// reality that a single vuln location may be reported by either a generic
+// or a specialized rule depending on which one wins dedup tie-break. The
+// manifest does not (and should not) pin which specific rule_id wins —
+// that is an implementation detail of the dedup pass.
+//
+// After unmarshal both forms are normalized into Rules so downstream
+// code only deals with the slice form.
 type Case struct {
-	ID     string `json:"id"`
-	File   string `json:"file"`   // relative to corpus root
-	Class  string `json:"class"`  // vulnerability class
-	Expect string `json:"expect"` // "positive" or "negative"
-	Rule   string `json:"rule"`   // expected rule ID
+	ID     string   `json:"id"`
+	File   string   `json:"file"`   // relative to corpus root
+	Class  string   `json:"class"`  // vulnerability class
+	Expect string   `json:"expect"` // "positive" or "negative"
+	Rules  []string `json:"-"`      // populated by UnmarshalJSON; never serialized back
+}
+
+// caseRaw mirrors the on-disk JSON shape so we can validate the rule/rules
+// pair without writing field-by-field copies in UnmarshalJSON.
+type caseRaw struct {
+	ID     string   `json:"id"`
+	File   string   `json:"file"`
+	Class  string   `json:"class"`
+	Expect string   `json:"expect"`
+	Rule   *string  `json:"rule,omitempty"`
+	Rules  []string `json:"rules,omitempty"`
+}
+
+// UnmarshalJSON enforces the rule/rules contract and normalizes both
+// forms into Case.Rules. Errors are wrapped with the case ID (when
+// available) so manifest authoring mistakes are localizable.
+func (c *Case) UnmarshalJSON(data []byte) error {
+	var raw caseRaw
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	hasRule := raw.Rule != nil
+	hasRules := raw.Rules != nil // a present-but-empty array still counts as "supplied"
+
+	switch {
+	case hasRule && hasRules:
+		return fmt.Errorf("case %q: fields \"rule\" and \"rules\" are mutually exclusive — pick one", raw.ID)
+	case hasRules && len(raw.Rules) == 0:
+		return fmt.Errorf("case %q: \"rules\" must be a non-empty array", raw.ID)
+	case !hasRule && !hasRules:
+		return fmt.Errorf("case %q: must specify either \"rule\" (string) or \"rules\" (array)", raw.ID)
+	}
+
+	c.ID = raw.ID
+	c.File = raw.File
+	c.Class = raw.Class
+	c.Expect = raw.Expect
+	if hasRule {
+		c.Rules = []string{*raw.Rule}
+	} else {
+		c.Rules = raw.Rules
+	}
+	return nil
 }
 
 // CaseResult is the outcome of running one benchmark case.
@@ -129,11 +187,19 @@ func Run(corpusDir, manifestPath string) (*BenchmarkResult, error) {
 		// Analyze
 		findings := eng.AnalyzeAll([]*ir.Module{mod})
 
-		// Check if the expected rule fired.
+		// Check whether ANY of the case's expected rules fired. A
+		// manifest entry passes once any one rule_id from c.Rules is
+		// present in the engine output — see the Case doc comment for
+		// rationale (dedup tie-break is an implementation detail; the
+		// manifest pins which vuln must be caught, not which rule wins).
+		expected := make(map[string]struct{}, len(c.Rules))
+		for _, r := range c.Rules {
+			expected[r] = struct{}{}
+		}
 		matched := false
 		var relevantFindings []engine.Finding
 		for _, f := range findings {
-			if f.RuleID == c.Rule {
+			if _, ok := expected[f.RuleID]; ok {
 				matched = true
 				relevantFindings = append(relevantFindings, f)
 			}

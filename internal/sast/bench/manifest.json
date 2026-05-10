@@ -24,7 +24,7 @@
 
     {"id": "SECRET-P-001", "file": "secret/positive/BenchSecret001.java",       "class": "hardcoded_secret", "expect": "positive", "rule": "SC-JAVA-SECRET-001"},
     {"id": "SECRET-P-002", "file": "secret/positive/BenchSecret002.java",       "class": "hardcoded_secret", "expect": "positive", "rule": "SC-JAVA-SECRET-001"},
-    {"id": "SECRET-P-003", "file": "secret/positive/BenchSecret003.java",       "class": "hardcoded_secret", "expect": "positive", "rule": "SC-JAVA-SECRET-001"},
+    {"id": "SECRET-P-003", "file": "secret/positive/BenchSecret003.java",       "class": "hardcoded_secret", "expect": "positive", "rules": ["SC-JAVA-SECRET-001", "SC-JAVA-JWT-003"]},
     {"id": "SECRET-N-001", "file": "secret/negative/BenchSecretSafe001.java",   "class": "hardcoded_secret", "expect": "negative", "rule": "SC-JAVA-SECRET-001"},
     {"id": "SECRET-N-002", "file": "secret/negative/BenchSecretSafe002.java",   "class": "hardcoded_secret", "expect": "negative", "rule": "SC-JAVA-SECRET-001"},
 
