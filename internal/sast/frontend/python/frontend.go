@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/sentinelcore/sentinelcore/internal/sast/ir"
+	"github.com/sentinelcore/sentinelcore/internal/sast/lang"
 )
 
 // ParseFile reads a Python file and returns its SentinelIR module.
@@ -38,7 +38,10 @@ func WalkPythonFiles(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(info.Name(), ".py") {
+		// internal/sast/lang owns the canonical extension→language map; we
+		// delegate so that adding a Python dialect (e.g. .pyi) only edits
+		// one place rather than every walker.
+		if lang.ForExtension(info.Name()) == "python" {
 			out = append(out, path)
 		}
 		return nil
