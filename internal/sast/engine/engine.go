@@ -81,10 +81,29 @@ func (e *Engine) Analyze(module *ir.Module) []Finding {
 	return out
 }
 
-// AnalyzeAll runs analysis across every supplied module with inter-procedural
-// support. It builds a call graph, populates summaries in a bottom-up pass,
-// and then runs the full analysis. Findings are deduplicated by fingerprint.
+// AnalyzeAll runs analysis across every supplied module with
+// inter-procedural support and returns the deduplicated finding set.
+// Two layers of dedup run in sequence:
+//
+//  1. Fingerprint dedup (existing): collapses identical re-runs of the
+//     same rule, e.g. inter-procedural pre-pass + main pass producing
+//     the byte-identical Finding twice.
+//  2. Semantic dedup (Sprint 1.2): collapses different rules that
+//     classify the same vulnerability at the same source location —
+//     see dedup.go.
+//
+// Callers that need the dedup audit report (suppressed count, which
+// rule_ids superseded which) should use AnalyzeAllWithReport instead.
 func (e *Engine) AnalyzeAll(modules []*ir.Module) []Finding {
+	out, _ := e.AnalyzeAllWithReport(modules)
+	return out
+}
+
+// AnalyzeAllWithReport is identical to AnalyzeAll but also returns the
+// dedup audit report. Worker code persists the report's Suppressed
+// count into scan-job metadata as `findings_deduplicated` and emits
+// the per-group Audit entries to the structured operator log.
+func (e *Engine) AnalyzeAllWithReport(modules []*ir.Module) ([]Finding, DedupReport) {
 	// Build call graph and wire into the taint engine for inter-proc.
 	if e.taint != nil {
 		cg := BuildCallGraph(modules)
@@ -115,18 +134,22 @@ func (e *Engine) AnalyzeAll(modules []*ir.Module) []Finding {
 		}
 	}
 
-	// Main analysis pass.
-	var out []Finding
+	// Main analysis pass — fingerprint dedup along the way.
+	var fingerprinted []Finding
 	seen := map[string]bool{}
 	for _, m := range modules {
 		for _, f := range e.Analyze(m) {
 			if !seen[f.Fingerprint] {
 				seen[f.Fingerprint] = true
-				out = append(out, f)
+				fingerprinted = append(fingerprinted, f)
 			}
 		}
 	}
-	return out
+
+	// Semantic dedup pass: collapse different rules that tagged the
+	// same (file, line, vuln_class). The fingerprint pass above can't
+	// see these because the rule_ids differ.
+	return Deduplicate(fingerprinted)
 }
 
 // RuleCount returns the number of compiled rules loaded in this engine.

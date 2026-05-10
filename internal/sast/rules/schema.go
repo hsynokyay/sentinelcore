@@ -36,6 +36,17 @@ type Rule struct {
 	Detection   Detection         `json:"detection"`
 	Confidence  ConfidenceModel   `json:"confidence"`
 	Examples    map[string]string `json:"examples,omitempty"`
+
+	// VulnClass is the canonical vulnerability classification used by the
+	// engine for dedup grouping (Sprint 1.2). Authors may set it
+	// explicitly; if absent, MigrateInPlace promotes it from
+	// Detection.VulnClass (taint v1) or Detection.Taint.VulnClass (taint
+	// v2), and falls back to a heuristic (vulnclass_infer.go) when
+	// neither is set — typical case for the existing AST_CALL and
+	// AST_ASSIGN rules. Detection.VulnClass remains as the JSON
+	// deserialization target for backward compatibility but the engine
+	// always reads from this field.
+	VulnClass string `json:"vuln_class,omitempty"`
 }
 
 // Detection describes what the engine should match. Kind discriminates

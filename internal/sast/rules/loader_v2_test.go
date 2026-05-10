@@ -60,12 +60,17 @@ func TestMigrateInPlace_IsIdempotent(t *testing.T) {
 		Languages:     []string{"python"},
 		Category:      "deserialization",
 	}
+	// Snapshot AFTER the first migration: subsequent migrations must be
+	// no-ops on the already-promoted form. Snapshotting BEFORE would
+	// conflate "MigrateInPlace fills missing fields" (expected — that's
+	// the whole point) with "running it again changes something" (the
+	// actual idempotency claim).
+	MigrateInPlace(r)
 	snapshot, _ := json.Marshal(r)
 	MigrateInPlace(r)
-	MigrateInPlace(r) // run twice
 	again, _ := json.Marshal(r)
 	if string(snapshot) != string(again) {
-		t.Errorf("migration not idempotent\nbefore: %s\nafter:  %s", snapshot, again)
+		t.Errorf("migration not idempotent\nafter 1st: %s\nafter 2nd: %s", snapshot, again)
 	}
 }
 

@@ -113,6 +113,25 @@ func MigrateInPlace(r *Rule) {
 	if r.Category == "" {
 		r.Category = inferCategoryFromRuleID(r.RuleID)
 	}
+	// VulnClass promotion (Sprint 1.2). Single source of truth is
+	// Rule.VulnClass; lower-priority sources are promoted in this order
+	// and the first non-empty value wins:
+	//   1. legacy Detection.VulnClass (taint v1 shape — 26 builtins use it)
+	//   2. v2 nested Detection.Taint.VulnClass (no builtin uses it yet)
+	//   3. heuristic from rule_id token (vulnclass_infer.go) — covers
+	//      every AST_CALL / AST_ASSIGN rule until they get explicit
+	//      tagging in Sprint 2+.
+	// Authors who set Rule.VulnClass directly bypass all of the above.
+	if r.VulnClass == "" {
+		switch {
+		case r.Detection.VulnClass != "":
+			r.VulnClass = r.Detection.VulnClass
+		case r.Detection.Taint != nil && r.Detection.Taint.VulnClass != "":
+			r.VulnClass = r.Detection.Taint.VulnClass
+		default:
+			r.VulnClass = InferVulnClass(r.RuleID)
+		}
+	}
 	// We deliberately do NOT synthesize a TaintSpec wrapper for v1 rules
 	// that only carry vuln_class — the engine still reads the v1 field, and
 	// promoting to an empty TaintSpec would just trip the v2 validator

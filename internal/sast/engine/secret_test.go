@@ -13,7 +13,19 @@ func TestHardcodedSecretVulnerable(t *testing.T) {
 	eng := mustBuildEngine(t)
 	mod := mustParse(t, "HardcodedSecretVulnerable.java")
 	findings := eng.AnalyzeAll([]*ir.Module{mod})
-	secrets := filterRule(findings, "SC-JAVA-SECRET-001")
+
+	// Filter by VulnClass rather than rule_id: after Sprint 1.2's
+	// dedup pass a hardcoded JWT secret line is now reported by
+	// SC-JAVA-JWT-003 (specialized) rather than SC-JAVA-SECRET-001
+	// (generic) when both rules tag the same line. Both still classify
+	// it as HARDCODED_SECRET, which is what this test actually cares
+	// about.
+	var secrets []Finding
+	for _, f := range findings {
+		if f.VulnClass == "HARDCODED_SECRET" {
+			secrets = append(secrets, f)
+		}
+	}
 
 	if len(secrets) < 3 {
 		t.Fatalf("expected at least 3 hardcoded secret findings, got %d.\nAll findings: %+v", len(secrets), findings)

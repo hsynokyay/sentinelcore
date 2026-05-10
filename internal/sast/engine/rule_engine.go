@@ -210,6 +210,7 @@ func buildFinding(rule *rules.Rule, module *ir.Module, fn *ir.Function, inst *ir
 		CWE:         rule.CWE,
 		OWASP:       rule.OWASP,
 		References:  rule.References,
+		VulnClass:   rule.VulnClass,
 		Severity:    rule.Severity,
 		Confidence:  confidence,
 		ModulePath:  module.Path,
