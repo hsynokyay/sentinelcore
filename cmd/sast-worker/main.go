@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -66,6 +67,12 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to initialize SAST engine")
 	}
 	logger.Info().Int("rules", eng.RuleCount()).Msg("SAST engine initialized")
+
+	// Metrics endpoint — Prometheus exposition on container-localhost
+	// only. External scrape goes via `docker exec` from the host cron
+	// job; container 127.0.0.1 is unreachable from other containers and
+	// from the public Hetzner IP. See AUDIT-2026-05-11 HK-4.
+	go startMetricsServer(ctx)
 
 	signingKey := []byte(env("MSG_SIGNING_KEY", "dev-signing-key-change-me"))
 	artifactRoot := env("ARTIFACT_STORAGE_ROOT", "/app/artifacts")
@@ -395,6 +402,48 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// metricsMux returns the HTTP mux that exposes Prometheus metrics on
+// /metrics. Factored out so the endpoint can be tested without binding
+// a real port.
+func metricsMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", observability.MetricsHandler())
+	return mux
+}
+
+// startMetricsServer binds the metrics HTTP listener on
+// 127.0.0.1:${METRICS_PORT:-9090} and serves Prometheus exposition.
+// Binding to container-localhost keeps the surface unreachable from
+// other containers on the docker network and from the public host IP;
+// host scrape uses `docker exec ... wget` against the container's loopback.
+// The server shuts down gracefully when the parent ctx is cancelled.
+func startMetricsServer(ctx context.Context) {
+	log := observability.NewLogger("sast-worker-metrics")
+	addr := "127.0.0.1:" + env("METRICS_PORT", "9090")
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           metricsMux(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
+
+	go func() {
+		log.Info().Str("addr", addr).Msg("metrics server listening")
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Msg("metrics server failed")
+		}
+	}()
+
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
+	log.Info().Msg("metrics server stopped")
 }
 
 func envInt(key string, fallback int) int {
