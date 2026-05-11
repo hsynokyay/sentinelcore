@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sentinelcore/sentinelcore/internal/sast/ir"
+	"github.com/sentinelcore/sentinelcore/internal/sast/vulnclass"
 )
 
 // TestHardcodedSecretVulnerable: hardcoded API keys, passwords, and tokens
@@ -18,11 +19,11 @@ func TestHardcodedSecretVulnerable(t *testing.T) {
 	// dedup pass a hardcoded JWT secret line is now reported by
 	// SC-JAVA-JWT-003 (specialized) rather than SC-JAVA-SECRET-001
 	// (generic) when both rules tag the same line. Both still classify
-	// it as HARDCODED_SECRET, which is what this test actually cares
-	// about.
+	// it as hardcoded_secret (canonical lowercase form post Sprint 1.3
+	// P1-4), which is what this test actually cares about.
 	var secrets []Finding
 	for _, f := range findings {
-		if f.VulnClass == "HARDCODED_SECRET" {
+		if f.VulnClass == string(vulnclass.HardcodedSecret) {
 			secrets = append(secrets, f)
 		}
 	}

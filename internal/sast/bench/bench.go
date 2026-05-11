@@ -26,7 +26,21 @@ import (
 	jsfrontend "github.com/sentinelcore/sentinelcore/internal/sast/frontend/js"
 	"github.com/sentinelcore/sentinelcore/internal/sast/frontend/python"
 	"github.com/sentinelcore/sentinelcore/internal/sast/ir"
+	"github.com/sentinelcore/sentinelcore/internal/sast/vulnclass"
 )
+
+// scorecardOrderStrings adapts vulnclass.ScorecardOrder() into the
+// string slice the markdown / stdout formatters consume. Centralized
+// here so future additions to the registry's scorecard subset land in
+// both PrintScorecard and ScorecardMarkdown without duplication.
+func scorecardOrderStrings() []string {
+	vcs := vulnclass.ScorecardOrder()
+	out := make([]string, len(vcs))
+	for i, vc := range vcs {
+		out[i] = string(vc)
+	}
+	return out
+}
 
 // Manifest is the benchmark corpus descriptor.
 type Manifest struct {
@@ -293,7 +307,7 @@ func PrintScorecard(r *BenchmarkResult) {
 		"Class", "TP", "FP", "FN", "TN", "Prec", "Recall", "F1")
 	fmt.Println("╠══════════════════════════════════════════════════════════════════════╣")
 
-	order := []string{"sql_injection", "command_injection", "path_traversal", "weak_crypto", "hardcoded_secret", "ssrf", "open_redirect", "xss", "unsafe_eval", "unsafe_deserialization"}
+	order := scorecardOrderStrings()
 	for _, cls := range order {
 		cs, ok := r.ByClass[cls]
 		if !ok {
@@ -347,7 +361,7 @@ func ScorecardMarkdown(r *BenchmarkResult) string {
 	sb.WriteString("| Class | TP | FP | FN | TN | Precision | Recall | F1 |\n")
 	sb.WriteString("|---|---|---|---|---|---|---|---|\n")
 
-	order := []string{"sql_injection", "command_injection", "path_traversal", "weak_crypto", "hardcoded_secret", "ssrf", "open_redirect", "xss", "unsafe_eval", "unsafe_deserialization"}
+	order := scorecardOrderStrings()
 	for _, cls := range order {
 		cs, ok := r.ByClass[cls]
 		if !ok {
