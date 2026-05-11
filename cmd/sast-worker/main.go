@@ -72,6 +72,7 @@ func main() {
 	// only. External scrape goes via `docker exec` from the host cron
 	// job; container 127.0.0.1 is unreachable from other containers and
 	// from the public Hetzner IP. See AUDIT-2026-05-11 HK-4.
+	primeMetrics()
 	go startMetricsServer(ctx)
 
 	signingKey := []byte(env("MSG_SIGNING_KEY", "dev-signing-key-change-me"))
@@ -411,6 +412,28 @@ func metricsMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", observability.MetricsHandler())
 	return mux
+}
+
+// supportedLanguages is the canonical list of language labels the SAST
+// engine emits metrics for. Mirrors the extension→language map in
+// internal/sast/lang/lang.go (typescript collapses to javascript, etc.).
+// When a new language frontend lands, add it here so its idle label-set
+// is visible to /metrics scrape from boot rather than appearing only
+// after the first scan that touches it. Sprint 1.5 will replace the
+// duplication with a registry lookup.
+var supportedLanguages = []string{"java", "python", "javascript", "csharp"}
+
+// primeMetrics materializes the idle label-sets on counter vectors that
+// would otherwise emit zero lines until the first observation. Without
+// this priming, a Prometheus scrape sampled before the first SAST scan
+// completes sees a missing series rather than a zero value, which
+// breaks alert-rule queries that expect a stable label cardinality.
+// Idempotent: Add(0) is a no-op on the counter value but creates the
+// child counter in the underlying CounterVec map.
+func primeMetrics() {
+	for _, lang := range supportedLanguages {
+		observability.SASTCallgraphOverloadCollisions.WithLabelValues(lang).Add(0)
+	}
 }
 
 // startMetricsServer binds the metrics HTTP listener on
