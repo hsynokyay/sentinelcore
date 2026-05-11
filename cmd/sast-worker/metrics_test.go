@@ -4,22 +4,16 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
 
 // TestMetricsMux_ExposesCollisionCounter verifies the /metrics endpoint
 // emits the PR-A2 callgraph collision counter in Prometheus exposition
 // format. Covers AUDIT-2026-05-11 HK-4 acceptance criterion #1 (endpoint
-// returns 200) and #2 (4 language label-sets present after they have
-// been touched).
+// returns 200) and #2 (4 language label-sets present at idle).
 func TestMetricsMux_ExposesCollisionCounter(t *testing.T) {
-	// Touch each language so the CounterVec emits a sample line per label.
-	// Add(0) is a no-op on the value but materializes the label set in the
-	// underlying child map so promhttp.Handler emits it.
-	for _, l := range []string{"java", "python", "javascript", "csharp"} {
-		observability.SASTCallgraphOverloadCollisions.WithLabelValues(l).Add(0)
-	}
+	// Exercise the same boot-time priming path the worker uses so the
+	// CounterVec emits a sample line per supported language at idle.
+	primeMetrics()
 
 	mux := metricsMux()
 
@@ -43,11 +37,37 @@ func TestMetricsMux_ExposesCollisionCounter(t *testing.T) {
 		}
 	}
 
-	// All four language label-sets must appear after being touched.
-	for _, l := range []string{"java", "python", "javascript", "csharp"} {
+	// All four supported language label-sets must appear at idle —
+	// guarantees stable label cardinality for Prometheus alert rules.
+	for _, l := range supportedLanguages {
 		needle := `sentinelcore_sast_callgraph_overload_collisions_total{language="` + l + `"}`
 		if !strings.Contains(body, needle) {
 			t.Errorf("missing metric line for language=%s", l)
+		}
+	}
+}
+
+// TestPrimeMetrics_Idempotent verifies primeMetrics can be called more
+// than once without inflating counter values (Add(0) is no-op semantics).
+// Guards against an accidental Inc()-instead-of-Add(0) regression that
+// would silently double-count on boot.
+func TestPrimeMetrics_Idempotent(t *testing.T) {
+	primeMetrics()
+	primeMetrics()
+	primeMetrics()
+
+	// Re-fetch /metrics; every language label must read 0.
+	mux := metricsMux()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	body := rec.Body.String()
+
+	for _, l := range supportedLanguages {
+		// The metric line ends with the counter value; assert " 0" suffix.
+		needle := `sentinelcore_sast_callgraph_overload_collisions_total{language="` + l + `"} 0`
+		if !strings.Contains(body, needle) {
+			t.Errorf("language=%s: counter not zero after triple-prime (priming is not idempotent)", l)
 		}
 	}
 }
