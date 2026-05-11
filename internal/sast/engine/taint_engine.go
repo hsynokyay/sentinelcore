@@ -305,8 +305,14 @@ func (te *TaintEngine) handleCall(
 		}
 	}
 
-	// 4. INTER-PROCEDURAL: apply callee summary if available. Try both exact
-	// FQN and package-qualified FQN for same-package calls.
+	// 4. INTER-PROCEDURAL: apply callee summary if available. Both exact FQN
+	// and package-qualified FQN are tried for same-package calls; the
+	// resolvedFQN (post call-graph resolution) is used for the finding
+	// fingerprint so the same vulnerability cannot be tracked under two
+	// distinct identities depending on whether the caller wrote
+	// `SqlHelper.runQuery` or `com.example.SqlHelper.runQuery`. Banking
+	// audit chain-of-custody requires finding identity to be stable across
+	// callers and scans.
 	resolvedFQN := calleeFQN
 	summary := te.summaries.Get(calleeFQN, vulnClass)
 	if summary == nil && te.callGraph != nil && module.Package != "" {
@@ -329,7 +335,7 @@ func (te *TaintEngine) handleCall(
 			// If tainted arg reaches a sink in the callee → emit finding.
 			if sinks, ok := summary.SinkReachable[argIdx]; ok {
 				for range sinks {
-					f := te.buildInterProcFinding(taintRule.Source, module, fn, src, inst, calleeFQN)
+					f := te.buildInterProcFinding(taintRule.Source, module, fn, src, inst, resolvedFQN)
 					findings = append(findings, f)
 				}
 			}
@@ -341,7 +347,6 @@ func (te *TaintEngine) handleCall(
 		}
 		return findings
 	}
-	_ = resolvedFQN
 
 	// 5. PASSTHROUGH for unmodeled/unresolved calls.
 	if inst.Result != 0 {
