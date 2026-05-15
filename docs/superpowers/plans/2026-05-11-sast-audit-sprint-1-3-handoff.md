@@ -79,7 +79,8 @@ Treat them as **1.3.6 / 1.3.7 / 1.3.8 / 1.3.9 / 1.3.10**, executed
 together with the severity-policy task because they all touch the same
 modelpack / dedup / vuln_class surface.
 
-- **P1-1 → 1.3.6: ModelPassthrough handler.**
+- **P1-1 → 1.3.6: ModelPassthrough handler.** ⚠️ **PARTIAL — split into
+  1.3.6a (shipped) and 1.3.6b (deferred). See revision below.**
   `models.go` declares `ModelPassthrough ModelKind = "passthrough"` but
   `LoadBuiltinModels` switch has no case for it. Currently dead. Wire
   a real passthrough mechanism: tainted argument → tainted return,
@@ -89,6 +90,39 @@ modelpack / dedup / vuln_class surface.
   C# `string.Concat`) as anchors. Run regression: FN must not
   regress more than +1 case; if it does, add the missing passthrough
   entry rather than reverting.
+
+  **Revision (2026-05-15, 1.3.6 implementation session):** The original
+  plan conflated two independent fixes. The "modelpack passthrough
+  replaces P0-1 heuristic" logic has a gap: modelpack entries cover
+  **stdlib methods** (`String.format`, `string.Concat`), while the P0-1
+  heuristic was masking a deeper issue — **`OpReturn` is emitted only
+  by the Python parser**. Java/JS/C# parsers do not emit `OpReturn`
+  for return statements, so `analyzeForSummary`'s explicit-return loop
+  (`case ir.OpReturn:` at lines 176-184) never fires for these
+  languages. The P0-1 heuristic was the sole mechanism marking
+  `returnTainted=true` for Java/JS/C# helper functions. Removing it
+  without fixing the parsers fully breaks inter-procedural taint flow
+  in three languages — confirmed by `TestCrossFunctionSqli` failing
+  and bench `BenchSqli002.java` flipping TP→FN. The 1.3.6 work is
+  therefore split:
+
+  - **1.3.6a (DONE — PR #32 candidate):** ModelPassthrough wiring only.
+    `Passthroughs` map on `ModelSet`, `LoadBuiltinModels` switch case,
+    `IsPassthrough()` method, `handleCall` declarative passthrough step
+    (between sink and inter-proc summary), `ArgIndex`-aware semantics,
+    3-4 anchor model entries (Java `String.format`, JS
+    `Array.prototype.join`, C# `System.String.{Concat,Format}`),
+    3 unit tests. **Bench zero delta (F1=98.0%, baseline).** P0-1
+    heuristic untouched.
+
+  - **1.3.6b (DEFERRED — prerequisite for P0-1 heuristic removal):**
+    Java/JS/C# `OpReturn` emission. Three frontend parsers need to
+    detect return statements and emit `OpReturn` instructions whose
+    operand is the SSA value of the returned expression. Only with
+    this in place can the P0-1 heuristic be deleted without an
+    inter-procedural FN cliff. Estimated 1.5-3 hours including unit
+    tests across the three parsers. Schedule alongside the remaining
+    Sprint 1.3 cleanup batch (1.3.7 / 1.3.8 / 1.3.10).
 
 - **P1-2 → 1.3.7: `taintedVars` map — use or delete.**
   `taintState.taintedVars` (`taint_engine.go`) is written by
