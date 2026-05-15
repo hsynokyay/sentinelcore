@@ -1,6 +1,10 @@
 package rules
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/sentinelcore/sentinelcore/internal/sast/vulnclass"
+)
 
 // vulnclass_infer.go is a TEMPORARY heuristic bridge. The 48 AST_CALL and
 // AST_ASSIGN builtin rules carry no explicit `vuln_class` field; the
@@ -14,6 +18,12 @@ import "strings"
 // is intentionally one-way: MigrateInPlace only invokes the heuristic
 // when no explicit value is present. Authors who set `vuln_class` (or
 // `detection.vuln_class` for legacy taint rules) bypass it entirely.
+//
+// Sprint 1.3 P1-4 normalized the heuristic's return values to the
+// canonical lowercase snake_case form so that inferred values dedup
+// against explicit JSON values. Before this change the heuristic
+// returned `SQL_INJECTION` while explicit rules used `sql_injection`,
+// silently breaking semantic dedup across those two sources.
 
 // vulnClassByRuleIDToken maps the canonical rule_id token (the third
 // hyphen-separated segment of a rule_id, e.g. "SQL" in
@@ -23,81 +33,81 @@ import "strings"
 // "hardcoded credential" and must share a vuln_class so they dedup
 // against each other).
 //
-// The vuln_class names use UPPER_SNAKE convention to make them
-// distinguishable from `Category` values (which use lowercase) at a
-// glance during debugging.
-var vulnClassByRuleIDToken = map[string]string{
+// Values are vulnclass.VulnClass constants — typed lookup so a new
+// vuln_class added here without a corresponding registry entry is a
+// compile error rather than a silent dedup hazard.
+var vulnClassByRuleIDToken = map[string]vulnclass.VulnClass{
 	// Injection family
-	"SQL":   "SQL_INJECTION",
-	"SQLI":  "SQL_INJECTION",
-	"CMD":   "COMMAND_INJECTION",
-	"LDAP":  "LDAP_INJECTION",
-	"XPATH": "XPATH_INJECTION",
-	"NOSQL": "NOSQL_INJECTION",
-	"SSTI":  "TEMPLATE_INJECTION",
-	"EL":    "EXPRESSION_INJECTION",
-	"EVAL":  "UNSAFE_EVAL",
-	"PROTO": "PROTOTYPE_POLLUTION",
-	"INJ":   "GENERIC_INJECTION",
+	"SQL":   vulnclass.SQLInjection,
+	"SQLI":  vulnclass.SQLInjection,
+	"CMD":   vulnclass.CommandInjection,
+	"LDAP":  vulnclass.LDAPInjection,
+	"XPATH": vulnclass.XPathInjection,
+	"NOSQL": vulnclass.NoSQLInjection,
+	"SSTI":  vulnclass.TemplateInjection,
+	"EL":    vulnclass.ExpressionInjection,
+	"EVAL":  vulnclass.UnsafeEval,
+	"PROTO": vulnclass.PrototypePollution,
+	"INJ":   vulnclass.GenericInjection,
 
 	// XSS / output-encoding
-	"XSS": "XSS",
+	"XSS": vulnclass.XSS,
 
 	// Path / file
-	"PATH":    "PATH_TRAVERSAL",
-	"FILE":    "PATH_TRAVERSAL",
-	"ZIPSLIP": "PATH_TRAVERSAL",
+	"PATH":    vulnclass.PathTraversal,
+	"FILE":    vulnclass.PathTraversal,
+	"ZIPSLIP": vulnclass.PathTraversal,
 
 	// SSRF / redirect
-	"SSRF":      "SSRF",
-	"REDIRECT":  "OPEN_REDIRECT",
-	"OPENREDIR": "OPEN_REDIRECT",
+	"SSRF":      vulnclass.SSRF,
+	"REDIRECT":  vulnclass.OpenRedirect,
+	"OPENREDIR": vulnclass.OpenRedirect,
 
 	// XXE / XML
-	"XXE": "XXE",
-	"XML": "XXE",
+	"XXE": vulnclass.XXE,
+	"XML": vulnclass.XXE,
 
 	// Crypto / randomness
-	"CRYPTO": "WEAK_CRYPTO",
-	"HASH":   "WEAK_CRYPTO",
-	"CIPHER": "WEAK_CRYPTO",
-	"TLS":    "INSECURE_TLS",
-	"RAND":   "INSECURE_RANDOM",
+	"CRYPTO": vulnclass.WeakCrypto,
+	"HASH":   vulnclass.WeakCrypto,
+	"CIPHER": vulnclass.WeakCrypto,
+	"TLS":    vulnclass.InsecureTLS,
+	"RAND":   vulnclass.InsecureRandom,
 
 	// Auth / session — every "credential / signing key / token" detector
-	// collapses to HARDCODED_SECRET so the JWT-secret rule and the
+	// collapses to HardcodedSecret so the JWT-secret rule and the
 	// generic-secret rule dedup on the same line.
-	"SECRET":     "HARDCODED_SECRET",
-	"CREDS":      "HARDCODED_SECRET",
-	"KEY":        "HARDCODED_SECRET",
-	"JWT":        "HARDCODED_SECRET",
-	"AUTH":       "AUTH_BYPASS",
-	"AUTHZ":      "AUTHZ_BYPASS",
-	"AUTHHEADER": "AUTH_HEADER_INJECTION",
-	"HEADER":     "HTTP_HEADER_INJECTION",
-	"SESSION":    "INSECURE_SESSION",
-	"COOKIE":     "INSECURE_COOKIE",
-	"CSRF":       "MISSING_CSRF",
+	"SECRET":     vulnclass.HardcodedSecret,
+	"CREDS":      vulnclass.HardcodedSecret,
+	"KEY":        vulnclass.HardcodedSecret,
+	"JWT":        vulnclass.HardcodedSecret,
+	"AUTH":       vulnclass.AuthBypass,
+	"AUTHZ":      vulnclass.AuthzBypass,
+	"AUTHHEADER": vulnclass.AuthHeaderInjection,
+	"HEADER":     vulnclass.HTTPHeaderInjection,
+	"SESSION":    vulnclass.InsecureSession,
+	"COOKIE":     vulnclass.InsecureCookie,
+	"CSRF":       vulnclass.MissingCSRF,
 
 	// Deserialization
-	"DESER":  "UNSAFE_DESERIALIZATION",
-	"SERIAL": "UNSAFE_DESERIALIZATION",
-	"PICKLE": "UNSAFE_DESERIALIZATION",
-	"YAML":   "UNSAFE_DESERIALIZATION",
+	"DESER":  vulnclass.UnsafeDeserialization,
+	"SERIAL": vulnclass.UnsafeDeserialization,
+	"PICKLE": vulnclass.UnsafeDeserialization,
+	"YAML":   vulnclass.UnsafeDeserialization,
 
 	// Logging / privacy / mass-assignment / misc
-	"LOG":    "LOG_INJECTION",
-	"PII":    "PII_EXPOSURE",
-	"PRIV":   "PII_EXPOSURE",
-	"MASS":   "MASS_ASSIGNMENT",
-	"ERR":    "INFO_DISCLOSURE",
-	"MEM":    "MEMORY_SAFETY",
-	"BUF":    "MEMORY_SAFETY",
-	"NULL":   "NULL_DEREF",
-	"RACE":   "RACE_CONDITION",
-	"TOCTOU": "RACE_CONDITION",
-	"CONC":   "RACE_CONDITION",
-	"VAL":    "INPUT_VALIDATION",
+	"LOG":    vulnclass.LogInjection,
+	"PII":    vulnclass.PIIExposure,
+	"PRIV":   vulnclass.PIIExposure,
+	"MASS":   vulnclass.MassAssignment,
+	"ERR":    vulnclass.InfoDisclosure,
+	"MEM":    vulnclass.MemorySafety,
+	"BUF":    vulnclass.MemorySafety,
+	"NULL":   vulnclass.NullDeref,
+	"RACE":   vulnclass.RaceCondition,
+	"TOCTOU": vulnclass.RaceCondition,
+	"CONC":   vulnclass.RaceCondition,
+	"VAL":    vulnclass.InputValidation,
 }
 
 // InferVulnClass returns a stable vulnerability classification for the
@@ -123,7 +133,7 @@ func InferVulnClass(ruleID string) string {
 	}
 	for i := 2; i < len(parts)-1; i++ {
 		if vc, ok := vulnClassByRuleIDToken[strings.ToUpper(parts[i])]; ok {
-			return vc
+			return string(vc)
 		}
 	}
 	return "RULE:" + ruleID

@@ -31,8 +31,8 @@ func ruleIDs(fs []Finding) []string {
 
 func TestDedup_SameVulnClassDifferentRules(t *testing.T) {
 	in := []Finding{
-		f("SC-JAVA-SECRET-001", "Secrets.java", 27, "HARDCODED_SECRET", "high"),
-		f("SC-JAVA-JWT-003", "Secrets.java", 27, "HARDCODED_SECRET", "high"),
+		f("SC-JAVA-SECRET-001", "Secrets.java", 27, "hardcoded_secret", "high"),
+		f("SC-JAVA-JWT-003", "Secrets.java", 27, "hardcoded_secret", "high"),
 	}
 	out, rep := Deduplicate(in)
 
@@ -46,7 +46,7 @@ func TestDedup_SameVulnClassDifferentRules(t *testing.T) {
 		t.Fatalf("expected 1 audit entry, got %d", len(rep.Audit))
 	}
 	a := rep.Audit[0]
-	if a.ModulePath != "Secrets.java" || a.Line != 27 || a.VulnClass != "HARDCODED_SECRET" {
+	if a.ModulePath != "Secrets.java" || a.Line != 27 || a.VulnClass != "hardcoded_secret" {
 		t.Errorf("audit entry mislabeled: %+v", a)
 	}
 	// The two surviving/suppressed identities must together account for
@@ -65,8 +65,8 @@ func TestDedup_TieBreakIsDeterministic(t *testing.T) {
 	// twice has to yield the same surviving rule_id, otherwise audit
 	// logs and snapshot tests churn between runs.
 	in := []Finding{
-		f("SC-JAVA-SECRET-001", "Secrets.java", 27, "HARDCODED_SECRET", "high"),
-		f("SC-JAVA-JWT-003", "Secrets.java", 27, "HARDCODED_SECRET", "high"),
+		f("SC-JAVA-SECRET-001", "Secrets.java", 27, "hardcoded_secret", "high"),
+		f("SC-JAVA-JWT-003", "Secrets.java", 27, "hardcoded_secret", "high"),
 	}
 	out1, _ := Deduplicate(append([]Finding{}, in...))
 	out2, _ := Deduplicate(append([]Finding{}, in...))
@@ -84,9 +84,9 @@ func TestDedup_TieBreakIsDeterministic(t *testing.T) {
 
 func TestDedup_SameVulnClassDifferentSeverity(t *testing.T) {
 	in := []Finding{
-		f("SC-JAVA-SECRET-001", "Foo.java", 10, "HARDCODED_SECRET", "medium"),
-		f("SC-JAVA-CRITSEC-001", "Foo.java", 10, "HARDCODED_SECRET", "critical"),
-		f("SC-JAVA-LOWSEC-001", "Foo.java", 10, "HARDCODED_SECRET", "low"),
+		f("SC-JAVA-SECRET-001", "Foo.java", 10, "hardcoded_secret", "medium"),
+		f("SC-JAVA-CRITSEC-001", "Foo.java", 10, "hardcoded_secret", "critical"),
+		f("SC-JAVA-LOWSEC-001", "Foo.java", 10, "hardcoded_secret", "low"),
 	}
 	out, rep := Deduplicate(in)
 	if len(out) != 1 {
@@ -102,8 +102,8 @@ func TestDedup_SameVulnClassDifferentSeverity(t *testing.T) {
 
 func TestDedup_DifferentLines(t *testing.T) {
 	in := []Finding{
-		f("SC-JAVA-SECRET-001", "Foo.java", 10, "HARDCODED_SECRET", "high"),
-		f("SC-JAVA-SECRET-001", "Foo.java", 11, "HARDCODED_SECRET", "high"),
+		f("SC-JAVA-SECRET-001", "Foo.java", 10, "hardcoded_secret", "high"),
+		f("SC-JAVA-SECRET-001", "Foo.java", 11, "hardcoded_secret", "high"),
 	}
 	out, rep := Deduplicate(in)
 	if len(out) != 2 {
@@ -120,8 +120,8 @@ func TestDedup_DifferentVulnClass(t *testing.T) {
 	// query and an HTML response). Both findings are real; collapse
 	// would hide one bug.
 	in := []Finding{
-		f("SC-JAVA-SQL-001", "Foo.java", 50, "SQL_INJECTION", "critical"),
-		f("SC-JAVA-XSS-001", "Foo.java", 50, "XSS", "high"),
+		f("SC-JAVA-SQL-001", "Foo.java", 50, "sql_injection", "critical"),
+		f("SC-JAVA-XSS-001", "Foo.java", 50, "xss", "high"),
 	}
 	out, rep := Deduplicate(in)
 	if len(out) != 2 {
@@ -134,8 +134,8 @@ func TestDedup_DifferentVulnClass(t *testing.T) {
 
 func TestDedup_DifferentModule(t *testing.T) {
 	in := []Finding{
-		f("SC-JAVA-SECRET-001", "A.java", 10, "HARDCODED_SECRET", "high"),
-		f("SC-JAVA-SECRET-001", "B.java", 10, "HARDCODED_SECRET", "high"),
+		f("SC-JAVA-SECRET-001", "A.java", 10, "hardcoded_secret", "high"),
+		f("SC-JAVA-SECRET-001", "B.java", 10, "hardcoded_secret", "high"),
 	}
 	out, _ := Deduplicate(in)
 	if len(out) != 2 {
@@ -145,9 +145,9 @@ func TestDedup_DifferentModule(t *testing.T) {
 
 func TestDedup_PreservesAuditTrail(t *testing.T) {
 	in := []Finding{
-		f("SC-JAVA-SECRET-001", "Foo.java", 10, "HARDCODED_SECRET", "high"),
-		f("SC-JAVA-JWT-003", "Foo.java", 10, "HARDCODED_SECRET", "high"),
-		f("SC-JAVA-AWS-001", "Foo.java", 10, "HARDCODED_SECRET", "high"),
+		f("SC-JAVA-SECRET-001", "Foo.java", 10, "hardcoded_secret", "high"),
+		f("SC-JAVA-JWT-003", "Foo.java", 10, "hardcoded_secret", "high"),
+		f("SC-JAVA-AWS-001", "Foo.java", 10, "hardcoded_secret", "high"),
 	}
 	_, rep := Deduplicate(in)
 	if len(rep.Audit) != 1 {
@@ -191,9 +191,9 @@ func TestDedup_EmptyInput(t *testing.T) {
 
 func TestDedup_PreservesInputOrder(t *testing.T) {
 	in := []Finding{
-		f("SC-JAVA-SQL-001", "A.java", 10, "SQL_INJECTION", "critical"),
-		f("SC-JAVA-SECRET-001", "A.java", 20, "HARDCODED_SECRET", "high"),
-		f("SC-JAVA-XSS-001", "B.java", 5, "XSS", "high"),
+		f("SC-JAVA-SQL-001", "A.java", 10, "sql_injection", "critical"),
+		f("SC-JAVA-SECRET-001", "A.java", 20, "hardcoded_secret", "high"),
+		f("SC-JAVA-XSS-001", "B.java", 5, "xss", "high"),
 	}
 	out, _ := Deduplicate(in)
 	got := ruleIDs(out)
