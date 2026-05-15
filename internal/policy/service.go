@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -9,12 +10,18 @@ import (
 
 // Service implements the Policy Engine HTTP handlers.
 type Service struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	cache *Cache
 }
 
 // NewService creates a new Policy Engine service.
 func NewService(pool *pgxpool.Pool) *Service {
-	return &Service{pool: pool}
+	c := NewCache()
+	if pool != nil {
+		// Best-effort initial load; failures are non-fatal.
+		_ = c.Reload(context.Background(), pool)
+	}
+	return &Service{pool: pool, cache: c}
 }
 
 // EvaluateRequest is the request body for RBAC evaluation.
@@ -37,7 +44,7 @@ func (s *Service) HandleEvaluate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowed := Evaluate(req.Role, req.Permission)
+	allowed := s.cache.Can(req.Role, req.Permission)
 	reason := "denied: insufficient role"
 	if allowed {
 		reason = "allowed"

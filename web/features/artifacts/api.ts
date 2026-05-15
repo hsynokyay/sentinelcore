@@ -2,7 +2,11 @@ import type { SourceArtifact } from "@/lib/types";
 
 // Use the same API base + auth headers as lib/api-client.ts, but we need raw
 // fetch for multipart uploads (the ApiClient wrapper stringifies JSON).
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+// `??` (not `||`) so an empty NEXT_PUBLIC_API_URL is preserved — in prod the
+// nginx reverse-proxy serves API + frontend on the same origin, so the empty
+// base resolves to a relative URL. With `||` it would fall back to
+// http://localhost:8080 and the browser would block on mixed content.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;

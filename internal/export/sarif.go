@@ -64,6 +64,7 @@ type sarifResult struct {
 	Locations    []sarifLocation     `json:"locations"`
 	Fingerprints map[string]string   `json:"fingerprints,omitempty"`
 	CodeFlows    []sarifCodeFlow     `json:"codeFlows,omitempty"`
+	Properties   map[string]any      `json:"properties,omitempty"`
 }
 
 type sarifLocation struct {
@@ -209,6 +210,11 @@ func buildResult(f FindingData, ruleIdx int) sarifResult {
 			})
 		}
 		r.CodeFlows = []sarifCodeFlow{{ThreadFlows: []sarifThreadFlow{{Locations: locs}}}}
+	}
+	// Compliance tags ride on result.properties.tags so SARIF consumers
+	// (GitHub Code Scanning, GitLab, Defect Dojo) can filter on them.
+	if tags := complianceTags(f.ControlRefs); len(tags) > 0 {
+		r.Properties = map[string]any{"tags": tags}
 	}
 	return r
 }

@@ -1,0 +1,27 @@
+{
+  "rule_id": "SC-JS-JWT-001",
+  "name": "JWT decoded without signature verification",
+  "language": "javascript",
+  "cwe": ["CWE-347"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "jwt",
+        "callee": "decode",
+        "message_template": "jsonwebtoken.decode does NOT verify the signature — use jwt.verify"
+      },
+      {
+        "receiver_fqn": "jsonwebtoken",
+        "callee": "decode",
+        "message_template": "jsonwebtoken.decode does NOT verify the signature"
+      }
+    ]
+  },
+  "description": "jsonwebtoken.decode parses a JWT without verifying the signature. Any token-shaped string is accepted, including attacker-crafted ones.",
+  "remediation": "Use jwt.verify(token, secret, { algorithms: ['HS256'] }) instead of jwt.decode for any token coming from a client.",
+  "references": ["https://cwe.mitre.org/data/definitions/347.html"]
+}

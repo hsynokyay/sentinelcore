@@ -1,0 +1,89 @@
+name: container
+
+# Dedicated container scan workflow split out from ci.yml.
+#
+# Previous setup (container-scan job inside ci.yml) only ran on push to
+# main, leaving Dockerfile changes unvalidated until *after* merge. This
+# workflow keeps the same matrix + steps but adds a paths-filtered
+# pull_request trigger so any PR touching the Dockerfile (or this
+# workflow itself) gets a real build + trivy scan + SBOM run before
+# merge. Push-to-main trigger is preserved for the post-merge
+# attestation pipeline.
+#
+# `needs: [go]` from the original job cannot be expressed across
+# workflows; container-scan now runs in parallel with go on PRs. In
+# practice this is fine — Dockerfile builds don't depend on test results.
+
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'Dockerfile.*'
+      - '.github/workflows/container.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write   # upload sarif results
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-scan:
+    name: container / trivy + sbom
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - controlplane
+          - audit-service
+          - sast-worker
+          - notification-worker
+          - retention-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: build image
+        run: |
+          docker build \
+            --build-arg SERVICE=${{ matrix.service }} \
+            -t sc-${{ matrix.service }}:ci-${{ github.sha }} \
+            .
+
+      - name: trivy scan
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: sc-${{ matrix.service }}:ci-${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}.sarif'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true   # don't fail on vulns with no upstream fix
+
+      - name: upload trivy sarif
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}.sarif'
+          category: 'trivy-${{ matrix.service }}'
+
+      - name: generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: sc-${{ matrix.service }}:ci-${{ github.sha }}
+          format: cyclonedx-json
+          output-file: '${{ matrix.service }}.cdx.json'
+          upload-artifact: false
+
+      - name: upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}-${{ github.sha }}
+          path: '${{ matrix.service }}.cdx.json'
+          retention-days: 365

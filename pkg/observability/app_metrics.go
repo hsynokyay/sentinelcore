@@ -73,6 +73,22 @@ var APIKeyAuths = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Total API key authentication attempts.",
 }, []string{"status"})
 
+// --- Audit integrity metrics ---
+
+// AuditIntegrityChecks counts chain-verification outcomes per partition.
+// A pass is expected every hour; a fail is pager-escalated in chunk 9.
+var AuditIntegrityChecks = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "sentinelcore_audit_integrity_check_total",
+	Help: "Audit chain verification runs, by partition and outcome (pass|fail|partial|error).",
+}, []string{"partition", "outcome"})
+
+// AuditEventsIngested counts events successfully written to audit.audit_log.
+// Bumped by the audit-service consumer on each commit.
+var AuditEventsIngested = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "sentinelcore_audit_events_ingested_total",
+	Help: "Audit events persisted to audit.audit_log, by action domain.",
+}, []string{"action_domain"})
+
 // --- HTTP request metrics (general) ---
 
 var HTTPRequests = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -85,3 +101,26 @@ var HTTPDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 	Help:    "HTTP request duration.",
 	Buckets: prometheus.DefBuckets,
 }, []string{"method", "path"})
+
+// --- SAST metrics ---
+//
+// First entry in this section establishes the naming convention precedent
+// for SAST observability: prefix `sentinelcore_sast_*`, `_total` suffix
+// for counters, low-cardinality labels only. Per-rule labels are
+// intentionally avoided where the emit site is rule-agnostic. Sprint 1.5
+// housekeeping will formalize the convention in a dedicated document.
+
+// SASTCallgraphOverloadCollisions counts overload collisions during call
+// graph construction: the same FQN observed more than once because
+// SentinelIR Function.FQN does not yet include parameter-type mangling
+// (deferred to Sprint 4 frontend chunk per AUDIT-2026-05-11, P0-4).
+// First-declared method wins; subsequent overloads are dropped from the
+// graph and counted here so the impact surface is sized before committing
+// to a full FQN-mangling redesign. Paired with a Debug-level log entry at
+// the emit site that records which method displaced which.
+var SASTCallgraphOverloadCollisions = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "sentinelcore_sast_callgraph_overload_collisions_total",
+	Help: "Callgraph overload collisions: same FQN reseen with different " +
+		"parameter signature. First-declared method kept; subsequent " +
+		"overloads dropped.",
+}, []string{"language"})

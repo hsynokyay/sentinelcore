@@ -1,7 +1,10 @@
 package engine
 
 import (
+	"github.com/rs/zerolog/log"
+
 	"github.com/sentinelcore/sentinelcore/internal/sast/ir"
+	"github.com/sentinelcore/sentinelcore/pkg/observability"
 )
 
 // CallGraph maps callee FQN → list of Functions across all modules in a
@@ -17,10 +20,13 @@ import (
 // concrete type declared at the call site).
 type CallGraph struct {
 	// funcs maps fully-qualified method name → function definition.
-	// When multiple overloads exist (same FQN, different parameter counts),
-	// we store the first one encountered — the taint engine treats this as
-	// a "best effort" resolution. Full overload resolution lands with the
-	// JVM sidecar frontend.
+	// When multiple overloads exist (same FQN, different parameter
+	// signatures), the first-declared method wins; subsequent overloads
+	// are dropped from the graph. The drop is observed via the
+	// observability.SASTCallgraphOverloadCollisions counter and a paired
+	// Debug-level log entry recording which method displaced which.
+	// Full FQN parameter-type mangling that eliminates the collision lands
+	// with the Sprint 4 frontend chunk per AUDIT-2026-05-11, P0-4.
 	funcs map[string]*FuncNode
 }
 
@@ -33,17 +39,40 @@ type FuncNode struct {
 }
 
 // BuildCallGraph indexes every function in every module by its FQN.
+//
+// Overload collisions (same FQN reseen with a different parameter
+// signature) are inherent to the current SentinelIR Function.FQN format
+// which does not encode parameter types. First-declared method wins;
+// subsequent overloads are dropped and reported via
+// observability.SASTCallgraphOverloadCollisions plus a Debug log. When
+// the counter trends non-zero in production scans, prioritize the
+// Sprint 4 frontend chunk that introduces full FQN parameter-type
+// mangling (AUDIT-2026-05-11, P0-4).
 func BuildCallGraph(modules []*ir.Module) *CallGraph {
 	cg := &CallGraph{funcs: map[string]*FuncNode{}}
 	for _, mod := range modules {
 		for _, cls := range mod.Classes {
 			for _, fn := range cls.Methods {
-				if fn.FQN != "" {
-					cg.funcs[fn.FQN] = &FuncNode{
-						Module:   mod,
-						Class:    cls,
-						Function: fn,
-					}
+				if fn.FQN == "" {
+					continue
+				}
+				if existing, exists := cg.funcs[fn.FQN]; exists {
+					observability.SASTCallgraphOverloadCollisions.
+						WithLabelValues(mod.Language).Inc()
+					log.Debug().
+						Str("fqn", fn.FQN).
+						Str("kept_module", existing.Module.Path).
+						Int("kept_line", existing.Function.Loc.Line).
+						Str("dropped_module", mod.Path).
+						Int("dropped_line", fn.Loc.Line).
+						Str("language", mod.Language).
+						Msg("sast callgraph overload collision; first-declared kept")
+					continue
+				}
+				cg.funcs[fn.FQN] = &FuncNode{
+					Module:   mod,
+					Class:    cls,
+					Function: fn,
 				}
 			}
 		}

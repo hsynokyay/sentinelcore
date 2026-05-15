@@ -13,28 +13,43 @@ import (
 )
 
 // TierConfig defines rate limit tiers for different endpoint categories.
+//
+// Phase 8 §4.1 A2: split reads from writes on the default path so a
+// crawler or a mis-loop client can't exhaust the mutation budget.
+// Reads default to 300/min, writes to 60/min; login stays the
+// strictest at 10/min per IP.
 type TierConfig struct {
-	DefaultLimit int           // 100/min for general endpoints
+	ReadLimit     int           // 300/min for GET/HEAD on general endpoints
+	ReadWindow    time.Duration
+	WriteLimit    int           // 60/min for POST/PATCH/PUT/DELETE on general endpoints
+	WriteWindow   time.Duration
+	DefaultLimit  int           // back-compat fallback (used when method is unknown)
 	DefaultWindow time.Duration
-	LoginLimit   int           // 10/min per IP for login
-	LoginWindow  time.Duration
-	ScanLimit    int           // 20/min per user for scan creation
-	ScanWindow   time.Duration
-	UploadLimit  int           // 5/min per user for file uploads
-	UploadWindow time.Duration
+	LoginLimit    int           // 10/min per IP for login (keep tight to slow credential stuffing)
+	LoginWindow   time.Duration
+	ScanLimit     int           // 20/min per user for scan creation
+	ScanWindow    time.Duration
+	UploadLimit   int           // 5/min per user for file uploads
+	UploadWindow  time.Duration
 }
 
-// DefaultTierConfig returns production-safe rate limit tiers. Login limit and
-// window are overridable via LOGIN_RATE_LIMIT and LOGIN_RATE_WINDOW env vars so
-// pilot/demo environments can relax the default without a code change.
+// DefaultTierConfig returns production-safe rate limit tiers. Every
+// limit + window has an env override so pilot/demo environments can
+// relax without a code change.
 func DefaultTierConfig() TierConfig {
-	loginLimit := envInt("LOGIN_RATE_LIMIT", 60)
-	loginWindow := envDuration("LOGIN_RATE_WINDOW", time.Minute)
 	return TierConfig{
-		DefaultLimit:  envInt("DEFAULT_RATE_LIMIT", 100), DefaultWindow: envDuration("DEFAULT_RATE_WINDOW", time.Minute),
-		LoginLimit:    loginLimit, LoginWindow: loginWindow,
-		ScanLimit:     envInt("SCAN_RATE_LIMIT", 20), ScanWindow: envDuration("SCAN_RATE_WINDOW", time.Minute),
-		UploadLimit:   envInt("UPLOAD_RATE_LIMIT", 5), UploadWindow: envDuration("UPLOAD_RATE_WINDOW", time.Minute),
+		ReadLimit:     envInt("READ_RATE_LIMIT", 300),
+		ReadWindow:    envDuration("READ_RATE_WINDOW", time.Minute),
+		WriteLimit:    envInt("WRITE_RATE_LIMIT", 60),
+		WriteWindow:   envDuration("WRITE_RATE_WINDOW", time.Minute),
+		DefaultLimit:  envInt("DEFAULT_RATE_LIMIT", 100),
+		DefaultWindow: envDuration("DEFAULT_RATE_WINDOW", time.Minute),
+		LoginLimit:    envInt("LOGIN_RATE_LIMIT", 60),
+		LoginWindow:   envDuration("LOGIN_RATE_WINDOW", time.Minute),
+		ScanLimit:     envInt("SCAN_RATE_LIMIT", 20),
+		ScanWindow:    envDuration("SCAN_RATE_WINDOW", time.Minute),
+		UploadLimit:   envInt("UPLOAD_RATE_LIMIT", 5),
+		UploadWindow:  envDuration("UPLOAD_RATE_WINDOW", time.Minute),
 	}
 }
 
@@ -120,11 +135,23 @@ func resolveRateLimit(r *http.Request, cfg TierConfig) (key string, limit int, w
 		return "upload:ip:" + stripPort(r.RemoteAddr), cfg.UploadLimit, cfg.UploadWindow
 	}
 
-	// Default: keyed by user or IP.
-	if user := auth.GetUser(r.Context()); user != nil {
-		return "user:" + user.UserID, cfg.DefaultLimit, cfg.DefaultWindow
+	// Default: split reads from writes. Phase 8 §4.1 A2.
+	limit, window = cfg.DefaultLimit, cfg.DefaultWindow
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		if cfg.ReadLimit > 0 {
+			limit, window = cfg.ReadLimit, cfg.ReadWindow
+		}
+	case http.MethodPost, http.MethodPatch, http.MethodPut, http.MethodDelete:
+		if cfg.WriteLimit > 0 {
+			limit, window = cfg.WriteLimit, cfg.WriteWindow
+		}
 	}
-	return "ip:" + stripPort(r.RemoteAddr), cfg.DefaultLimit, cfg.DefaultWindow
+
+	if user := auth.GetUser(r.Context()); user != nil {
+		return "user:" + user.UserID, limit, window
+	}
+	return "ip:" + stripPort(r.RemoteAddr), limit, window
 }
 
 func stripPort(addr string) string {

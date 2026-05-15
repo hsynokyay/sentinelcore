@@ -38,10 +38,31 @@ type Key struct {
 	CreatedAt string    `json:"created_at"`
 }
 
-// CreateResult is returned from Create — includes the plaintext key exactly once.
+// CreateInput holds all parameters for creating an API key.
+type CreateInput struct {
+	OrgID              string
+	CreatedBy          string
+	UserID             string
+	Name               string
+	Description        string
+	Scopes             []string
+	ExpiresAt          *time.Time
+	IsServiceAccount   bool
+	CreatorPermissions map[string]struct{}
+	KnownPermissions   map[string]struct{}
+}
+
+// CreateResult is the response payload; PlainText is shown ONCE and never stored.
+// JSON tags MUST match: "plaintext" (one word) is the frontend contract.
 type CreateResult struct {
-	Key       Key    `json:"api_key"`
-	PlainText string `json:"key"` // shown once, never stored
+	ID               string     `json:"id"`
+	PlainText        string     `json:"plaintext"`
+	Prefix           string     `json:"prefix"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description,omitempty"`
+	Scopes           []string   `json:"scopes"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	IsServiceAccount bool       `json:"is_service_account"`
 }
 
 // ResolvedKey is the result of looking up a key by its plaintext — used by
@@ -79,73 +100,142 @@ func PrefixOf(key string) string {
 
 // Create generates a new API key, persists the hash, and returns the
 // plaintext exactly once.
-func Create(ctx context.Context, pool *pgxpool.Pool, orgID, userID, name string, scopes []string, expiresAt *time.Time) (*CreateResult, error) {
-	plain := Generate()
-	hash := Hash(plain)
-	prefix := PrefixOf(plain)
-	id := uuid.New().String()
-
-	var expStr *string
-	if expiresAt != nil {
-		s := expiresAt.Format(time.RFC3339)
-		expStr = &s
+func Create(ctx context.Context, pool *pgxpool.Pool, in CreateInput) (*CreateResult, error) {
+	if in.OrgID == "" || in.CreatedBy == "" {
+		return nil, fmt.Errorf("org_id and created_by are required")
+	}
+	if in.UserID == "" && !in.IsServiceAccount {
+		return nil, fmt.Errorf("user_id required unless is_service_account=true")
 	}
 
-	_, err := pool.Exec(ctx,
-		`INSERT INTO core.api_keys (id, org_id, user_id, name, prefix, key_hash, scopes, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		id, orgID, userID, name, prefix, hash, scopes, expiresAt,
-	)
+	if err := ValidateScopes(in.Scopes, in.CreatorPermissions, in.KnownPermissions); err != nil {
+		return nil, err
+	}
+
+	raw := Generate()
+	hash := Hash(raw)
+	prefix := PrefixOf(raw)
+	keyID := uuid.NewString()
+
+	// key_verifier is the new HMAC-SHA256 + pepper scheme. It runs in
+	// parallel to key_hash during the transition window. A startup
+	// that hasn't yet loaded the pepper (ErrPepperMissing) writes
+	// NULL here and relies on the legacy hash path — the migration is
+	// forward-safe either way.
+	var verifier *string
+	var pepperVer *int
+	if v, err := Verifier(raw); err == nil {
+		verifier = &v
+		pv := PepperVersion()
+		pepperVer = &pv
+	}
+
+	var userIDParam any
+	if in.UserID != "" {
+		userIDParam = in.UserID
+	} else {
+		userIDParam = nil
+	}
+
+	_, err := pool.Exec(ctx, `
+        INSERT INTO core.api_keys (
+            id, org_id, user_id, created_by, name, description,
+            prefix, key_hash, key_verifier, pepper_version,
+            scopes, expires_at, is_service_account, revoked
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, false)
+    `, keyID, in.OrgID, userIDParam, in.CreatedBy, in.Name, in.Description,
+		prefix, hash, verifier, pepperVer, in.Scopes, in.ExpiresAt, in.IsServiceAccount)
 	if err != nil {
-		return nil, fmt.Errorf("insert api key: %w", err)
+		return nil, fmt.Errorf("insert api_key: %w", err)
 	}
 
 	return &CreateResult{
-		Key: Key{
-			ID:        id,
-			OrgID:     orgID,
-			UserID:    userID,
-			Name:      name,
-			Prefix:    prefix,
-			Scopes:    scopes,
-			ExpiresAt: expStr,
-			CreatedAt: time.Now().Format(time.RFC3339),
-		},
-		PlainText: plain,
+		ID:               keyID,
+		PlainText:        raw,
+		Prefix:           prefix,
+		Name:             in.Name,
+		Description:      in.Description,
+		Scopes:           in.Scopes,
+		ExpiresAt:        in.ExpiresAt,
+		IsServiceAccount: in.IsServiceAccount,
 	}, nil
 }
 
 // Resolve looks up an API key by its plaintext value. Returns nil if the key
 // is invalid, expired, or revoked. Also updates last_used_at.
+//
+// Lookup order during the SHA-256 → HMAC+pepper transition:
+//   1. If the pepper is loaded, try by key_verifier first (faster path,
+//      expected to be the common case once backfill completes).
+//   2. On miss, fall back to key_hash (legacy SHA-256). On success,
+//      schedule an opportunistic backfill of key_verifier so the next
+//      lookup takes the HMAC path.
+//
+// Both paths return the same ResolvedKey shape — the caller can't tell
+// which scheme authenticated the request.
 func Resolve(ctx context.Context, pool *pgxpool.Pool, plainKey string) (*ResolvedKey, error) {
 	if !strings.HasPrefix(plainKey, keyPrefix) {
 		return nil, errors.New("invalid key format")
 	}
-	hash := Hash(plainKey)
 
 	var rk ResolvedKey
 	var expiresAt *time.Time
-	err := pool.QueryRow(ctx,
-		`SELECT k.id, k.org_id, k.user_id, k.scopes, u.role, k.expires_at
-		   FROM core.api_keys k
-		   JOIN core.users u ON u.id = k.user_id
-		  WHERE k.key_hash = $1 AND k.revoked = false`, hash,
-	).Scan(&rk.KeyID, &rk.OrgID, &rk.UserID, &rk.Scopes, &rk.Role, &expiresAt)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil
+	var legacyMatch bool
+
+	// Path 1: HMAC verifier (preferred).
+	if v, err := Verifier(plainKey); err == nil {
+		qErr := pool.QueryRow(ctx,
+			`SELECT k.id, k.org_id, k.user_id, k.scopes, u.role, k.expires_at
+			   FROM core.api_keys k
+			   JOIN core.users u ON u.id = k.user_id
+			  WHERE k.key_verifier = $1 AND k.revoked = false`, v,
+		).Scan(&rk.KeyID, &rk.OrgID, &rk.UserID, &rk.Scopes, &rk.Role, &expiresAt)
+		if qErr == nil {
+			goto postLookup
 		}
-		return nil, err
+		if !errors.Is(qErr, pgx.ErrNoRows) {
+			return nil, qErr
+		}
 	}
 
+	// Path 2: legacy SHA-256 hash (transition-period fallback).
+	{
+		hash := Hash(plainKey)
+		qErr := pool.QueryRow(ctx,
+			`SELECT k.id, k.org_id, k.user_id, k.scopes, u.role, k.expires_at
+			   FROM core.api_keys k
+			   JOIN core.users u ON u.id = k.user_id
+			  WHERE k.key_hash = $1 AND k.revoked = false`, hash,
+		).Scan(&rk.KeyID, &rk.OrgID, &rk.UserID, &rk.Scopes, &rk.Role, &expiresAt)
+		if qErr != nil {
+			if errors.Is(qErr, pgx.ErrNoRows) {
+				return nil, nil
+			}
+			return nil, qErr
+		}
+		legacyMatch = true
+	}
+
+postLookup:
 	if expiresAt != nil && time.Now().After(*expiresAt) {
 		return nil, nil
 	}
 
-	// Update last_used_at (fire-and-forget).
+	// Update last_used_at + opportunistic verifier backfill on legacy matches.
 	go func() {
-		pool.Exec(context.Background(),
+		bg := context.Background()
+		pool.Exec(bg,
 			`UPDATE core.api_keys SET last_used_at = now() WHERE id = $1`, rk.KeyID)
+		if legacyMatch {
+			if v, err := Verifier(plainKey); err == nil {
+				pv := PepperVersion()
+				pool.Exec(bg,
+					`UPDATE core.api_keys
+					    SET key_verifier = $1, pepper_version = $2
+					  WHERE id = $3 AND key_verifier IS NULL`,
+					v, pv, rk.KeyID)
+			}
+		}
 	}()
 
 	return &rk, nil

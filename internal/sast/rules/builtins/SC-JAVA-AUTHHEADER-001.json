@@ -1,0 +1,13 @@
+{
+  "rule_id": "SC-JAVA-AUTHHEADER-001",
+  "name": "Authorization header value flows from user input",
+  "language": "java",
+  "cwe": ["CWE-113"],
+  "owasp": ["A03:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.70 },
+  "detection": { "kind": "taint", "vuln_class": "auth_header_injection" },
+  "description": "User input flows into HttpServletResponse.setHeader('Authorization', ...).",
+  "remediation": "Do not echo request input into Authorization response headers.",
+  "references": ["https://cwe.mitre.org/data/definitions/113.html"]
+}

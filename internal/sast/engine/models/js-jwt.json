@@ -1,0 +1,10 @@
+{
+  "language": "javascript",
+  "framework": "js-jwt",
+  "models": [
+    {"kind": "sink", "receiver_fqn": "jwt", "method": "verify", "vuln_class": "jwt_weak_alg"},
+    {"kind": "sink", "receiver_fqn": "jwt", "method": "decode", "vuln_class": "jwt_unverified"},
+    {"kind": "sink", "receiver_fqn": "jsonwebtoken", "method": "verify", "vuln_class": "jwt_weak_alg"},
+    {"kind": "sink", "receiver_fqn": "jsonwebtoken", "method": "decode", "vuln_class": "jwt_unverified"}
+  ]
+}

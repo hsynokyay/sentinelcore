@@ -21,11 +21,24 @@ type findingResponse struct {
 	ScanID                  string             `json:"scan_id"`
 	FindingType             string             `json:"finding_type"`
 	Severity                string             `json:"severity"`
+	Confidence              string             `json:"confidence,omitempty"`
 	Status                  string             `json:"status"`
 	Title                   string             `json:"title"`
 	Description             string             `json:"description"`
 	FilePath                string             `json:"file_path,omitempty"`
 	LineNumber              *int               `json:"line_number,omitempty"`
+	URL                     string             `json:"url,omitempty"`
+	HTTPMethod              string             `json:"http_method,omitempty"`
+	Parameter               string             `json:"parameter,omitempty"`
+	CWEID                   *int               `json:"cwe_id,omitempty"`
+	OWASPCategory           string             `json:"owasp_category,omitempty"`
+	CVSSScore               *float64           `json:"cvss_score,omitempty"`
+	CVSSVector              string             `json:"cvss_vector,omitempty"`
+	RiskScore               *float64           `json:"risk_score,omitempty"`
+	Tags                    []string           `json:"tags,omitempty"`
+	EvidenceHash            string             `json:"evidence_hash,omitempty"`
+	EvidenceSize            *int64             `json:"evidence_size,omitempty"`
+	Evidence                string             `json:"evidence,omitempty"` // populated only on GetFinding
 	CreatedAt               string             `json:"created_at"`
 	SLADeadline             *string            `json:"sla_deadline,omitempty"`
 	AssignedTo              *string            `json:"assigned_to,omitempty"`
@@ -114,7 +127,18 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 	var findings []findingResponse
 
 	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		query := `SELECT id, project_id, scan_job_id, finding_type, severity, status, title, COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at
+		// evidence_ref is intentionally excluded from list — it can be megabytes.
+		// Detail endpoint (GetFinding) returns it.
+		query := `SELECT id, project_id, scan_job_id, finding_type,
+		                 severity, COALESCE(confidence, ''), status, title, COALESCE(description, ''),
+		                 COALESCE(file_path, ''), line_start,
+		                 COALESCE(url, ''), COALESCE(http_method, ''), COALESCE(parameter, ''),
+		                 cwe_id, COALESCE(owasp_category, ''),
+		                 cvss_score, COALESCE(cvss_vector, ''), risk_score,
+		                 COALESCE(tags, '{}'),
+		                 COALESCE(evidence_hash, ''), evidence_size,
+		                 COALESCE(rule_id, ''),
+		                 created_at
 				  FROM findings.findings WHERE 1=1`
 		args := []any{}
 		argIdx := 1
@@ -153,11 +177,29 @@ func (h *Handlers) ListFindings(w http.ResponseWriter, r *http.Request) {
 			var f findingResponse
 			var createdAt time.Time
 			var lineNumber *int
-			if err := rows.Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status, &f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt); err != nil {
+			var cweID *int
+			var cvssScore, riskScore *float64
+			var evidenceSize *int64
+			if err := rows.Scan(
+				&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType,
+				&f.Severity, &f.Confidence, &f.Status, &f.Title, &f.Description,
+				&f.FilePath, &lineNumber,
+				&f.URL, &f.HTTPMethod, &f.Parameter,
+				&cweID, &f.OWASPCategory,
+				&cvssScore, &f.CVSSVector, &riskScore,
+				&f.Tags,
+				&f.EvidenceHash, &evidenceSize,
+				&f.RuleID,
+				&createdAt,
+			); err != nil {
 				return err
 			}
 			f.CreatedAt = createdAt.Format(time.RFC3339)
 			f.LineNumber = lineNumber
+			f.CWEID = cweID
+			f.CVSSScore = cvssScore
+			f.RiskScore = riskScore
+			f.EvidenceSize = evidenceSize
 			findings = append(findings, f)
 		}
 		return rows.Err()
@@ -203,14 +245,31 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 		var correlatedFindingIDs []string
 
 		var ruleID *string
+		var cweID *int
+		var cvssScore, riskScore *float64
+		var evidenceSize *int64
 		qErr := conn.QueryRow(ctx,
-			`SELECT id, project_id, scan_job_id, finding_type, severity, status, title,
-			        COALESCE(description, ''), COALESCE(file_path, ''), line_start, created_at,
+			`SELECT id, project_id, scan_job_id, finding_type,
+			        severity, COALESCE(confidence, ''), status, title,
+			        COALESCE(description, ''), COALESCE(file_path, ''), line_start,
+			        COALESCE(url, ''), COALESCE(http_method, ''), COALESCE(parameter, ''),
+			        cwe_id, COALESCE(owasp_category, ''),
+			        cvss_score, COALESCE(cvss_vector, ''), risk_score,
+			        COALESCE(tags, '{}'),
+			        COALESCE(evidence_ref, ''), COALESCE(evidence_hash, ''), evidence_size,
+			        created_at,
 			        sla_deadline, assigned_to, legal_hold, correlation_confidence, correlated_finding_ids,
 			        rule_id
 			 FROM findings.findings WHERE id = $1`, id,
-		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType, &f.Severity, &f.Status,
-			&f.Title, &f.Description, &f.FilePath, &lineNumber, &createdAt,
+		).Scan(&f.ID, &f.ProjectID, &f.ScanID, &f.FindingType,
+			&f.Severity, &f.Confidence, &f.Status, &f.Title,
+			&f.Description, &f.FilePath, &lineNumber,
+			&f.URL, &f.HTTPMethod, &f.Parameter,
+			&cweID, &f.OWASPCategory,
+			&cvssScore, &f.CVSSVector, &riskScore,
+			&f.Tags,
+			&f.Evidence, &f.EvidenceHash, &evidenceSize,
+			&createdAt,
 			&slaDeadline, &assignedTo, &legalHold, &correlationConfidence, &correlatedFindingIDs,
 			&ruleID)
 		if qErr != nil {
@@ -219,6 +278,10 @@ func (h *Handlers) GetFinding(w http.ResponseWriter, r *http.Request) {
 
 		f.CreatedAt = createdAt.Format(time.RFC3339)
 		f.LineNumber = lineNumber
+		f.CWEID = cweID
+		f.CVSSScore = cvssScore
+		f.RiskScore = riskScore
+		f.EvidenceSize = evidenceSize
 		if ruleID != nil {
 			f.RuleID = *ruleID
 		}

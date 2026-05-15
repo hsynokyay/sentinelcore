@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/sentinelcore/sentinelcore/internal/sast/ir"
+	"github.com/sentinelcore/sentinelcore/internal/sast/lang"
 )
 
 // ParseFile reads a .cs file from disk and returns its SentinelIR module.
@@ -44,8 +45,11 @@ func WalkCSharpFiles(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(info.Name(), ".cs") {
-			// Skip auto-generated files that would add noise.
+		// internal/sast/lang owns the canonical extension→language map; we
+		// delegate so adding a new C# file kind only edits one place. The
+		// auto-generated-file exclusions stay here because they're
+		// C#-specific refinements, not extension-level detection.
+		if lang.ForExtension(info.Name()) == "csharp" {
 			if strings.HasSuffix(info.Name(), ".g.cs") || strings.HasSuffix(info.Name(), ".Designer.cs") || strings.HasSuffix(info.Name(), ".AssemblyInfo.cs") {
 				return nil
 			}

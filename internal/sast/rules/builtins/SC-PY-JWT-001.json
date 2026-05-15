@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-PY-JWT-001",
+  "name": "JWT decoded without signature verification",
+  "language": "python",
+  "cwe": ["CWE-347"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "jwt",
+        "callee": "decode",
+        "arg_index": 0,
+        "arg_text_contains_any": ["verify_signature\": False", "verify_signature\":False", "verify_signature=False"],
+        "message_template": "jwt.decode called with verify_signature disabled"
+      },
+      {
+        "receiver_fqn": "jwt",
+        "callee": "decode",
+        "arg_index": 0,
+        "arg_text_contains_any": ["verify\": False", "verify=False"],
+        "message_template": "jwt.decode called with verify=False (legacy PyJWT option)"
+      }
+    ]
+  },
+  "description": "PyJWT decode is invoked with signature verification disabled. Any attacker-supplied token is accepted unconditionally — this is equivalent to having no authentication at all on whatever uses the resulting claims.",
+  "remediation": "Always pass options={\"verify_signature\": True} (default) and supply the correct algorithms list. Never use verify=False except in test code.",
+  "references": ["https://cwe.mitre.org/data/definitions/347.html"]
+}

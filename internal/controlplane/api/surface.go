@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/sentinelcore/sentinelcore/internal/policy"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 type surfaceEntryResponse struct {
@@ -60,7 +60,7 @@ func (h *Handlers) ListSurfaceEntries(w http.ResponseWriter, r *http.Request) {
 
 	var entries []surfaceEntryResponse
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		query := `SELECT id, project_id, surface_type, url, method, exposure, title,
 				         finding_ids, observation_count, first_seen_at, last_seen_at, scan_count
 				  FROM scans.surface_entries WHERE 1=1`
@@ -89,7 +89,7 @@ func (h *Handlers) ListSurfaceEntries(w http.ResponseWriter, r *http.Request) {
 		query += fmt.Sprintf(" ORDER BY last_seen_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 		args = append(args, limit, offset)
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -154,7 +154,7 @@ func (h *Handlers) GetSurfaceStats(w http.ResponseWriter, r *http.Request) {
 
 	var stats []statRow
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		query := `SELECT surface_type, exposure, COUNT(*)::int
 				  FROM scans.surface_entries WHERE 1=1`
 		args := []any{}
@@ -168,7 +168,7 @@ func (h *Handlers) GetSurfaceStats(w http.ResponseWriter, r *http.Request) {
 
 		query += " GROUP BY surface_type, exposure ORDER BY surface_type, exposure"
 
-		rows, err := conn.Query(ctx, query, args...)
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return err
 		}

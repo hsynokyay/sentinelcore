@@ -6,25 +6,82 @@ import { ChevronDown, Check } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+// LabelStore is a per-Select Map of value→displayLabel. SelectItem registers
+// its children text on mount so that SelectValue can show the friendly label
+// in the trigger instead of the raw value (UUID, enum string, etc).
+//
+// Without this, Base UI's Select.Value falls back to stringifying the raw
+// value because there's no `items` prop or `itemToStringLabel` resolver
+// registered globally — the consumer would have to spell out the lookup
+// at every Select call site. Auto-registration via context lets the wrapper
+// "just work" regardless of how many items the consumer renders.
+type LabelStore = {
+  set(value: string, label: string): void
+  get(value: string): string | undefined
+  version: number
+}
+const SelectLabelContext = React.createContext<LabelStore | null>(null)
+
+function useLabelStore(): LabelStore {
+  const [, force] = React.useReducer((n: number) => n + 1, 0)
+  const ref = React.useRef<Map<string, string>>(undefined as unknown as Map<string, string>)
+  if (!ref.current) ref.current = new Map()
+  const store = React.useMemo<LabelStore>(() => ({
+    set(v, l) {
+      const cur = ref.current.get(v)
+      if (cur !== l) {
+        ref.current.set(v, l)
+        force()
+      }
+    },
+    get(v) {
+      return ref.current.get(v)
+    },
+    version: 0,
+  }), [])
+  return store
+}
+
 function Select({
   value,
   onValueChange,
   disabled,
   children,
+  itemToStringLabel,
   ...props
 }: Omit<React.ComponentProps<typeof SelectPrimitive.Root>, "onValueChange"> & {
   onValueChange?: (value: string) => void;
   disabled?: boolean;
 }) {
+  const store = useLabelStore()
+  // If the consumer supplied an explicit itemToStringLabel, prefer it (it
+  // can serve labels for values the popup hasn't rendered yet, e.g.
+  // server-restored selections). Otherwise fall back to the auto-registered
+  // labels from rendered SelectItems.
+  const resolveLabel = React.useCallback(
+    (v: unknown) => {
+      const explicit = itemToStringLabel
+      if (explicit && v != null) {
+        const result = explicit(v as never)
+        if (result) return result
+      }
+      const fromStore = typeof v === "string" ? store.get(v) : undefined
+      return fromStore ?? (v == null ? "" : String(v))
+    },
+    [itemToStringLabel, store]
+  )
   return (
-    <SelectPrimitive.Root
-      value={value}
-      onValueChange={onValueChange ? (v) => { if (v != null) onValueChange(String(v)); } : undefined}
-      disabled={disabled}
-      {...props}
-    >
-      {children}
-    </SelectPrimitive.Root>
+    <SelectLabelContext.Provider value={store}>
+      <SelectPrimitive.Root
+        value={value}
+        onValueChange={onValueChange ? (v) => { if (v != null) onValueChange(String(v)); } : undefined}
+        disabled={disabled}
+        itemToStringLabel={resolveLabel}
+        {...props}
+      >
+        {children}
+      </SelectPrimitive.Root>
+    </SelectLabelContext.Provider>
   )
 }
 
@@ -58,17 +115,37 @@ function SelectContent({
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Popup>) {
+  // `container={document.body}` is load-bearing here. Without it, the
+  // SelectPortal nests inside the Dialog's portal tree, and the
+  // Positioner's `position: fixed` becomes relative to the Dialog
+  // (which uses `transform: translate(-50%, -50%)` for centering — a
+  // transformed ancestor establishes a new containing block for fixed
+  // descendants). The popup then renders at the wrong screen coords and
+  // sits visually behind the trigger button. Forcing portal to body
+  // escapes the transform's containing block so the positioner's fixed
+  // coordinates resolve to the actual viewport.
+  //
+  // `Select.List` wrapper is required so the popup can register items
+  // for keyboard navigation and pointer selection.
+  // z-index MUST live on the Positioner, not the Popup wrapper. The
+  // Positioner is the only `position: fixed` element in the chain — every
+  // descendant (popup wrapper, list, options) is `position: static` or
+  // `relative` with z-index: auto. Without an explicit z-index on the
+  // fixed element, the popup loses the stacking-context race against the
+  // Dialog (which is also `position: fixed` with `z-50`) and gets buried
+  // beneath the dialog body. Result: clicks land on the trigger button
+  // instead of the option, making selection impossible.
   return (
-    <SelectPrimitive.Portal>
-      <SelectPrimitive.Positioner>
+    <SelectPrimitive.Portal container={typeof document !== "undefined" ? document.body : undefined}>
+      <SelectPrimitive.Positioner sideOffset={4} className="z-[60]">
         <SelectPrimitive.Popup
           className={cn(
-            "z-50 min-w-[var(--anchor-width)] overflow-hidden rounded-lg border bg-popover p-1 text-popover-foreground shadow-md data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity",
+            "min-w-[var(--anchor-width)] overflow-hidden rounded-lg border border-border bg-surface-2 p-1 text-popover-foreground shadow-xl data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 transition-opacity",
             className
           )}
           {...props}
         >
-          {children}
+          <SelectPrimitive.List>{children}</SelectPrimitive.List>
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>
     </SelectPrimitive.Portal>
@@ -78,10 +155,22 @@ function SelectContent({
 function SelectItem({
   className,
   children,
+  value,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Item>) {
+  // Register this item's value→label mapping with the parent Select so the
+  // trigger can show the friendly label after selection. We extract the
+  // text representation of `children` once at mount; if the children later
+  // change, the effect re-runs.
+  const store = React.useContext(SelectLabelContext)
+  React.useEffect(() => {
+    if (!store || value == null || typeof value !== "string") return
+    const label = childrenToString(children).trim()
+    if (label) store.set(value, label)
+  }, [store, value, children])
   return (
     <SelectPrimitive.Item
+      value={value}
       className={cn(
         "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className
@@ -96,6 +185,19 @@ function SelectItem({
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
     </SelectPrimitive.Item>
   )
+}
+
+// childrenToString flattens a React node tree into the text it would render.
+// Handles strings, numbers, fragments, and nested elements. Falls back to
+// the empty string for elements that have no string content (icons, etc).
+function childrenToString(node: React.ReactNode): string {
+  if (node == null || typeof node === "boolean") return ""
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(childrenToString).join("")
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return childrenToString(node.props.children)
+  }
+  return ""
 }
 
 export {

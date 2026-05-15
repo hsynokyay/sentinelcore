@@ -45,19 +45,21 @@ type ModelPack struct {
 
 // ModelSet is the compiled set of models the taint engine uses at analysis
 // time. It provides fast lookups by (receiverFQN + method) for sinks, sources,
-// and sanitizers.
+// sanitizers, and declarative passthroughs.
 type ModelSet struct {
-	Sources     map[string][]TaintModel // key = receiverFQN+"."+method or annotation FQN
-	Sinks       map[string][]TaintModel
-	Sanitizers  map[string][]TaintModel
+	Sources       map[string][]TaintModel // key = receiverFQN+"."+method or annotation FQN
+	Sinks         map[string][]TaintModel
+	Sanitizers    map[string][]TaintModel
+	Passthroughs  map[string][]TaintModel
 }
 
 // LoadBuiltinModels loads and compiles the embedded model packs.
 func LoadBuiltinModels() (*ModelSet, error) {
 	ms := &ModelSet{
-		Sources:    map[string][]TaintModel{},
-		Sinks:      map[string][]TaintModel{},
-		Sanitizers: map[string][]TaintModel{},
+		Sources:      map[string][]TaintModel{},
+		Sinks:        map[string][]TaintModel{},
+		Sanitizers:   map[string][]TaintModel{},
+		Passthroughs: map[string][]TaintModel{},
 	}
 	err := fs.WalkDir(modelsFS, "models", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".json") {
@@ -83,6 +85,8 @@ func LoadBuiltinModels() (*ModelSet, error) {
 				ms.Sinks[key] = append(ms.Sinks[key], m)
 			case ModelSanitizer:
 				ms.Sanitizers[key] = append(ms.Sanitizers[key], m)
+			case ModelPassthrough:
+				ms.Passthroughs[key] = append(ms.Passthroughs[key], m)
 			}
 			// For bare-function models (empty receiver), also register by
 			// just the method name so the taint engine finds them when
@@ -96,6 +100,8 @@ func LoadBuiltinModels() (*ModelSet, error) {
 					ms.Sinks[bareKey] = append(ms.Sinks[bareKey], m)
 				case ModelSanitizer:
 					ms.Sanitizers[bareKey] = append(ms.Sanitizers[bareKey], m)
+				case ModelPassthrough:
+					ms.Passthroughs[bareKey] = append(ms.Passthroughs[bareKey], m)
 				}
 			}
 		}
@@ -136,4 +142,16 @@ func (ms *ModelSet) IsSanitizer(calleeFQN, vulnClass string) bool {
 		}
 	}
 	return false
+}
+
+// IsPassthrough returns true + the matching models if the given calleeFQN is a
+// declared passthrough. The caller inspects each model's ArgIndex to decide
+// which operand position(s) propagate to the return value:
+//   - ArgIndex == nil → any tainted operand taints the return (default)
+//   - ArgIndex != nil → only the operand at that index taints the return
+func (ms *ModelSet) IsPassthrough(calleeFQN string) (bool, []TaintModel) {
+	if models, ok := ms.Passthroughs[calleeFQN]; ok && len(models) > 0 {
+		return true, models
+	}
+	return false, nil
 }

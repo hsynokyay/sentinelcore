@@ -1,21 +1,29 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-PY-EVAL-001",
   "name": "Code Injection via eval() or exec()",
-  "language": "python",
-  "cwe": ["CWE-95"],
-  "owasp": ["A03:2021"],
+  "languages": [
+    "python"
+  ],
+  "category": "injection",
+  "cwe": [
+    "CWE-95"
+  ],
+  "owasp": [
+    "A03:2021"
+  ],
   "severity": "critical",
-  "confidence": {
-    "base": 0.90
-  },
-  "detection": {
-    "kind": "taint",
-    "vuln_class": "unsafe_eval"
-  },
   "description": "User input flows into eval() or exec().",
   "remediation": "Remove eval/exec. Use ast.literal_eval for safe data parsing.",
   "references": [
     "https://cwe.mitre.org/data/definitions/95.html",
     "https://owasp.org/Top10/A03_2021-Injection/"
-  ]
+  ],
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "unsafe_eval"
+  },
+  "confidence": {
+    "base": 0.9
+  }
 }

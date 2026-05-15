@@ -254,7 +254,7 @@ type bundleOption func(*bundleConfig)
 
 func withPurpose(p string) bundleOption      { return func(c *bundleConfig) { c.purpose = p } }
 func withBundleType(bt string) bundleOption   { return func(c *bundleConfig) { c.bundleType = bt } }
-func withVersion(v string) bundleOption       { return func(c *bundleConfig) { c.version = v } }
+func withVersion(v string) bundleOption       { return func(c *bundleConfig) { c.version = v } } //nolint:unused // kept for symmetry with other bundleOption helpers
 func withValidFrom(t time.Time) bundleOption  { return func(c *bundleConfig) { c.validFrom = t } }
 func withValidUntil(t time.Time) bundleOption { return func(c *bundleConfig) { c.validUntil = t } }
 func withRevokedSerials(s []string) bundleOption {

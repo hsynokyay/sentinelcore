@@ -20,6 +20,13 @@ type Finding struct {
 	OWASP       []string // e.g. ["A02:2021"]
 	References  []string // from the rule
 
+	// VulnClass is the canonical vulnerability classification used as
+	// the dedup canonical key (Sprint 1.2). Comes from rule.VulnClass
+	// after MigrateInPlace promotion / heuristic inference. Two findings
+	// at the same (ModulePath, Line) with the same VulnClass are
+	// considered duplicates of one another.
+	VulnClass string
+
 	// Severity + confidence
 	Severity   string  // critical|high|medium|low|info
 	Confidence float64 // [0.0, 1.0]

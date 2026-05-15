@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Upload } from "lucide-react";
+import { Upload, FileArchive } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/data/page-header";
+import { DensityToggle } from "@/components/data/density-toggle";
+import { EmptyStateBranded } from "@/components/data/empty-state-branded";
 import { ErrorState } from "@/components/data/error-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -68,48 +70,65 @@ export default function ArtifactsPage() {
     });
   };
 
+  const artifactList = artifacts ?? [];
+  const isEmpty = !isLoading && artifactList.length === 0;
+
   return (
-    <div>
+    <>
       <PageHeader
         title="Source Artifacts"
         description="Source bundles for SAST scans. Upload a ZIP archive of your codebase, then select it when launching a SAST scan."
+        count={isLoading ? "—" : artifactList.length}
+        filters={
+          <Select
+            value={projectId}
+            onValueChange={setProjectId}
+            disabled={loadingProjects}
+            itemToStringLabel={(v) => {
+              const p = projects.find((p) => p.id === v);
+              return p ? (p.display_name || p.name) : "";
+            }}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue
+                placeholder={loadingProjects ? "Loading…" : "Select project"}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.display_name || p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
         actions={
-          <Button onClick={() => setUploadOpen(true)} disabled={!projectId}>
-            <Upload className="h-4 w-4 mr-1" />
-            Upload
-          </Button>
+          <>
+            <DensityToggle />
+            <Button onClick={() => setUploadOpen(true)} disabled={!projectId}>
+              <Upload className="h-4 w-4 mr-1" />
+              Upload
+            </Button>
+          </>
         }
       />
-
-      <div className="flex items-center gap-2 mb-4 max-w-xs">
-        <Select
-          value={projectId}
-          onValueChange={setProjectId}
-          disabled={loadingProjects}
-        >
-          <SelectTrigger>
-            <SelectValue
-              placeholder={loadingProjects ? "Loading…" : "Select project"}
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.display_name || p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
 
       {isError ? (
         <ErrorState
           message="Failed to load artifacts"
           onRetry={() => refetch()}
         />
+      ) : isEmpty ? (
+        <EmptyStateBranded
+          icon={FileArchive}
+          title="No source artifacts"
+          description="Upload a ZIP archive of your codebase to enable SAST scans."
+          action={{ label: "Upload artifact", onClick: () => setUploadOpen(true) }}
+        />
       ) : (
         <ArtifactsTable
-          artifacts={artifacts ?? []}
+          artifacts={artifactList}
           isLoading={isLoading}
           onDelete={(a) => setDeleting(a)}
         />
@@ -153,6 +172,6 @@ export default function ArtifactsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

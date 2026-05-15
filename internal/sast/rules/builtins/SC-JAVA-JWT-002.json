@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-JAVA-JWT-002",
+  "name": "JWT verifier accepts alg=none",
+  "language": "java",
+  "cwe": ["CWE-327"],
+  "owasp": ["A02:2021"],
+  "severity": "critical",
+  "confidence": { "base": 0.85 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "io.jsonwebtoken.JwtParser",
+        "callee": "parse",
+        "arg_index": 0,
+        "arg_text_contains_any": ["SignatureAlgorithm.NONE", "\"none\""],
+        "message_template": "jjwt parser configured for SignatureAlgorithm.NONE"
+      }
+    ]
+  },
+  "description": "jjwt parser is configured to accept tokens with alg=none.",
+  "remediation": "Configure SignatureAlgorithm.HS256 (or the real algorithm) explicitly; never NONE.",
+  "references": ["https://cwe.mitre.org/data/definitions/327.html"]
+}

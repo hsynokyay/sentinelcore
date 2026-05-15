@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/sentinelcore/sentinelcore/internal/sast/ir"
+	"github.com/sentinelcore/sentinelcore/internal/sast/vulnclass"
 )
 
 // TestHardcodedSecretVulnerable: hardcoded API keys, passwords, and tokens
@@ -13,7 +14,19 @@ func TestHardcodedSecretVulnerable(t *testing.T) {
 	eng := mustBuildEngine(t)
 	mod := mustParse(t, "HardcodedSecretVulnerable.java")
 	findings := eng.AnalyzeAll([]*ir.Module{mod})
-	secrets := filterRule(findings, "SC-JAVA-SECRET-001")
+
+	// Filter by VulnClass rather than rule_id: after Sprint 1.2's
+	// dedup pass a hardcoded JWT secret line is now reported by
+	// SC-JAVA-JWT-003 (specialized) rather than SC-JAVA-SECRET-001
+	// (generic) when both rules tag the same line. Both still classify
+	// it as hardcoded_secret (canonical lowercase form post Sprint 1.3
+	// P1-4), which is what this test actually cares about.
+	var secrets []Finding
+	for _, f := range findings {
+		if f.VulnClass == string(vulnclass.HardcodedSecret) {
+			secrets = append(secrets, f)
+		}
+	}
 
 	if len(secrets) < 3 {
 		t.Fatalf("expected at least 3 hardcoded secret findings, got %d.\nAll findings: %+v", len(secrets), findings)

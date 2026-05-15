@@ -141,6 +141,37 @@ func (b *FunctionBuilder) Call(receiverType, callee, calleeFQN string, resultTyp
 	return b
 }
 
+// CallWithArgText is like Call but also records the verbatim source text of
+// each operand. argText must be the same length as ops; pass empty strings
+// for operands whose source span is unavailable. Frontends that have access
+// to AST node spans should prefer this; pure constant calls without spans
+// can keep using Call.
+func (b *FunctionBuilder) CallWithArgText(receiverType, callee, calleeFQN string, resultType Type, loc Location, ops []Operand, argText []string) *FunctionBuilder {
+	b.EntryBlock()
+	result := ValueID(0)
+	if resultType.Kind != KindUnknown || resultType.Name != "" {
+		result = b.NewValue()
+	}
+	if argText != nil && len(argText) != len(ops) {
+		fixed := make([]string, len(ops))
+		copy(fixed, argText)
+		argText = fixed
+	}
+	inst := &Instruction{
+		Op:            OpCall,
+		Result:        result,
+		ResultType:    resultType,
+		Operands:      ops,
+		ReceiverType:  receiverType,
+		Callee:        callee,
+		CalleeFQN:     calleeFQN,
+		Loc:           loc,
+		ArgSourceText: argText,
+	}
+	b.current.Instructions = append(b.current.Instructions, inst)
+	return b
+}
+
 // Last returns the most recently emitted instruction in the current block,
 // or nil if the block is empty. Useful when a caller needs to capture a
 // result ValueID for a subsequent operand.

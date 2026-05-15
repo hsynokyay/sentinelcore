@@ -30,11 +30,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/sentinelcore/sentinelcore/internal/policy"
 	"github.com/sentinelcore/sentinelcore/pkg/crypto"
-	"github.com/sentinelcore/sentinelcore/pkg/db"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 	"github.com/sentinelcore/sentinelcore/pkg/scope"
 )
 
@@ -275,10 +275,10 @@ func (h *Handlers) CreateAuthProfile(w http.ResponseWriter, r *http.Request) {
 
 	id := uuid.New().String()
 	var created authProfileResponse
-	err = db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err = tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Project visibility check under RLS.
 		var exists bool
-		if qErr := conn.QueryRow(ctx,
+		if qErr := tx.QueryRow(ctx,
 			`SELECT EXISTS(SELECT 1 FROM core.projects WHERE id = $1)`, projectID,
 		).Scan(&exists); qErr != nil {
 			return qErr
@@ -289,7 +289,7 @@ func (h *Handlers) CreateAuthProfile(w http.ResponseWriter, r *http.Request) {
 
 		var createdAt, updatedAt time.Time
 		var createdBy string
-		if insErr := conn.QueryRow(ctx,
+		if insErr := tx.QueryRow(ctx,
 			`INSERT INTO auth.auth_configs
 			   (id, project_id, name, auth_type, description, config, encrypted_secret, created_by, created_at, updated_at)
 			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),now())
@@ -333,8 +333,8 @@ func (h *Handlers) ListAuthProfiles(w http.ResponseWriter, r *http.Request) {
 
 	projectID := r.PathValue("id")
 	var profiles []authProfileResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		rows, qErr := conn.Query(ctx,
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, qErr := tx.Query(ctx,
 			`SELECT id, project_id, name, auth_type, COALESCE(description, ''),
 			        COALESCE(config, '{}'::jsonb),
 			        (encrypted_secret IS NOT NULL AND octet_length(encrypted_secret) > 0) AS has_secret,
@@ -383,12 +383,12 @@ func (h *Handlers) GetAuthProfile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	var profile authProfileResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		var pid, name, authType, description, createdBy string
 		var configJSON []byte
 		var hasSecret bool
 		var createdAt, updatedAt time.Time
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`SELECT project_id, name, auth_type, COALESCE(description,''),
 			        COALESCE(config,'{}'::jsonb),
 			        (encrypted_secret IS NOT NULL AND octet_length(encrypted_secret) > 0),
@@ -430,11 +430,11 @@ func (h *Handlers) UpdateAuthProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var updated authProfileResponse
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
 		// Load current row (under RLS).
 		var pid, curName, curAuthType, curDesc string
 		var curConfig []byte
-		qErr := conn.QueryRow(ctx,
+		qErr := tx.QueryRow(ctx,
 			`SELECT project_id, name, auth_type, COALESCE(description,''), COALESCE(config,'{}'::jsonb)
 			   FROM auth.auth_configs WHERE id = $1`, id,
 		).Scan(&pid, &curName, &curAuthType, &curDesc, &curConfig)
@@ -517,7 +517,7 @@ func (h *Handlers) UpdateAuthProfile(w http.ResponseWriter, r *http.Request) {
 		var createdBy string
 		var hasSecret bool
 		if rotating {
-			err2 := conn.QueryRow(ctx,
+			err2 := tx.QueryRow(ctx,
 				`UPDATE auth.auth_configs SET
 				    name = $2, description = $3, config = $4, encrypted_secret = $5, updated_at = now()
 				  WHERE id = $1
@@ -529,7 +529,7 @@ func (h *Handlers) UpdateAuthProfile(w http.ResponseWriter, r *http.Request) {
 				return err2
 			}
 		} else {
-			err2 := conn.QueryRow(ctx,
+			err2 := tx.QueryRow(ctx,
 				`UPDATE auth.auth_configs SET
 				    name = $2, description = $3, config = $4, updated_at = now()
 				  WHERE id = $1
@@ -571,8 +571,8 @@ func (h *Handlers) DeleteAuthProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 
-	err := db.WithRLS(r.Context(), h.pool, user.UserID, user.OrgID, func(ctx context.Context, conn *pgxpool.Conn) error {
-		tag, dErr := conn.Exec(ctx, `DELETE FROM auth.auth_configs WHERE id = $1`, id)
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID, func(ctx context.Context, tx pgx.Tx) error {
+		tag, dErr := tx.Exec(ctx, `DELETE FROM auth.auth_configs WHERE id = $1`, id)
 		if dErr != nil {
 			return dErr
 		}

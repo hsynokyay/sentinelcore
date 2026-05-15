@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-JS-COOKIE-003",
+  "name": "Cookie set without SameSite attribute",
+  "language": "javascript",
+  "cwe": ["CWE-1275"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.70 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "res",
+        "callee": "cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["sameSite", "SameSite"],
+        "message_template": "res.cookie() without sameSite attribute"
+      },
+      {
+        "receiver_fqn": "response",
+        "callee": "cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["sameSite", "SameSite"],
+        "message_template": "response.cookie() without sameSite attribute"
+      }
+    ]
+  },
+  "description": "Cookie missing sameSite leaves the browser to apply its default, which historically was None. This leaves the cookie attached to cross-origin requests.",
+  "remediation": "Set sameSite: 'lax' or sameSite: 'strict' in the cookie options.",
+  "references": ["https://cwe.mitre.org/data/definitions/1275.html"]
+}

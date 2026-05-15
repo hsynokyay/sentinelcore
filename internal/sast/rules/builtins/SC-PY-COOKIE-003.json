@@ -1,0 +1,45 @@
+{
+  "rule_id": "SC-PY-COOKIE-003",
+  "name": "Cookie set without SameSite attribute",
+  "language": "python",
+  "cwe": ["CWE-1275"],
+  "owasp": ["A05:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.70 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "flask.Response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["samesite", "SameSite"],
+        "message_template": "Flask set_cookie without samesite= leaves CSRF protection to chance"
+      },
+      {
+        "receiver_fqn": "django.http.HttpResponse",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["samesite", "SameSite"],
+        "message_template": "Django set_cookie without samesite="
+      },
+      {
+        "receiver_fqn": "Response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["samesite", "SameSite"],
+        "message_template": "Response.set_cookie without samesite="
+      },
+      {
+        "receiver_fqn": "response",
+        "callee": "set_cookie",
+        "arg_index": 0,
+        "arg_text_missing_any": ["samesite", "SameSite"],
+        "message_template": "response.set_cookie without samesite="
+      }
+    ]
+  },
+  "description": "A response cookie is set without a SameSite attribute. Modern browsers default to Lax but legacy browsers default to None, leaving cross-origin requests able to attach the cookie.",
+  "remediation": "Pass samesite=\"Lax\" or samesite=\"Strict\" to set_cookie.",
+  "references": ["https://cwe.mitre.org/data/definitions/1275.html"]
+}

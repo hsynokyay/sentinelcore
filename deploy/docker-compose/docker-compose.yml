@@ -62,13 +62,17 @@ services:
         condition: service_healthy
 
   controlplane:
+    container_name: sentinelcore_api
     build:
       context: ../..
       dockerfile: Dockerfile
       args:
         SERVICE: controlplane
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
+    networks:
+      - default
+      - sc-proxy
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -88,8 +92,7 @@ services:
         condition: service_healthy
       policy-engine:
         condition: service_started
-      audit-service:
-        condition: service_started
+      # audit-service dependency relaxed — controlplane works without it
 
   policy-engine:
     build:
@@ -205,8 +208,9 @@ services:
       CONCURRENCY: "10"
       REQUEST_TIMEOUT: "30s"
       MSG_SIGNING_KEY: dev-signing-key-change-me
-    security_opt:
-      - seccomp=../../deploy/seccomp/dast-worker.json
+    # seccomp disabled for VPS compatibility
+    # security_opt:
+    #   - seccomp=../../deploy/seccomp/dast-worker.json
     depends_on:
       nats:
         condition: service_started
@@ -242,6 +246,22 @@ services:
       nats:
         condition: service_started
 
+  sla-worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: sla-worker
+    environment:
+      DATABASE_URL: postgres://sentinelcore:dev-password@postgres:5432/sentinelcore?sslmode=disable
+      NATS_URL: nats://nats:4222
+      SLA_WORKER_INTERVAL: "1h"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+
   notification-worker:
     build:
       context: ../..
@@ -258,6 +278,30 @@ services:
       nats:
         condition: service_started
 
+  forensics-cleanup-worker:
+    # Plan #6 PR C — enforces a 7-day retention window on the envelope-
+    # encrypted screenshots that the replay engine captures into MinIO when
+    # a replay fails. See cmd/forensics-cleanup-worker.
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        SERVICE: forensics-cleanup-worker
+    environment:
+      DATABASE_URL: postgres://sentinelcore:dev-password@postgres:5432/sentinelcore?sslmode=disable
+      INTERVAL: 1h
+      OLDER_THAN: 168h
+      FORENSICS_BUCKET: dast-forensics
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_SECURE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
   dast-browser-worker:
     build:
       context: ../..
@@ -267,12 +311,10 @@ services:
     environment:
       NATS_URL: nats://nats:4222
       MSG_SIGNING_KEY: dev-signing-key-change-me
-    security_opt:
-      - seccomp=../../deploy/seccomp/dast-browser-worker.json
+    # seccomp disabled for VPS compatibility
+    # security_opt:
+    #   - seccomp=../../deploy/seccomp/dast-browser-worker.json
     shm_size: '256m'
-    read_only: true
-    tmpfs:
-      - /tmp:size=512m
     depends_on:
       nats:
         condition: service_started
@@ -282,32 +324,28 @@ services:
   # --- Frontend ---
 
   web:
+    container_name: sentinelcore_frontend
     build:
       context: ../../web
       dockerfile: Dockerfile
       args:
-        # The browser calls this URL. Via the nginx reverse proxy,
-        # /api/* is routed to controlplane:8080 on the same origin,
-        # so no CORS issues. An empty string means "same origin".
         NEXT_PUBLIC_API_URL: ""
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
+    networks:
+      - default
+      - sc-proxy
     depends_on:
       - controlplane
 
-  # --- Reverse Proxy ---
-  # Routes /api/* to the Go controlplane, everything else to Next.js.
-  # This eliminates CORS entirely — browser sees a single origin.
+  # No separate nginx — the existing securecontext-nginx on the host
+  # already has sentinelcore.conf routing /api/* → sentinelcore_api:8080
+  # and / → sentinelcore_frontend:3000. We just join its network.
 
-  nginx:
-    image: nginx:1.27-alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - web
-      - controlplane
+networks:
+  sc-proxy:
+    external: true
+    name: securecontext-prod_sc-network
 
 volumes:
   pgdata:

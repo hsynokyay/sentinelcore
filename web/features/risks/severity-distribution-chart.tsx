@@ -2,9 +2,8 @@
 
 import { ChartContainer } from "@/components/security/chart-container";
 import { MicroInsight } from "@/components/security/micro-insight";
-import { InsightTooltip } from "@/components/security/insight-tooltip";
-import { severityFillVar } from "@/lib/security/intensity";
-import type { MicroInsightTone } from "@/components/security/micro-insight";
+import { StackedBar } from "@/components/security/stacked-bar";
+import { Badge } from "@/components/ui/badge";
 import type { RiskCluster, RiskSeverity } from "@/lib/types";
 
 /**
@@ -113,24 +112,11 @@ function buildInsight(
 }
 
 /**
- * SeverityDistributionChart — a hand-rolled SVG stacked horizontal
- * bar that shows the proportion of each severity band in the active
- * risk surface. Wraps everything in ChartContainer so it inherits
- * the standard chrome, leads with a MicroInsight (the conclusion),
- * and exposes per-segment InsightTooltips on hover.
- *
- * Why hand-rolled instead of Recharts:
- *  - We have one chart, this codebase has zero charts today, and
- *    Recharts is a chunky dependency for one consumer.
- *  - The visual is dead simple — five severity-coloured rectangles
- *    in a row with proportional widths. SVG handles that in 30 lines.
- *  - Severity colours come from the existing oklch tokens, so the
- *    chart inherits the design system without a translation layer.
- *
- * Empty state: when there are zero active risks the bar shows a
- * single full-width track in the contrib-track colour, the insight
- * reads "No active risks", and the legend renders as zeros. The
- * empty case never throws or produces an empty-string SVG.
+ * SeverityDistributionChart — renders a StackedBar showing the
+ * proportion of each severity band in the active risk surface.
+ * Wraps everything in ChartContainer so it inherits the standard
+ * chrome, leads with a MicroInsight (the conclusion), and shows a
+ * per-severity breakdown list below the bar.
  */
 export function SeverityDistributionChart({
   risks,
@@ -148,122 +134,16 @@ export function SeverityDistributionChart({
       insight={<MicroInsight text={insight.text} tone={insight.tone} />}
       isLoading={isLoading}
       loadingHeight={36}
-      footer={
-        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          {buckets.map((b) => (
-            <li
-              key={b.severity}
-              className="flex items-center gap-1.5 tabular-nums"
-            >
-              <span
-                aria-hidden="true"
-                className="block h-2 w-2 rounded-sm"
-                style={{ backgroundColor: severityFillVar(b.severity) }}
-              />
-              <span>
-                {SEVERITY_LABEL[b.severity]}{" "}
-                <span className="text-foreground font-semibold">{b.count}</span>{" "}
-                <span className="opacity-60">({b.percent}%)</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      }
     >
-      <DistributionBar buckets={buckets} total={total} />
+      <StackedBar segments={buckets} height={10} />
+      <ul className="mt-4 grid grid-cols-2 gap-y-2 gap-x-6">
+        {buckets.map((s) => (
+          <li key={s.severity} className="flex items-center justify-between text-body-sm">
+            <Badge variant="severity" tone={s.severity}>{SEVERITY_LABEL[s.severity]}</Badge>
+            <span className="tabular-nums text-muted-foreground">{s.count}</span>
+          </li>
+        ))}
+      </ul>
     </ChartContainer>
-  );
-}
-
-/**
- * The actual horizontal bar. Pulled out so the parent component reads
- * as a straightforward composition of (insight, bar, footer).
- *
- * Each segment is a flex item with width proportional to its bucket
- * percentage, wrapped in an InsightTooltip for hover details. Zero-
- * count segments are filtered out before rendering so the bar doesn't
- * grow holes. Segments are placed in SEVERITY_ORDER (critical first),
- * so the eye-catching colours sit on the left edge regardless of the
- * actual proportions.
- *
- * Why flex instead of computed offsets: flex children naturally lay
- * out left-to-right with no positioning math. Removing the offset
- * pass also sidesteps React 19's `react-hooks/immutability` rule
- * against mutating render-scoped variables.
- */
-function DistributionBar({
-  buckets,
-  total,
-}: {
-  buckets: SegmentBucket[];
-  total: number;
-}) {
-  // Empty state: render a single muted track so the bar still
-  // occupies its slot and the layout doesn't collapse.
-  if (total === 0) {
-    return (
-      <div
-        className="h-9 w-full rounded-md bg-[var(--contrib-track)]"
-        aria-label="No active risks"
-      />
-    );
-  }
-
-  const visibleSegments = buckets.filter((b) => b.count > 0);
-
-  return (
-    <div
-      role="img"
-      aria-label={`Severity distribution: ${visibleSegments
-        .map((b) => `${SEVERITY_LABEL[b.severity]} ${b.count}`)
-        .join(", ")}`}
-      className="flex h-9 w-full overflow-hidden rounded-md bg-[var(--contrib-track)]"
-    >
-      {visibleSegments.map((seg) => {
-        // Footer insight: contextual one-liner for each severity band.
-        const footerTone: MicroInsightTone =
-          seg.severity === "critical" || seg.severity === "high"
-            ? "negative"
-            : "neutral";
-        const footerText =
-          seg.severity === "critical"
-            ? "Immediate attention recommended"
-            : seg.severity === "high"
-              ? "Schedule remediation soon"
-              : seg.percent >= 40
-                ? "Largest segment of your surface"
-                : `${seg.percent}% of total`;
-
-        return (
-        <InsightTooltip
-          key={seg.severity}
-          content={
-            <div className="space-y-0.5">
-              <p className="font-semibold text-foreground">
-                {SEVERITY_LABEL[seg.severity]} · {seg.count}{" "}
-                {seg.count === 1 ? "risk" : "risks"}
-              </p>
-              <p className="text-muted-foreground">
-                {seg.percent}% of {total} active
-              </p>
-            </div>
-          }
-          footer={
-            <MicroInsight text={footerText} tone={footerTone} className="text-[10px]" />
-          }
-        >
-          <div
-            className="h-full transition-[filter] hover:brightness-110 cursor-default"
-            style={{
-              width: `${seg.fullPercent}%`,
-              backgroundColor: severityFillVar(seg.severity),
-            }}
-            data-severity={seg.severity}
-            data-count={seg.count}
-          />
-        </InsightTooltip>
-        );
-      })}
-    </div>
   );
 }

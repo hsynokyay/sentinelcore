@@ -88,6 +88,83 @@ func callMatchesPattern(inst *ir.Instruction, p rules.CompiledPattern) bool {
 			return false
 		}
 	}
+	// arg_text_contains_any / arg_text_missing_any: operate on the source-text
+	// representation of operands. ArgIndex is required; if absent or out of
+	// range we fail closed (no match).
+	if len(src.ArgTextContainsAny) > 0 || len(src.ArgTextMissingAny) > 0 {
+		if src.ArgIndex == nil {
+			return false
+		}
+		idx := *src.ArgIndex
+		if idx < 0 || idx >= len(inst.ArgSourceText) {
+			return false
+		}
+		text := inst.ArgSourceText[idx]
+		if len(src.ArgTextContainsAny) > 0 {
+			any := false
+			for _, needle := range src.ArgTextContainsAny {
+				if needle != "" && strings.Contains(text, needle) {
+					any = true
+					break
+				}
+			}
+			if !any {
+				return false
+			}
+		}
+		if len(src.ArgTextMissingAny) > 0 {
+			// Semantics: pattern fires only if NONE of the listed needles
+			// appear. The list represents alternative spellings/forms of
+			// the same protective marker (e.g. ["httpOnly", "HttpOnly"]) —
+			// finding any one form means the call is safe.
+			anyPresent := false
+			for _, needle := range src.ArgTextMissingAny {
+				if needle != "" && strings.Contains(text, needle) {
+					anyPresent = true
+					break
+				}
+			}
+			if anyPresent {
+				return false
+			}
+		}
+	}
+	// func_text_contains_any / func_text_missing_any: operate on the source
+	// text of the entire enclosing function body. Used for patterns that need
+	// to assert the presence/absence of a sibling statement (e.g. "addCookie
+	// without setSecure in the same method"). If EnclosingFunctionText is
+	// empty we fail closed for both matchers — frontends that don't capture
+	// function-scope text won't trigger these rules.
+	if len(src.FuncTextContainsAny) > 0 || len(src.FuncTextMissingAny) > 0 {
+		funcText := inst.EnclosingFunctionText
+		if funcText == "" {
+			return false
+		}
+		if len(src.FuncTextContainsAny) > 0 {
+			any := false
+			for _, needle := range src.FuncTextContainsAny {
+				if needle != "" && strings.Contains(funcText, needle) {
+					any = true
+					break
+				}
+			}
+			if !any {
+				return false
+			}
+		}
+		if len(src.FuncTextMissingAny) > 0 {
+			anyPresent := false
+			for _, needle := range src.FuncTextMissingAny {
+				if needle != "" && strings.Contains(funcText, needle) {
+					anyPresent = true
+					break
+				}
+			}
+			if anyPresent {
+				return false
+			}
+		}
+	}
 	return true
 }
 
@@ -133,6 +210,7 @@ func buildFinding(rule *rules.Rule, module *ir.Module, fn *ir.Function, inst *ir
 		CWE:         rule.CWE,
 		OWASP:       rule.OWASP,
 		References:  rule.References,
+		VulnClass:   rule.VulnClass,
 		Severity:    rule.Severity,
 		Confidence:  confidence,
 		ModulePath:  module.Path,

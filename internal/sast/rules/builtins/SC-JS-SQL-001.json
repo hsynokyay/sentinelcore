@@ -1,21 +1,25 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-JS-SQL-001",
   "name": "SQL Injection via unsanitized query string",
-  "language": "javascript",
-  "detection": {
-    "kind": "taint",
-    "vuln_class": "sql_injection"
-  },
-  "severity": "critical",
-  "confidence": {
-    "base": 0.85
-  },
+  "languages": [
+    "javascript"
+  ],
+  "category": "injection",
   "cwe": [
     "CWE-89"
   ],
   "owasp": [
     "A03:2021"
   ],
+  "severity": "critical",
   "description": "User-controlled input from HTTP request flows into a SQL query string passed to mysql/mysql2/pg query() without parameterization.",
-  "remediation": "Use parameterized queries: query('SELECT... WHERE id = ?', [value])."
+  "remediation": "Use parameterized queries: query('SELECT... WHERE id = ?', [value]).",
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "sql_injection"
+  },
+  "confidence": {
+    "base": 0.85
+  }
 }

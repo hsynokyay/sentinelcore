@@ -1,12 +1,16 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sentinelcore/sentinelcore/internal/policy"
+	"github.com/jackc/pgx/v5"
+
 	"github.com/sentinelcore/sentinelcore/pkg/auth"
+	"github.com/sentinelcore/sentinelcore/pkg/tenant"
 )
 
 type createUserRequest struct {
@@ -27,17 +31,12 @@ type userResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// CreateUser creates a new user (platform_admin only).
+// CreateUser creates a new user. Requires users.manage (owner only).
 func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	user := requireAuth(w, r)
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "users.create") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
 	var req createUserRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body", "BAD_REQUEST")
@@ -48,7 +47,7 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Role == "" {
-		req.Role = "appsec_analyst"
+		req.Role = "security_engineer"
 	}
 	if req.OrgID == "" {
 		req.OrgID = user.OrgID
@@ -64,11 +63,14 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
-	_, err = h.pool.Exec(r.Context(),
-		`INSERT INTO core.users (id, org_id, email, full_name, password_hash, role, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7)`,
-		id, req.OrgID, req.Email, req.FullName, passwordHash, req.Role, now,
-	)
+	err = tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx,
+				`INSERT INTO core.users (id, org_id, email, full_name, password_hash, role, status, created_at, updated_at)
+				 VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $7)`,
+				id, req.OrgID, req.Email, req.FullName, passwordHash, req.Role, now)
+			return err
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to create user")
 		writeError(w, http.StatusInternalServerError, "failed to create user", "INTERNAL_ERROR")
@@ -88,37 +90,36 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListUsers lists all users (platform_admin only).
+// ListUsers lists users. Requires users.read (owner, admin, auditor).
 func (h *Handlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	user := requireAuth(w, r)
 	if user == nil {
 		return
 	}
-	if !policy.Evaluate(user.Role, "users.read") {
-		writeError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
-		return
-	}
-
-	rows, err := h.pool.Query(r.Context(),
-		`SELECT id, email, full_name, role, org_id, status, created_at FROM core.users ORDER BY created_at DESC`)
+	var users []userResponse
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			rows, err := tx.Query(ctx,
+				`SELECT id, email, full_name, role, org_id, status, created_at FROM core.users ORDER BY created_at DESC`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var u userResponse
+				var createdAt time.Time
+				if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.OrgID, &u.Status, &createdAt); err != nil {
+					return err
+				}
+				u.CreatedAt = createdAt.Format(time.RFC3339)
+				users = append(users, u)
+			}
+			return rows.Err()
+		})
 	if err != nil {
 		h.logger.Error().Err(err).Msg("failed to list users")
 		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
-	}
-	defer rows.Close()
-
-	var users []userResponse
-	for rows.Next() {
-		var u userResponse
-		var createdAt time.Time
-		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.OrgID, &u.Status, &createdAt); err != nil {
-			h.logger.Error().Err(err).Msg("failed to scan user")
-			writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
-			return
-		}
-		u.CreatedAt = createdAt.Format(time.RFC3339)
-		users = append(users, u)
 	}
 
 	if users == nil {
@@ -137,12 +138,20 @@ func (h *Handlers) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 
 	var u userResponse
 	var createdAt time.Time
-	err := h.pool.QueryRow(r.Context(),
-		`SELECT id, email, display_name, role, org_id, status, created_at FROM core.users WHERE id = $1`,
-		user.UserID,
-	).Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.OrgID, &u.Status, &createdAt)
+	err := tenant.TxUser(r.Context(), h.pool, user.OrgID, user.UserID,
+		func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx,
+				`SELECT id, email, display_name, role, org_id, status, created_at FROM core.users WHERE id = $1`,
+				user.UserID,
+			).Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.OrgID, &u.Status, &createdAt)
+		})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found", "NOT_FOUND")
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "user not found", "NOT_FOUND")
+			return
+		}
+		h.logger.Error().Err(err).Msg("failed to get current user")
+		writeError(w, http.StatusInternalServerError, "internal error", "INTERNAL_ERROR")
 		return
 	}
 	u.CreatedAt = createdAt.Format(time.RFC3339)

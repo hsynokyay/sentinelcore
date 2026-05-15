@@ -1,0 +1,31 @@
+{
+  "rule_id": "SC-PY-CSRF-001",
+  "name": "CSRF token compared with non-constant-time operator",
+  "language": "python",
+  "cwe": ["CWE-208", "CWE-352"],
+  "owasp": ["A01:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "callee": "verify_csrf",
+        "arg_index": 0,
+        "arg_text_contains_any": ["==", "!="],
+        "arg_text_missing_any": ["compare_digest"],
+        "message_template": "verify_csrf compares tokens with == — use hmac.compare_digest"
+      },
+      {
+        "callee": "check_csrf_token",
+        "arg_index": 0,
+        "arg_text_contains_any": ["==", "!="],
+        "arg_text_missing_any": ["compare_digest"],
+        "message_template": "check_csrf_token compares tokens with =="
+      }
+    ]
+  },
+  "description": "CSRF token comparison via == leaks prefix length through timing.",
+  "remediation": "Use hmac.compare_digest(a, b) for constant-time comparison.",
+  "references": ["https://cwe.mitre.org/data/definitions/208.html"]
+}

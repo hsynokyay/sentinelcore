@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-JAVA-CSRF-001",
+  "name": "CSRF token compared with non-constant-time operator",
+  "language": "java",
+  "cwe": ["CWE-208", "CWE-352"],
+  "owasp": ["A01:2021"],
+  "severity": "medium",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "callee": "verifyCsrf",
+        "arg_index": 0,
+        "arg_text_contains_any": [".equals(", "=="],
+        "arg_text_missing_any": ["MessageDigest.isEqual"],
+        "message_template": "verifyCsrf uses .equals — switch to MessageDigest.isEqual"
+      }
+    ]
+  },
+  "description": "CSRF token comparison via .equals leaks prefix length.",
+  "remediation": "Use MessageDigest.isEqual(a, b).",
+  "references": ["https://cwe.mitre.org/data/definitions/208.html"]
+}

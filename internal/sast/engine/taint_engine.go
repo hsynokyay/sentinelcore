@@ -305,8 +305,58 @@ func (te *TaintEngine) handleCall(
 		}
 	}
 
-	// 4. INTER-PROCEDURAL: apply callee summary if available. Try both exact
-	// FQN and package-qualified FQN for same-package calls.
+	// 4. DECLARATIVE PASSTHROUGH — model-author declared "tainted arg → tainted
+	// return" with optional ArgIndex precision. Authoritative: an explicit
+	// passthrough entry beats both summary lookup and the catch-all step 6.
+	// Sink/source/sanitizer remain orthogonal — if step 3 already emitted a
+	// sink finding, that stands; this step only handles taint propagation.
+	passthroughFQN := calleeFQN
+	if _, ok := te.models.Passthroughs[passthroughFQN]; !ok && inst.Callee != "" {
+		if _, ok2 := te.models.Passthroughs[inst.Callee]; ok2 {
+			passthroughFQN = inst.Callee
+		}
+	}
+	if isPass, passModels := te.models.IsPassthrough(passthroughFQN); isPass {
+		if inst.Result != 0 {
+			for _, m := range passModels {
+				if m.ArgIndex == nil {
+					// Any-arg semantics: first tainted operand taints the return.
+					for _, op := range inst.Operands {
+						if op.Kind != ir.OperandValue {
+							continue
+						}
+						if src, ok := state.taintedValues[op.Value]; ok {
+							state.taintedValues[inst.Result] = src
+							break
+						}
+					}
+				} else {
+					idx := *m.ArgIndex
+					if idx >= 0 && idx < len(inst.Operands) {
+						op := inst.Operands[idx]
+						if op.Kind == ir.OperandValue {
+							if src, ok := state.taintedValues[op.Value]; ok {
+								state.taintedValues[inst.Result] = src
+							}
+						}
+					}
+				}
+				if _, tainted := state.taintedValues[inst.Result]; tainted {
+					break
+				}
+			}
+		}
+		return findings
+	}
+
+	// 5. INTER-PROCEDURAL: apply callee summary if available. Both exact FQN
+	// and package-qualified FQN are tried for same-package calls; the
+	// resolvedFQN (post call-graph resolution) is used for the finding
+	// fingerprint so the same vulnerability cannot be tracked under two
+	// distinct identities depending on whether the caller wrote
+	// `SqlHelper.runQuery` or `com.example.SqlHelper.runQuery`. Banking
+	// audit chain-of-custody requires finding identity to be stable across
+	// callers and scans.
 	resolvedFQN := calleeFQN
 	summary := te.summaries.Get(calleeFQN, vulnClass)
 	if summary == nil && te.callGraph != nil && module.Package != "" {
@@ -329,7 +379,7 @@ func (te *TaintEngine) handleCall(
 			// If tainted arg reaches a sink in the callee → emit finding.
 			if sinks, ok := summary.SinkReachable[argIdx]; ok {
 				for range sinks {
-					f := te.buildInterProcFinding(taintRule.Source, module, fn, src, inst, calleeFQN)
+					f := te.buildInterProcFinding(taintRule.Source, module, fn, src, inst, resolvedFQN)
 					findings = append(findings, f)
 				}
 			}
@@ -341,9 +391,9 @@ func (te *TaintEngine) handleCall(
 		}
 		return findings
 	}
-	_ = resolvedFQN
 
-	// 5. PASSTHROUGH for unmodeled/unresolved calls.
+	// 6. CATCH-ALL PASSTHROUGH for unmodeled/unresolved calls. Fallback when
+	// step 4 (declarative) and step 5 (summary) both miss.
 	if inst.Result != 0 {
 		for _, op := range inst.Operands {
 			if op.Kind == ir.OperandValue {
@@ -416,6 +466,7 @@ func (te *TaintEngine) buildTaintFinding(
 		CWE:         rule.CWE,
 		OWASP:       rule.OWASP,
 		References:  rule.References,
+		VulnClass:   rule.VulnClass,
 		Severity:    rule.Severity,
 		Confidence:  confidence,
 		ModulePath:  module.Path,
@@ -467,6 +518,7 @@ func (te *TaintEngine) buildInterProcFinding(
 		CWE:         rule.CWE,
 		OWASP:       rule.OWASP,
 		References:  rule.References,
+		VulnClass:   rule.VulnClass,
 		Severity:    rule.Severity,
 		Confidence:  confidence,
 		ModulePath:  module.Path,

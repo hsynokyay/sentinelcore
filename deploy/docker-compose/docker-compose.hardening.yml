@@ -1,0 +1,183 @@
+# Phase 8 §6 — container hardening overlay.
+#
+# docker-compose merges this file on top of the base docker-compose.yml
+# (pass via `docker compose -f docker-compose.yml -f docker-compose.hardening.yml up -d`).
+# Keeping hardening as an overlay means:
+#
+#   - Base compose stays dev-friendly for local smoke tests.
+#   - Production rollout is "add -f docker-compose.hardening.yml" to the
+#     start command. Revert = drop the flag.
+#   - CI can run either variant.
+#
+# Every control below has a matching ID in the Phase 8 plan §4.3/§4.4:
+#
+#   C1  user: "1000:1000"                   non-root
+#   C2  read_only: true + tmpfs              immutable root fs
+#   C3  cap_drop: [ALL]                      no Linux capabilities
+#   C4  security_opt: no-new-privileges      already in base
+#   C5  security_opt: seccomp=...            per-service allowlist
+#   R4  deploy.resources.limits.memory       OOM ceiling
+#   R5  deploy.resources.limits.pids         fork-bomb ceiling
+#   R6  logging: json-file rotation          100m × 3 rotated files
+#
+# Postgres/Redis/NATS are left running as their stock image users
+# (postgres, redis, nats respectively). Their images already drop
+# privileges internally; overriding `user:` often breaks them.
+
+services:
+  controlplane:
+    user: "1000:1000"                                 # C1
+    read_only: true                                   # C2
+    tmpfs:
+      - /tmp:size=64m,mode=1777                       # C2 companion
+      - /app/tmp:size=32m,mode=1777                   # app scratch (reports, exports)
+    cap_drop:                                         # C3
+      - ALL
+    security_opt:
+      # no-new-privileges inherited from base compose.
+      - seccomp=/opt/sentinelcore/seccomp/controlplane.json  # C5
+    deploy:
+      resources:
+        limits:
+          memory: 512M                                # R4
+          pids: 100                                   # R5
+    logging:                                          # R6
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  audit-service:
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - seccomp=/opt/sentinelcore/seccomp/audit-service.json
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          pids: 50
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  sast-worker:
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777                      # larger — SAST needs scratch
+    cap_drop:
+      - ALL
+    security_opt:
+      - seccomp=/opt/sentinelcore/seccomp/worker-generic.json
+    deploy:
+      resources:
+        limits:
+          memory: 768M                                # SAST is analysis-heavy
+          pids: 150
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  notification-worker:
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - seccomp=/opt/sentinelcore/seccomp/worker-generic.json
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          pids: 30
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  retention-worker:
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - seccomp=/opt/sentinelcore/seccomp/worker-generic.json
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          pids: 30
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  frontend:
+    # Next.js runs as `nextjs` UID 1001 in its own image; don't override.
+    read_only: false                                  # Next.js .next cache needs RW
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # Postgres / Redis / NATS keep stock images' users. Adding
+  # resource limits + log rotation without touching security_opt
+  # or user:
+  postgres:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          pids: 200
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          pids: 50
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  nats:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          pids: 50
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "3"

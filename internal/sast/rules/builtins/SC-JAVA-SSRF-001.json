@@ -1,21 +1,25 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-JAVA-SSRF-001",
   "name": "Server-Side Request Forgery via unsanitized URL",
-  "language": "java",
-  "detection": {
-    "kind": "taint",
-    "vuln_class": "ssrf"
-  },
-  "severity": "high",
-  "confidence": {
-    "base": 0.8
-  },
+  "languages": [
+    "java"
+  ],
+  "category": "ssrf",
   "cwe": [
     "CWE-918"
   ],
   "owasp": [
     "A10:2021"
   ],
+  "severity": "high",
   "description": "User-controlled input flows into a URL or HTTP request constructor, allowing an attacker to force the server to make requests to arbitrary destinations.",
-  "remediation": "Validate URLs against a strict allowlist of permitted hosts. Never pass raw user input to URL constructors."
+  "remediation": "Validate URLs against a strict allowlist of permitted hosts. Never pass raw user input to URL constructors.",
+  "detection": {
+    "kind": "taint",
+    "vuln_class": "ssrf"
+  },
+  "confidence": {
+    "base": 0.8
+  }
 }

@@ -1,9 +1,17 @@
 {
+  "schema_version": 2,
   "rule_id": "SC-JAVA-SQL-001",
   "name": "SQL Injection via unsanitized input to Statement.executeQuery",
-  "language": "java",
-  "cwe": ["CWE-89"],
-  "owasp": ["A03:2021"],
+  "languages": [
+    "java"
+  ],
+  "category": "injection",
+  "cwe": [
+    "CWE-89"
+  ],
+  "owasp": [
+    "A03:2021"
+  ],
   "severity": "critical",
   "description": "User-controlled input from HTTP request parameters flows into a SQL query string without proper parameterization. An attacker can inject arbitrary SQL, potentially reading, modifying, or deleting database contents, or executing administrative operations.",
   "remediation": "Use a PreparedStatement with parameter placeholders (?) instead of string concatenation. Pass user input through PreparedStatement.setString() or equivalent typed setter methods. Never construct SQL strings by concatenating user input.",
@@ -17,10 +25,10 @@
     "vuln_class": "sql_injection"
   },
   "confidence": {
-    "base": 0.80
+    "base": 0.8
   },
   "examples": {
-    "vulnerable": "String id = request.getParameter(\"id\");\nString sql = \"SELECT * FROM users WHERE id = \" + id;\nstmt.executeQuery(sql);",
-    "fixed": "String id = request.getParameter(\"id\");\nPreparedStatement ps = conn.prepareStatement(\"SELECT * FROM users WHERE id = ?\");\nps.setString(1, id);\nps.executeQuery();"
+    "fixed": "String id = request.getParameter(\"id\");\nPreparedStatement ps = conn.prepareStatement(\"SELECT * FROM users WHERE id = ?\");\nps.setString(1, id);\nps.executeQuery();",
+    "vulnerable": "String id = request.getParameter(\"id\");\nString sql = \"SELECT * FROM users WHERE id = \" + id;\nstmt.executeQuery(sql);"
   }
 }

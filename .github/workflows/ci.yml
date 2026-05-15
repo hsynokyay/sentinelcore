@@ -1,0 +1,102 @@
+name: ci
+
+# Phase 8 Wave 3 — CI pipeline. Runs on every PR + push to main.
+#
+# Gates:
+#   - go build, test, vet, staticcheck
+#   - govulncheck (fails on matched-to-called vulns)
+#   - npm audit high+ (frontend)
+#   - trivy image scan on push to main
+#   - cyclonedx SBOM artifact on push to main
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+env:
+  # Opt in to Node 24 early so the Sept 2026 Node 20 removal doesn't
+  # surprise us. Safe: all JS-based actions in use support Node 24.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+  security-events: write   # upload sarif results
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go / build test vet vuln
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # 1.26.3 patches GO-2026-4971 (net.Dial NUL-byte panic on
+          # Windows) and GO-2026-4918 (net/http/internal/http2). Earlier
+          # 1.26.2 patches: GO-2026-4866/4869/4870/4946/4947 (stdlib
+          # crypto/x509 + crypto/tls + archive/tar). Track the next
+          # minor the moment it lands.
+          go-version: '1.26.3'
+          cache: true
+
+      - name: mod verify + tidy-clean
+        run: |
+          go mod verify
+          go mod tidy -diff
+
+      - name: build
+        run: go build ./...
+
+      - name: test
+        run: go test -race -count=1 ./...
+
+      - name: vet
+        run: go vet ./...
+
+      - name: staticcheck
+        # -tests=false skips test-file-only U1000 + SA1012 noise.
+        # Production code is held to the full default checklist.
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck -tests=false ./...
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # -test scans test files too; matched-to-called semantics
+          # means we only fail on vulns actually reachable from our code.
+          govulncheck -test ./...
+
+  frontend:
+    name: frontend / build audit
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # --production limits the audit to the dep graph that actually
+      # ships; devDependencies vulnerabilities are less critical
+      # (they don't reach a customer).
+      - run: npm audit --audit-level=high --omit=dev
+
+      - run: npm run build
+
+      # Next.js doesn't ship a test script by default; uncomment when
+      # tests land.
+      # - run: npm test
+

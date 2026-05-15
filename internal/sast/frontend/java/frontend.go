@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/sentinelcore/sentinelcore/internal/sast/ir"
+	"github.com/sentinelcore/sentinelcore/internal/sast/lang"
 )
 
 // ParseFile reads a .java file from disk and returns its SentinelIR module.
@@ -48,7 +48,10 @@ func WalkJavaFiles(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if strings.HasSuffix(info.Name(), ".java") {
+		// Delegate the extension→language map to internal/sast/lang so
+		// adding a new language (Kotlin/Scala/Go/…) only edits one map
+		// instead of every per-language walker.
+		if lang.ForExtension(info.Name()) == "java" {
 			out = append(out, path)
 		}
 		return nil

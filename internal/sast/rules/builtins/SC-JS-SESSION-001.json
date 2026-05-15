@@ -1,0 +1,22 @@
+{
+  "rule_id": "SC-JS-SESSION-001",
+  "name": "Predictable session ID via Math.random",
+  "language": "javascript",
+  "cwe": ["CWE-330"],
+  "owasp": ["A07:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.55 },
+  "detection": {
+    "kind": "ast_call",
+    "patterns": [
+      {
+        "receiver_fqn": "Math",
+        "callee": "random",
+        "message_template": "Math.random is not cryptographically secure — do not use for session/CSRF tokens"
+      }
+    ]
+  },
+  "description": "Math.random uses a non-cryptographic PRNG. When used for session identifiers, password reset tokens, or CSRF tokens, an attacker who observes a few outputs can predict subsequent values.",
+  "remediation": "Use crypto.randomBytes(16).toString('hex') from Node's crypto module. For browser code, use crypto.getRandomValues.",
+  "references": ["https://cwe.mitre.org/data/definitions/330.html"]
+}

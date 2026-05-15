@@ -1,0 +1,24 @@
+{
+  "rule_id": "SC-PY-JWT-003",
+  "name": "Hardcoded JWT signing secret",
+  "language": "python",
+  "cwe": ["CWE-798"],
+  "owasp": ["A07:2021"],
+  "severity": "high",
+  "confidence": { "base": 0.80 },
+  "detection": {
+    "kind": "ast_assign",
+    "assign_patterns": [
+      {
+        "name_matches_any": ["(?i)jwt[_-]?secret", "(?i)jwt[_-]?key", "(?i)jwt[_-]?signing"],
+        "min_value_length": 8,
+        "exclude_values": ["(?i)^(test|change[-_]?me|placeholder|example|<.*>)$"],
+        "require_entropy": false,
+        "message_template": "Hardcoded JWT signing secret in source"
+      }
+    ]
+  },
+  "description": "A variable named like a JWT signing secret is assigned a string literal. Anyone with read access to the repository can forge tokens.",
+  "remediation": "Load the secret from an environment variable, secret manager, or KMS at runtime.",
+  "references": ["https://cwe.mitre.org/data/definitions/798.html"]
+}

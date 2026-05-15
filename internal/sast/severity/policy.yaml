@@ -1,0 +1,379 @@
+# SentinelCore severity policy — single source of truth for the
+# vuln_class → (severity, SLA, compliance) mapping.
+#
+# Sprint 1.3 P1-3 / roadmap §1.3 — ships the data file + loader; engine
+# adoption (read severity from here instead of from per-rule JSON) is a
+# follow-up PR so this change is purely additive at deploy time.
+#
+# Compliance hooks the field-level mapping intentionally:
+#   - bddk_critical: true  → 24-hour remediation SLA per BDDK Bilgi
+#     Sistemleri Yönetmeliği "kritik açık" tanımı. Maps to severity
+#     critical PLUS the SLA expectation that downstream alerting must
+#     enforce. A finding can be severity=critical without bddk_critical
+#     if it does not directly enable a banking-impact path (e.g. crypto
+#     weakness in a non-cardholder flow); use deliberately.
+#   - pci_dss: [...]  → list of PCI-DSS Requirement 6.5.x sub-clauses
+#     that this vuln_class evidences. Used by the compliance scorecard
+#     export to demonstrate Req 6.5 coverage.
+#   - swift_csp: [...] → list of SWIFT Customer Security Programme
+#     control numbers (e.g. "2.7" = Vulnerability Scanning). SAST
+#     findings fall under 2.7 broadly; specific cross-references are
+#     enumerated per class where a tighter mapping exists.
+#
+# Adding a new vuln_class:
+#   1. Add the constant to internal/sast/vulnclass/vulnclass.go.
+#   2. Add an entry here. The severity_test will fail otherwise — the
+#      cross-validation test asserts policy.yaml keys == vulnclass.All().
+#   3. Document the compliance rationale in the entry's comment if it
+#      is non-obvious.
+
+version: 1
+
+vuln_classes:
+
+  # --- Injection family — predominantly critical, BDDK 24h ---
+
+  sql_injection:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-89]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  command_injection:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-77, CWE-78]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  ldap_injection:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-90]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  xpath_injection:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-643]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  nosql_injection:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-943]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  expression_injection:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-917]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  generic_injection:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-74]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  template_injection:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-1336]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  unsafe_eval:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-94, CWE-95]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  prototype_pollution:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-1321]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  # --- Output encoding ---
+
+  xss:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-79]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.7"]
+      swift_csp: ["2.7"]
+
+  # --- Path / file ---
+
+  path_traversal:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-22]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.8"]
+      swift_csp: ["2.7"]
+
+  # --- SSRF / redirect ---
+
+  ssrf:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-918]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  open_redirect:
+    severity: medium
+    sla_hours: 168
+    cwe: [CWE-601]
+    compliance:
+      bddk_critical: false
+      pci_dss: []
+      swift_csp: ["2.7"]
+
+  # --- XML ---
+
+  xxe:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-611]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  # --- Crypto / randomness ---
+
+  weak_crypto:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-327, CWE-328]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.3"]
+      swift_csp: ["2.7"]
+
+  insecure_tls:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-326]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.4"]
+      swift_csp: ["2.7", "2.5A"]
+
+  insecure_random:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-330, CWE-338]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.3"]
+      swift_csp: ["2.7"]
+
+  # --- Auth / session / cookie ---
+  # BDDK kritik: hardcoded credentials enable direct impersonation of
+  # banking-system identities and therefore qualify for 24h SLA. Auth
+  # bypass likewise. Header-injection-style identity smuggling and
+  # weak session management are high (72h) — exploitable but require
+  # an active attacker session in most realistic models.
+
+  hardcoded_secret:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-798, CWE-259]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.3"]
+      swift_csp: ["2.7", "4.1"]
+
+  auth_bypass:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-287, CWE-306]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.10"]
+      swift_csp: ["2.7", "5.1"]
+
+  authz_bypass:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-285, CWE-863]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.8"]
+      swift_csp: ["2.7", "5.1"]
+
+  auth_header_injection:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-93, CWE-117]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  http_header_injection:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-113]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  insecure_session:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-384, CWE-613]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.10"]
+      swift_csp: ["2.7", "5.1"]
+
+  insecure_cookie:
+    severity: medium
+    sla_hours: 168
+    cwe: [CWE-614, CWE-1004]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.10"]
+      swift_csp: ["2.7"]
+
+  missing_csrf:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-352]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.9"]
+      swift_csp: ["2.7"]
+
+  # --- Deserialization ---
+
+  unsafe_deserialization:
+    severity: critical
+    sla_hours: 24
+    cwe: [CWE-502]
+    compliance:
+      bddk_critical: true
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  # --- Logging / privacy / misc ---
+
+  log_injection:
+    severity: medium
+    sla_hours: 168
+    cwe: [CWE-117]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]
+
+  sensitive_logging:
+    severity: medium
+    sla_hours: 168
+    cwe: [CWE-532]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.5"]
+      swift_csp: ["2.7"]
+
+  pii_exposure:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-359]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.5"]
+      swift_csp: ["2.7", "2.5A"]
+
+  mass_assignment:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-915]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.8"]
+      swift_csp: ["2.7"]
+
+  info_disclosure:
+    severity: medium
+    sla_hours: 168
+    cwe: [CWE-200]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.5"]
+      swift_csp: ["2.7"]
+
+  memory_safety:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-119, CWE-787]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.2"]
+      swift_csp: ["2.7"]
+
+  null_deref:
+    severity: low
+    sla_hours: 720
+    cwe: [CWE-476]
+    compliance:
+      bddk_critical: false
+      pci_dss: []
+      swift_csp: ["2.7"]
+
+  race_condition:
+    severity: high
+    sla_hours: 72
+    cwe: [CWE-362, CWE-367]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.2"]
+      swift_csp: ["2.7"]
+
+  input_validation:
+    severity: medium
+    sla_hours: 168
+    cwe: [CWE-20]
+    compliance:
+      bddk_critical: false
+      pci_dss: ["6.5.1"]
+      swift_csp: ["2.7"]

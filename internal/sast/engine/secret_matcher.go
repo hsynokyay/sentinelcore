@@ -176,6 +176,7 @@ func buildSecretFinding(
 		CWE:         rule.CWE,
 		OWASP:       rule.OWASP,
 		References:  rule.References,
+		VulnClass:   rule.VulnClass,
 		Severity:    rule.Severity,
 		Confidence:  confidence,
 		ModulePath:  module.Path,

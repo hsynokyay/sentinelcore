@@ -9,6 +9,10 @@
     {"kind": "sink", "receiver_fqn": "axios", "method": "get", "vuln_class": "ssrf"},
     {"kind": "sink", "receiver_fqn": "axios", "method": "post", "vuln_class": "ssrf"},
     {"kind": "sink", "receiver_fqn": "axios", "method": "request", "vuln_class": "ssrf"},
+
+    {"kind": "sink", "receiver_fqn": "res", "method": "setHeader", "vuln_class": "auth_header_injection", "args": [1]},
+    {"kind": "sink", "receiver_fqn": "res", "method": "header", "vuln_class": "auth_header_injection", "args": [1]},
+    {"kind": "sink", "receiver_fqn": "response", "method": "setHeader", "vuln_class": "auth_header_injection", "args": [1]},
     {"kind": "sink", "receiver_fqn": "Model", "method": "create", "vuln_class": "mass_assignment"},
     {"kind": "sink", "receiver_fqn": "User", "method": "create", "vuln_class": "mass_assignment"},
     {"kind": "sink", "receiver_fqn": "res", "method": "setHeader", "vuln_class": "http_header_injection", "args": [1]},
