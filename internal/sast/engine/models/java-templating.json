@@ -5,6 +5,8 @@
     {"kind": "sink", "receiver_fqn": "org.apache.velocity.app.VelocityEngine", "method": "evaluate", "vuln_class": "ssti"},
     {"kind": "sink", "receiver_fqn": "org.apache.velocity.app.Velocity", "method": "evaluate", "vuln_class": "ssti"},
     {"kind": "sink", "receiver_fqn": "org.thymeleaf.TemplateEngine", "method": "process", "vuln_class": "ssti"},
-    {"kind": "sink", "receiver_fqn": "freemarker.template.Template", "method": "process", "vuln_class": "ssti"}
+    {"kind": "sink", "receiver_fqn": "freemarker.template.Template", "method": "process", "vuln_class": "ssti"},
+    {"kind": "passthrough", "receiver_fqn": "java.lang.String", "method": "format"},
+    {"kind": "passthrough", "receiver_fqn": "String", "method": "format"}
   ]
 }

@@ -1,0 +1,10 @@
+{
+  "language": "csharp",
+  "framework": "csharp-strings",
+  "models": [
+    {"kind": "passthrough", "receiver_fqn": "System.String", "method": "Concat"},
+    {"kind": "passthrough", "receiver_fqn": "System.String", "method": "Format"},
+    {"kind": "passthrough", "receiver_fqn": "string", "method": "Concat"},
+    {"kind": "passthrough", "receiver_fqn": "string", "method": "Format"}
+  ]
+}
